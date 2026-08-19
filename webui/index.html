@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Courtyard</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      max-width: 40rem;
+      margin: 4rem auto;
+      padding: 0 1rem;
+      color: #222;
+    }
+    h1 { font-weight: 600; }
+    code { background: #f0f0f0; padding: 0.1rem 0.3rem; border-radius: 4px; }
+    #db { font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>Agent Courtyard</h1>
+  <p>The hub is alive. Database: <span id="db">checking…</span></p>
+  <p>This is the step-0 placeholder page — the board arrives in step 3.</p>
+  <p>API health: <code><a href="/api/health">/api/health</a></code></p>
+  <script>
+    fetch("/api/health")
+      .then((r) => r.json())
+      .then((h) => { document.getElementById("db").textContent = h.db; })
+      .catch(() => { document.getElementById("db").textContent = "unreachable"; });
+  </script>
+</body>
+</html>

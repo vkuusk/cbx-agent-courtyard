@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: courtyard-postgres
+    environment:
+      POSTGRES_USER: courtyard
+      POSTGRES_PASSWORD: courtyard
+      POSTGRES_DB: courtyard
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - courtyard-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U courtyard -d courtyard"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  # hub service (profile: "live") arrives in step 6f — see design doc §9.4
+
+volumes:
+  courtyard-pgdata:

@@ -25,6 +25,41 @@ make test        # run the test suite (starts postgres if needed)
 
 `make db-down` stops postgres; `make db-nuke` also deletes its data volume.
 
+The Python version is pinned in `.python-version` as `3.14` — deliberately minor-only, not
+`3.14.6`, so homebrew patch upgrades (3.14.7, …) keep matching the pin instead of fighting it.
+
+Note that `.venv` does **not** contain its own Python: on macOS every venv tool (venv,
+virtualenv/PyCharm, uv) symlinks the interpreter, here via brew's `opt/python@3.14` path.
+A `brew upgrade` therefore changes what the venv runs and can leave stale versioned paths
+behind — after any brew Python upgrade, recreate the venv: `rm -rf .venv && uv sync`
+(PyCharm keeps working; the `.venv/bin/python` path it points at is unchanged).
+
+### Using pip alongside uv
+
+The project is a standard PEP 621 `pyproject.toml`, so pip works on the same `.venv`:
+
+```sh
+source .venv/bin/activate
+pip install <something>          # fine for experiments in the existing uv-created venv
+```
+
+or fully pip-managed from scratch:
+
+```sh
+python3.14 -m venv .venv && source .venv/bin/activate
+pip install -e . --group dev     # --group needs pip >= 25.1; else: pip install -e . pytest httpx ruff
+```
+
+**Run `uv sync` only for setup and after dependency changes — not casually.** It makes the
+venv match `uv.lock` *exactly*, so it removes packages that were pip-installed by hand.
+When a step adds project dependencies, `uv sync` will run again; re-install personal pip
+extras afterwards, or make them permanent with `uv add <pkg>` (updates `pyproject.toml` +
+`uv.lock` + the venv in one go).
+
+Lockfile maintenance: `uv lock` re-resolves `uv.lock` from `pyproject.toml` (uv never locks
+from the venv state); `uv lock --upgrade` refreshes all pins within the constraints;
+`uv lock --upgrade-package <name>` refreshes one.
+
 ## Deployment modes
 
 - **dev_mode** (now): postgres in a container, the hub from the working tree (`make run`).

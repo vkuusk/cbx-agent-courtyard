@@ -1,6 +1,8 @@
-"""HTTP API routes. Thin layer: no domain logic lives here (design doc §4)."""
+"""HTTP API. Thin layer: routes validate input and call services; no domain logic here."""
 
 from fastapi import APIRouter, Request
+
+from courtyard.hub.api import agents, gate, lines
 
 router = APIRouter(prefix="/api")
 
@@ -13,3 +15,8 @@ async def health(request: Request) -> dict[str, str]:
     except Exception as exc:  # noqa: BLE001 - health must report any failure, not crash
         db = f"error: {exc}"
     return {"status": "ok", "db": db}
+
+
+router.include_router(agents.router)
+router.include_router(lines.router)
+router.include_router(gate.router)

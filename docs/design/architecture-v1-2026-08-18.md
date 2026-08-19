@@ -144,6 +144,8 @@ Agent {
   id:            uuid            # stable identity
   name:          str             # unique, human-chosen ("coding", "infra")
   type:          claude-code | pi | puppet | human
+  description:   str | null      # operator-curated: what this agent is for — the discovery
+                                 # substrate (see docs/design/use-cases-explained.md #2)
   workdir:       path | null     # the directory the agent works in
   token:         secret          # bearer token for this agent's hub API calls
   launch:        LaunchProfile | null   # §8; null = always started manually
@@ -185,7 +187,9 @@ Message {
   id:         uuid
   line_id:    uuid
   seq:        int                 # per-line, monotonically increasing
-  sender:     agent id
+  sender:     agent id | null     # null = hub-generated (kind: system)
+  recipient:  agent id | null     # message: the other party; operator_note: its target;
+                                  # system: the addressee; null = log-only board entry
   kind:       message | operator_note | system
   body:       str                 # UTF-8, size-capped (config, default 16 KiB)
   reply_to:   message id | null
@@ -485,8 +489,8 @@ tests run against the real compose Postgres.
 ### 9.3 Schema sketch
 
 ```sql
-agents   (id uuid PK, name text UNIQUE, type text, workdir text,
-          token_hash text, status text, launch jsonb,
+agents   (id uuid PK, name text UNIQUE, type text, description text NULL,
+          workdir text, token_hash text, status text, launch jsonb,
           created_at, last_seen_at)
 
 lines    (id uuid PK, agent_a uuid, agent_b uuid,      -- pair stored in normalized order
@@ -495,7 +499,9 @@ lines    (id uuid PK, agent_a uuid, agent_b uuid,      -- pair stored in normali
           created_at, UNIQUE (agent_a, agent_b))
 
 messages (id uuid PK, line_id uuid FK, seq bigint,     -- UNIQUE (line_id, seq)
-          sender uuid, kind text, body text, reply_to uuid NULL,
+          sender uuid NULL,                            -- null = hub-generated system message
+          recipient uuid NULL,                         -- explicit addressee (0002); null = log-only
+          kind text, body text, reply_to uuid NULL,
           status text,
           gate_verdict text NULL, gate_note text NULL,
           gate_decided_by uuid NULL, gate_decided_at timestamptz NULL,
@@ -626,6 +632,7 @@ cbx-agent-courtyard/
 | D10 | Approver is a pluggable interface; human-only implementation in v1 | **Accepted** (architect) | §5.5 |
 | D11 | One Python package, multiple entry points; adapters config-injected, zero-fork | **Accepted** (architect, 2026-08-18) | §12, §7.2 |
 | D12 | Deployment = docker compose: dev_mode (postgres container + app from disk), live_mode (hub + postgres containers) | **Accepted** (architect, 2026-08-18) | §9.4 |
+| D13 | Migrations: forward-only numbered plain-SQL files + the ~40-line custom runner (startup-applied, one tx per file); no migration tool, no down-migrations in v1. Recovery = new forward migration; dev data is disposable (`make db-nuke`), precious data gets `pg_dump` first | **Accepted** (architect, 2026-08-19) | Reviewed Flyway/Liquibase/Prisma/Alembic/yoyo/pgroll — all re-buy what we have at this scale. Revisit triggers: a second deployed environment; parallel dev colliding on numbers (→ yoyo); zero-downtime v2 service (→ pgroll). Format imports into Flyway/yoyo nearly as-is, so no lock-in |
 
 ## 14. Risks and required spikes
 
@@ -646,6 +653,7 @@ cbx-agent-courtyard/
 
 ## 15. References
 
+- Design-intent explainers for developers: [`use-cases-explained.md`](use-cases-explained.md)
 - ai-maestro review (ground truth for borrowed ideas and anti-patterns):
   `/Volumes/Crucial-P310/work/ai-maestro/docs/vvk-review/` (`00`–`05` + KT doc)
 - Related-but-different project: `/Volumes/Crucial-P310/work/cbx-agent-workbench`

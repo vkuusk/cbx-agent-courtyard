@@ -22,6 +22,7 @@ class Config:
     port: int
     database_url: str
     webui_dir: Path
+    max_body_bytes: int
 
 
 def _default_webui_dir() -> Path:
@@ -42,4 +43,5 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
         port=int(env.get("COURTYARD_PORT", "2626")),
         database_url=env.get("DATABASE_URL", DEFAULT_DATABASE_URL),
         webui_dir=Path(env.get("COURTYARD_WEBUI_DIR", str(_default_webui_dir()))),
+        max_body_bytes=int(env.get("COURTYARD_MAX_BODY_BYTES", "16384")),
     )

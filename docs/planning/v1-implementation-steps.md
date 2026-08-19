@@ -18,6 +18,27 @@
    The turn machine and gate — the core — get the densest coverage (the ai-maestro
    zero-tests-on-core mistake, inverted).
 5. Steps are small on purpose. Rough effort marks (S/M/L) are relative, not calendar promises.
+6. **Git is the architect's.** All commits, pushes, and branches are performed by vkuusk.
+   Claude leaves changes in the working tree and recommends a terse one-line commit message
+   (`step N: <summary> (see docs/planning/v1-implementation-steps.md)`); implementation
+   detail lives in the "Implementation status" section below, not in commit bodies.
+
+---
+
+## Implementation status
+
+Updated after each step's implementation and architect feedback.
+
+| Step | Status | Date | Notes |
+|---|---|---|---|
+| 0 — Skeleton and harness | ✅ implemented & approved | 2026-08-18 | uv-managed project, Python 3.14 pinned via `.python-version` (pip-compatible, see README); postgres 17 via compose (`make db-up`); migration `0001` = full core schema; health endpoint with DB status; localhost-bind guard; placeholder WebUI page; 10 tests green; architect ran demo + tests |
+| 1 — Core domain (registry, lines, turns, gate) | ✅ implemented & approved | 2026-08-19 | Pure turn machine (`core/turns.py`) + Postgres repos (plain SQL, one tx per mutation, line-row locking) + full REST surface: registry w/ bearer tokens, send, gate (approve/return/reject), notes, release, mode dial, consuming inbox pull, history w/ `after`. Migration `0002` added explicit `recipient` + nullable `sender` (design §5.3/§9.3 updated — operator notes and system notices need explicit addressing; NULL recipient = log-only entry). Operator auto-created at startup. 45 tests green. Demo: `scripts/step1-walkthrough.sh`, verified end-to-end. Checkpoint feedback: added operator-curated agent `description` (migration `0003`) as the discovery substrate, and started `docs/design/use-cases-explained.md` (minimal-send principle; discovery layering). Deferred to step 5: operator note target "both". Migration tooling reviewed → D13: keep the custom forward-only runner. |
+| 2 — Delivery push + puppet agents | not started | | |
+| 3 — WebUI: live board + agent admin | not started | | |
+| 4 — Supervision gate in the UI | not started | | |
+| 5 — Operator as participant | not started | | |
+| 6 — Claude Code adapter + invite + launch | not started | | (6a channel-capability spike can start any time after step 2) |
+| 7 — pi adapter (v1.1) | not started | | |
 
 ---
 

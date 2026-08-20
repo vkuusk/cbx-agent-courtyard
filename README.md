@@ -38,7 +38,9 @@ the registry and hands out copy-paste launch commands for new puppets. The demo'
 phase starts a supervised pair whose messages wait for you on the **Gate** page — approve
 (optionally with a note that is delivered as an operator note), return to sender with a
 comment (the puppet revises and resends), or reject; the mode pill on any line card flips
-the supervision dial.
+the supervision dial. You are a participant too: "message an agent…" on the board starts
+your own (never gated) conversation, replies land in your **Inbox**, and every inter-agent
+line has a note box for inserting a comment addressed to one or both participants.
 
 The demo ends with instructions for playing an agent yourself from a second terminal
 (`courtyard-puppet --behavior manual`), which doubles as the operator console until the

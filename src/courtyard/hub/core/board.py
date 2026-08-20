@@ -18,6 +18,7 @@ from courtyard.hub.core.errors import (
     InvalidRecipient,
     LineNotFound,
     MessageNotFound,
+    NotAllowed,
 )
 from courtyard.hub.core.events import EventBus
 from courtyard.hub.core.gate import Approver
@@ -58,6 +59,11 @@ class Board:
             if recipient.removed_at is not None:
                 raise AgentGone(f"agent {recipient.name!r} was removed from the courtyard")
             line = uow.lines.get_or_create_locked(sender.id, recipient.id)
+            if "human" in (sender.type, recipient.type) and line.mode != "auto_pass":
+                # Operator lines are never gated (design §5.6, D9). Enforced here so the
+                # invariant holds however the line was created or later toggled.
+                uow.lines.set_mode(line.id, "auto_pass")
+                line = uow.lines.get_locked(line.id)
             plan = turns.plan_message_send(_turn_state(line), sender.id, recipient.id)
             message = uow.messages.insert(
                 message_id=uuid4(),
@@ -84,31 +90,50 @@ class Board:
             message = self._deliverer.deliver(message)
         return message
 
-    def note(self, line_id: UUID, target: str, body: str) -> Message:
-        """Operator insertion into a line, targeted at one participant. Turn-exempt."""
+    def note(self, line_id: UUID, target: str, body: str) -> list[Message]:
+        """Operator insertion into an inter-agent line, targeted at one participant or
+        "both" (design §5.6). Turn-exempt; delivered immediately."""
         self._check_body(body)
         with self._storage.transaction() as uow:
             line = uow.lines.get_locked(line_id)
             if line is None:
                 raise LineNotFound("no such line")
             operator = uow.agents.get_by_name(OPERATOR_NAME)
-            recipient = self._registry.resolve(uow, target)
-            if recipient.id not in (line.agent_a, line.agent_b):
-                raise InvalidRecipient(
-                    f"agent {recipient.name!r} is not a participant of this line"
+            if operator.id in (line.agent_a, line.agent_b):
+                raise NotAllowed(
+                    "this is one of the operator's own lines — send a message, not a note"
                 )
-            message = uow.messages.insert(
-                message_id=uuid4(),
-                line_id=line.id,
-                sender=operator.id,
-                recipient=recipient.id,
-                kind="operator_note",
-                body=body,
-                reply_to=None,
-                status="queued",
-            )
-        self._events.publish("message", message)
-        return self._deliverer.deliver(message)
+            if target == "both":
+                recipients = [uow.agents.get(line.agent_a), uow.agents.get(line.agent_b)]
+            else:
+                recipient = self._registry.resolve(uow, target)
+                if recipient.id not in (line.agent_a, line.agent_b):
+                    raise InvalidRecipient(
+                        f"agent {recipient.name!r} is not a participant of this line"
+                    )
+                recipients = [recipient]
+            notes = [
+                uow.messages.insert(
+                    message_id=uuid4(),
+                    line_id=line.id,
+                    sender=operator.id,
+                    recipient=recipient.id,
+                    kind="operator_note",
+                    body=body,
+                    reply_to=None,
+                    status="queued",
+                )
+                for recipient in recipients
+            ]
+        for note in notes:
+            self._events.publish("message", note)
+        return [self._deliverer.deliver(note) for note in notes]
+
+    def inbox_history(self, agent: Agent, limit: int = 50) -> list[Message]:
+        """Messages addressed to this agent, newest first — the operator's inbox read
+        (non-consuming: human-recipient messages are already delivered, §6.1)."""
+        with self._storage.transaction() as uow:
+            return uow.messages.list_for_recipient(agent.id, limit)
 
     # -- the gate ------------------------------------------------------------------
 
@@ -180,8 +205,12 @@ class Board:
         """Flip the supervision dial. Affects future sends only: a message already
         pending at the gate still needs its decision."""
         with self._storage.transaction() as uow:
-            if uow.lines.get_locked(line_id) is None:
+            line = uow.lines.get_locked(line_id)
+            if line is None:
                 raise LineNotFound("no such line")
+            participants = (uow.agents.get(line.agent_a), uow.agents.get(line.agent_b))
+            if any(p.type == "human" for p in participants):
+                raise NotAllowed("operator lines are never gated (design §5.6)")
             uow.lines.set_mode(line_id, mode)
             line = uow.lines.get(line_id)
         self._events.publish("line", line)

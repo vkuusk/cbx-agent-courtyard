@@ -111,6 +111,33 @@ button.pill:hover { filter: brightness(0.94); }
   font-size: 0.72rem;
   font-weight: 700;
 }
+.badge.blue { background: var(--blue); }
+
+.view-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.9rem;
+}
+.view-head h2 { margin: 0; }
+
+.composer {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  margin-top: 0.9rem;
+}
+.composer.waiting {
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  padding: 0.7rem 1rem;
+  justify-content: center;
+}
+.compose-input { flex: 1; resize: vertical; }
+
+.inbox-item { margin-bottom: 0.6rem; }
+.inbox-body { white-space: pre-wrap; overflow-wrap: anywhere; }
 
 .muted { color: var(--muted); }
 .small { font-size: 0.85rem; }

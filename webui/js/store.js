@@ -8,8 +8,32 @@ export const store = {
   lines: new Map(), // id -> line
   messages: new Map(), // lineId -> Map(messageId -> message)
   pending: new Map(), // messageId -> message held at the gate
+  inbox: new Map(), // messageId -> message addressed to the operator
   sse: "connecting", // connecting | live | lost
 };
+
+const INBOX_SEEN_KEY = "courtyard-inbox-seen";
+
+export function isHuman(agentId) {
+  return store.agents.get(agentId)?.type === "human";
+}
+
+export function operatorId() {
+  for (const agent of store.agents.values()) {
+    if (agent.name === "operator") return agent.id;
+  }
+  return null;
+}
+
+export function unreadInbox() {
+  const seen = localStorage.getItem(INBOX_SEEN_KEY) ?? "";
+  return [...store.inbox.values()].filter((m) => m.created_at > seen).length;
+}
+
+export function markInboxSeen() {
+  const newest = [...store.inbox.values()].map((m) => m.created_at).sort().at(-1);
+  if (newest) localStorage.setItem(INBOX_SEEN_KEY, newest);
+}
 
 const listeners = new Set();
 
@@ -27,14 +51,16 @@ export function agentName(id) {
 }
 
 export async function refreshSnapshot() {
-  const [agents, lines, pending] = await Promise.all([
+  const [agents, lines, pending, inbox] = await Promise.all([
     api.agents(),
     api.lines(),
     api.pending(),
+    api.operatorInbox(),
   ]);
   store.agents = new Map(agents.map((a) => [a.id, a]));
   store.lines = new Map(lines.map((l) => [l.id, l]));
   store.pending = new Map(pending.map((m) => [m.id, m]));
+  store.inbox = new Map(inbox.map((m) => [m.id, m]));
   await Promise.all([...store.messages.keys()].map(loadMessages));
   notify();
 }
@@ -57,6 +83,7 @@ function onEvent(kind, data) {
     if (perLine) perLine.set(data.id, data);
     if (data.status === "pending_gate") store.pending.set(data.id, data);
     else store.pending.delete(data.id);
+    if (data.recipient && data.recipient === operatorId()) store.inbox.set(data.id, data);
   }
   notify();
 }

@@ -206,6 +206,13 @@ class PgMessageRepo:
         ).fetchone()
         return row["n"]
 
+    def list_for_recipient(self, agent_id: UUID, limit: int) -> list[Message]:
+        rows = self._conn.execute(
+            _MESSAGE_SELECT + " WHERE m.recipient = %s ORDER BY m.created_at DESC LIMIT %s",
+            (agent_id, limit),
+        ).fetchall()
+        return [Message.model_validate(r) for r in rows]
+
     def mark_delivered(self, message_id: UUID) -> Message | None:
         row = self._conn.execute(
             "UPDATE messages SET status = 'delivered', delivered_at = now()"

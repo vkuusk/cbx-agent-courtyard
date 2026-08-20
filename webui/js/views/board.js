@@ -1,8 +1,10 @@
-// Board view: every line at a glance — who talks to whom, mode, whose turn, counters.
+// Board view: every line at a glance — who talks to whom, mode, whose turn, counters —
+// plus the operator's "start a conversation" entry point.
 
+import { api } from "../api.js";
 import { store, agentName } from "../store.js";
 import { el, statusDot, fmtAgo } from "../ui.js";
-import { modeToggle } from "../controls.js";
+import { modeControl } from "../controls.js";
 
 function stateLabel(line) {
   if (line.state === "pending_gate") return "held at the gate";
@@ -39,19 +41,91 @@ function lineCard(line) {
       "div",
       { class: "line-meta" },
       ...counters,
-      modeToggle(line),
+      modeControl(line),
       el("span", { class: "muted small" }, fmtAgo(line.last_activity_at)),
     ),
   );
 }
 
+function composePanel() {
+  const select = el("select", { "data-note-for": "compose-to" });
+  const input = el("textarea", {
+    class: "compose-input",
+    rows: "2",
+    placeholder: "your opening message… (Ctrl/Cmd+Enter to send)",
+    "data-note-for": "compose-new",
+  });
+  const panel = el(
+    "div",
+    { class: "panel", hidden: "" },
+    el(
+      "div",
+      { class: "form-row" },
+      el("span", { class: "small muted" }, "to:"),
+      select,
+    ),
+    el("div", { class: "composer" }, input, el(
+      "button",
+      {
+        class: "primary",
+        onclick: async () => {
+          const body = input.value.trim();
+          if (!body) return;
+          try {
+            const message = await api.operatorSend(select.value, body);
+            input.value = "";
+            location.hash = `#/line/${message.line_id}`;
+          } catch (err) {
+            alert(err.message);
+          }
+        },
+      },
+      "send",
+    )),
+  );
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) panel.querySelector("button").click();
+  });
+  const rank = { connected: 0, stale: 1, invited: 2, gone: 3 };
+  const refreshTargets = () => {
+    const current = select.value;
+    const agents = [...store.agents.values()]
+      .filter((a) => !a.removed_at && a.type !== "human")
+      .sort(
+        (a, b) => rank[a.status] - rank[b.status] || a.name.localeCompare(b.name),
+      );
+    select.replaceChildren(
+      ...agents.map((a) => el("option", { value: a.name }, `${a.name} — ${a.status}`)),
+    );
+    if (agents.some((a) => a.name === current)) select.value = current;
+  };
+  return { panel, refreshTargets };
+}
+
 export function mount(root) {
+  const { panel, refreshTargets } = composePanel();
+  const list = el("div", {});
+  root.replaceChildren(
+    el(
+      "div",
+      { class: "view-head" },
+      el("h2", {}, "Lines"),
+      el(
+        "button",
+        { class: "small", onclick: () => (panel.hidden = !panel.hidden) },
+        "message an agent…",
+      ),
+    ),
+    panel,
+    list,
+  );
+
   const update = () => {
+    refreshTargets();
     const lines = [...store.lines.values()].sort((a, b) =>
       (b.last_activity_at ?? b.created_at).localeCompare(a.last_activity_at ?? a.created_at),
     );
-    root.replaceChildren(
-      el("h2", {}, "Lines"),
+    list.replaceChildren(
       lines.length
         ? el("div", {}, ...lines.map(lineCard))
         : el(

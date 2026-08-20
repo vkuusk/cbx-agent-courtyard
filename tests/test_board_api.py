@@ -166,7 +166,7 @@ def test_operator_note(client, make_agent):
         f"/api/lines/{line_id}/note", json={"target": "bob", "body": "context: use repo X"}
     )
     assert resp.status_code == 201
-    note = resp.json()
+    (note,) = resp.json()
     assert note["kind"] == "operator_note" and note["sender_name"] == "operator"
     assert client.get(f"/api/lines/{line_id}").json()["state"] == "idle"  # turn-exempt
     assert [m["body"] for m in pull_inbox(client, "bob", bob)] == ["context: use repo X"]

@@ -92,6 +92,10 @@ class MessageRepo(Protocol):
 
     def count_queued_for(self, agent_id: UUID) -> int: ...
 
+    def list_for_recipient(self, agent_id: UUID, limit: int) -> list[Message]:
+        """Messages addressed to the agent, any status, newest first (inbox history)."""
+        ...
+
     def mark_delivered(self, message_id: UUID) -> Message | None:
         """queued -> delivered; None if the message was not queued (e.g. pull got it first)."""
         ...

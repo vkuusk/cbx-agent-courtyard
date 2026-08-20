@@ -25,7 +25,7 @@ class ModeRequest(BaseModel):
 
 
 class NoteRequest(BaseModel):
-    target: str  # participant name or id
+    target: str = "both"  # participant name or id, or "both" (the default, design §5.6)
     body: str
 
 
@@ -65,7 +65,7 @@ def set_mode(line_id: UUID, body: ModeRequest, board: Annotated[Board, Depends(g
 @router.post("/{line_id}/note", status_code=201)
 def add_note(
     line_id: UUID, body: NoteRequest, board: Annotated[Board, Depends(get_board)]
-) -> Message:
+) -> list[Message]:
     return board.note(line_id, body.target, body.body)
 
 

@@ -12,6 +12,7 @@ puppets running afterwards so you can explore; re-running the demo starts a fres
 from __future__ import annotations
 
 import argparse
+import os
 import secrets
 import signal
 import subprocess
@@ -38,7 +39,13 @@ def say(text: str = "") -> None:
 
 def start_process(name: str, cmd: list[str]) -> None:
     log = (DEMO_DIR / f"{name}.log").open("w")
-    proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, cwd=ROOT)
+    proc = subprocess.Popen(
+        cmd,
+        stdout=log,
+        stderr=subprocess.STDOUT,
+        cwd=ROOT,
+        env={**os.environ, "PYTHONUNBUFFERED": "1"},  # logs must tail live
+    )
     (DEMO_DIR / f"{name}.pid").write_text(str(proc.pid))
 
 
@@ -117,6 +124,15 @@ def main() -> None:
     admin = HubClient(HUB_URL)
     ensure_hub(admin)
 
+    stale = admin.pending()
+    for message in stale:  # a previous run's cast may have died mid-gate
+        admin.decide(message.id, "reject", "stale demo leftover, cleared on demo restart")
+    if stale:
+        say(
+            f"cleared {len(stale)} stale gate entr{'y' if len(stale) == 1 else 'ies'} "
+            "left by previous demo runs"
+        )
+
     suffix = secrets.token_hex(2)
     alice_name, bob_name = f"alice-{suffix}", f"bob-{suffix}"
     say(f"\nregistering two puppets: {alice_name} (coding) and {bob_name} (infra)")
@@ -159,7 +175,11 @@ def main() -> None:
     )
 
     say("\nalice sends her opening move — the line is supervised, so it stops at the gate:")
-    (pending,) = wait_for(admin.pending, 15, "the opening to reach the gate")
+    (pending,) = wait_for(
+        lambda: [m for m in admin.pending() if m.sender_name == alice_name],
+        15,
+        "the opening to reach the gate",
+    )
     say(f'  pending: {pending.sender_name} → {pending.recipient_name}: "{pending.body[:80]}…"')
 
     say("\nthe operator flips the line to auto_pass, then approves the held opening —")
@@ -228,6 +248,8 @@ Things to try, in any order — the puppets react to your verdicts:
   · reject with a reason     — {dev_name} is scripted to back off politely
   · click the mode pill      — flips the line to auto-pass mid-conversation (and back)
   · watch the tab title      — "(N) Agent Courtyard" whenever something awaits you
+  · open their line and use the note box at the bottom (default: to both) — then
+    `tail .demo/dev.log .demo/ops.log` to see both puppets receive your insertion
 """)
 
     # -- phase 3: the architect plays an agent ---------------------------------------
@@ -242,16 +264,15 @@ Things to try, in any order — the puppets react to your verdicts:
     )
 
     say(f"""{"─" * 72}
-Phase 3 — play an agent yourself. In a second terminal:
+Phase 3 — you as a participant, straight from the browser:
+
+  On the Board, click "message an agent…", pick {concierge_name}, and say hello.
+  Your line with it is ungated (operator lines never pass the gate); the echo reply
+  lands in your Inbox tab — watch the badge and the tab title.
+
+Or play a full agent from a second terminal instead:
 
   uv run courtyard-puppet --name {guest_name} --token {guest_token} --behavior manual
-
-then talk to the echo puppet:
-
-  {concierge_name}: hello out there
-
-Your opening stops at the gate — approve it in the browser this time
-({HUB_URL}/#/gate), or use the puppet's own console (/help).
 
 Everything keeps running for exploring; `make demo-stop` shuts it all down.""")
     admin.close()

@@ -2,9 +2,15 @@
 // side-aligned bubbles, operator notes as centered amber cards, system entries as quiet
 // centered text; returned/rejected greyed out with the gate comment.
 
-import { store, agentName, loadMessages, dropMessages } from "../store.js";
+import { store, agentName, isHuman, loadMessages, dropMessages } from "../store.js";
 import { el, statusDot, fmtTime, preserveInputs } from "../ui.js";
-import { gateControls, modeToggle, releaseButton } from "../controls.js";
+import {
+  gateControls,
+  messageComposer,
+  modeControl,
+  noteComposer,
+  releaseButton,
+} from "../controls.js";
 
 const FINAL_STATUSES = new Set(["delivered"]);
 
@@ -86,7 +92,7 @@ export function mount(root, lineId) {
           statusDot(store.agents.get(line.agent_b)?.status ?? "invited"),
           line.agent_b_name ?? agentName(line.agent_b),
         ),
-        modeToggle(line),
+        modeControl(line),
         el(
           "span",
           { class: `line-state ${line.state}` },
@@ -101,6 +107,9 @@ export function mount(root, lineId) {
       messages.length
         ? el("div", { class: "chat" }, ...messages.map((m) => bubble(line, m)))
         : el("div", { class: "empty" }, "No messages on this line yet."),
+      isHuman(line.agent_a) || isHuman(line.agent_b)
+        ? messageComposer(line)
+        : noteComposer(line),
     );
     restore(root);
 

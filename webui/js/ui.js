@@ -19,21 +19,22 @@ export function statusDot(status) {
   return el("span", { class: `dot ${status}`, title: status });
 }
 
-// Snapshot note-input values + focus before a re-render wipes them; returns a restore fn.
+// Snapshot form-field values + focus before a re-render wipes them; returns a restore fn.
+// Applies to any input/textarea/select carrying data-note-for as its stable identity.
 export function preserveInputs(root) {
   const saved = new Map();
   let focused = null;
-  root.querySelectorAll("input[data-note-for]").forEach((input) => {
-    saved.set(input.dataset.noteFor, input.value);
-    if (document.activeElement === input) focused = input.dataset.noteFor;
+  root.querySelectorAll("[data-note-for]").forEach((field) => {
+    saved.set(field.dataset.noteFor, field.value);
+    if (document.activeElement === field) focused = field.dataset.noteFor;
   });
   return (newRoot) => {
-    newRoot.querySelectorAll("input[data-note-for]").forEach((input) => {
-      const id = input.dataset.noteFor;
-      if (saved.has(id)) input.value = saved.get(id);
+    newRoot.querySelectorAll("[data-note-for]").forEach((field) => {
+      const id = field.dataset.noteFor;
+      if (saved.has(id)) field.value = saved.get(id);
       if (focused === id) {
-        input.focus();
-        input.setSelectionRange(input.value.length, input.value.length);
+        field.focus();
+        field.setSelectionRange?.(field.value.length, field.value.length);
       }
     });
   };

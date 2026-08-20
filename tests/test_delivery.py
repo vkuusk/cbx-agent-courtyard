@@ -110,8 +110,9 @@ def test_wrong_channel_token_is_rejected_and_message_stays_queued(hub, operator)
 def test_human_recipient_is_delivered_immediately(hub, operator):
     alice = Listener(hub, "alice")
     sent = alice.client.send("operator", "status report")
-    decided = operator.decide(sent.id, "approve")
-    assert decided.status == "delivered"  # the WebUI is the operator's tunnel
+    # operator lines are ungated (step 5), and the WebUI is the operator's tunnel:
+    # the send lands delivered in one hop, no gate, no channel push
+    assert sent.status == "delivered"
 
 
 def test_backlog_redelivers_in_order_on_reattach(hub, operator):
@@ -127,7 +128,7 @@ def test_backlog_redelivers_in_order_on_reattach(hub, operator):
     bob.receiver.stop()  # crash
     m1 = alice.client.send("bob", "first while you were away")
     lines = operator.lines()
-    m2 = operator._call(  # operator note joins the backlog behind the message
+    (m2,) = operator._call(  # operator note joins the backlog behind the message
         "POST", f"/api/lines/{lines[0].id}/note", {"target": "bob", "body": "note for bob"}
     )
     assert m1.status == "queued" and m2["status"] == "queued"

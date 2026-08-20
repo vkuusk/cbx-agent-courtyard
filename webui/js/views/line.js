@@ -3,7 +3,8 @@
 // centered text; returned/rejected greyed out with the gate comment.
 
 import { store, agentName, loadMessages, dropMessages } from "../store.js";
-import { el, statusDot, modePill, fmtTime } from "../ui.js";
+import { el, statusDot, fmtTime, preserveInputs } from "../ui.js";
+import { gateControls, modeToggle, releaseButton } from "../controls.js";
 
 const FINAL_STATUSES = new Set(["delivered"]);
 
@@ -50,6 +51,7 @@ function bubble(line, message) {
     ),
     el("div", { class: "body" }, message.body),
     gateNote,
+    message.status === "pending_gate" ? gateControls(message) : null,
   );
 }
 
@@ -68,6 +70,7 @@ export function mount(root, lineId) {
     );
     const nearBottom =
       window.innerHeight + window.scrollY >= document.body.offsetHeight - 120;
+    const restore = preserveInputs(root);
 
     root.replaceChildren(
       el(
@@ -83,7 +86,7 @@ export function mount(root, lineId) {
           statusDot(store.agents.get(line.agent_b)?.status ?? "invited"),
           line.agent_b_name ?? agentName(line.agent_b),
         ),
-        modePill(line.mode),
+        modeToggle(line),
         el(
           "span",
           { class: `line-state ${line.state}` },
@@ -93,11 +96,13 @@ export function mount(root, lineId) {
               ? "held at the gate"
               : "idle",
         ),
+        line.state === "awaiting_reply" ? releaseButton(line) : null,
       ),
       messages.length
         ? el("div", { class: "chat" }, ...messages.map((m) => bubble(line, m)))
         : el("div", { class: "empty" }, "No messages on this line yet."),
     );
+    restore(root);
 
     if (firstRender || nearBottom) window.scrollTo(0, document.body.scrollHeight);
     firstRender = false;

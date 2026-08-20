@@ -30,4 +30,9 @@ export const api = {
   line: (id) => call("GET", `/api/lines/${id}`),
   lineMessages: (id, after) =>
     call("GET", `/api/lines/${id}/messages${after ? `?after=${after}` : ""}`),
+  pending: () => call("GET", "/api/gate/pending"),
+  decide: (messageId, verdict, note) =>
+    call("POST", `/api/gate/${messageId}`, { verdict, note: note || null }),
+  setMode: (lineId, mode) => call("POST", `/api/lines/${lineId}/mode`, { mode }),
+  release: (lineId) => call("POST", `/api/lines/${lineId}/release`),
 };

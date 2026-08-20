@@ -39,6 +39,7 @@ class Puppet:
         self.behavior = behavior
         self.heartbeat_seconds = heartbeat_seconds
         self.summary: AttachSummary | None = None
+        self.last_peer: str | None = None  # whom I last sent to (reply target for notices)
         self._queue: queue.Queue[Message] = queue.Queue()
         self._seen: set = set()
         self._stop = threading.Event()
@@ -73,6 +74,7 @@ class Puppet:
 
     def say(self, to: str, body: str) -> Message | None:
         """Send; hub verdicts and violations are printed verbatim, never raised away."""
+        self.last_peer = to
         try:
             message = self.client.send(to, body)
         except HubError as exc:
@@ -133,17 +135,29 @@ class EchoBehavior:
 
 
 class ScriptStep:
-    def __init__(self, reply: str, match: str | None = None, delay: float = 0.5):
+    def __init__(
+        self,
+        reply: str,
+        match: str | None = None,
+        delay: float = 0.5,
+        kind: str = "message",
+        to: str | None = None,
+    ):
         self.reply = reply
         self.match = match
         self.delay = delay
+        self.kind = kind  # which incoming kind this step reacts to (message/system/operator_note)
+        self.to = to  # explicit target; default: the sender, or last peer for hub notices
         self.used = False
 
 
 class ScriptBehavior:
-    """Deterministic conversation: on each incoming message, the first unused step whose
-    `match` substring occurs in the body (case-insensitive; no match = always) fires
-    once. Exhausted or unmatched -> stay silent."""
+    """Deterministic conversation: on each incoming message, the first unused step of the
+    matching kind whose `match` substring occurs in the body (case-insensitive; no match =
+    always) fires once. Exhausted or unmatched -> stay silent.
+
+    Steps with `kind: system` let a puppet react to gate outcomes — e.g. resend a revised
+    message after a return-to-sender."""
 
     def __init__(self, steps: list[ScriptStep]):
         self._steps = steps
@@ -155,23 +169,34 @@ class ScriptBehavior:
         with open(path) as f:
             spec = yaml.safe_load(f)
         steps = [
-            ScriptStep(reply=s["reply"], match=s.get("match"), delay=float(s.get("delay", 0.5)))
+            ScriptStep(
+                reply=s["reply"],
+                match=s.get("match"),
+                delay=float(s.get("delay", 0.5)),
+                kind=s.get("kind", "message"),
+                to=s.get("to"),
+            )
             for s in spec["steps"]
         ]
         return cls(steps)
 
     def on_message(self, m: Message, puppet: Puppet) -> None:
         puppet.show(m)
-        if m.kind != "message":
-            return
         for step in self._steps:
-            if step.used or (step.match and step.match.lower() not in m.body.lower()):
+            if step.used or step.kind != m.kind:
+                continue
+            if step.match and step.match.lower() not in m.body.lower():
                 continue
             step.used = True
             time.sleep(step.delay)
-            puppet.say(m.sender_name, step.reply)
+            target = step.to or m.sender_name or puppet.last_peer
+            if target is None:
+                puppet.log("(script step fired but there is no target to send to)")
+                return
+            puppet.say(target, step.reply)
             return
-        puppet.log(f"(script has no reply for seq {m.seq}; staying silent)")
+        if m.kind == "message":
+            puppet.log(f"(script has no reply for seq {m.seq}; staying silent)")
 
 
 class ManualBehavior:

@@ -1,7 +1,8 @@
 // Board view: every line at a glance — who talks to whom, mode, whose turn, counters.
 
 import { store, agentName } from "../store.js";
-import { el, statusDot, modePill, fmtAgo } from "../ui.js";
+import { el, statusDot, fmtAgo } from "../ui.js";
+import { modeToggle } from "../controls.js";
 
 function stateLabel(line) {
   if (line.state === "pending_gate") return "held at the gate";
@@ -38,7 +39,7 @@ function lineCard(line) {
       "div",
       { class: "line-meta" },
       ...counters,
-      modePill(line.mode),
+      modeToggle(line),
       el("span", { class: "muted small" }, fmtAgo(line.last_activity_at)),
     ),
   );

@@ -1,0 +1,15 @@
+# ops — the gated responder (step-4 demo). Replies once per matching step; the last
+# match-anything step keeps him polite whatever the operator lets through.
+steps:
+  - match: "migration"
+    delay: 1.0
+    reply: "Prod migrations need a maintenance window and a rollback plan. Thursday 02:00 UTC works — send me the details."
+  - match: "runbook"
+    delay: 1.0
+    reply: "Sounds good, I'll be on standby during the window."
+  - match: "staging"
+    delay: 1.0
+    reply: "Good call — share the staging results and we'll schedule prod after that."
+  - match: null
+    delay: 1.0
+    reply: "Noted."

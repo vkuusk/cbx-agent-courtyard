@@ -161,3 +161,45 @@ def test_script_never_replies_to_notes_or_system_messages():
     behavior.on_message(fake_message("note", kind="operator_note"), stub)
     behavior.on_message(fake_message("notice", kind="system"), stub)
     assert stub.said == []
+
+
+def test_scripted_puppet_revises_after_return(live_hub):
+    """A `kind: system` script step reacts to the gate's return notice by resending."""
+    hub = live_hub()
+    admin = HubClient(hub)
+    alice = make_puppet(
+        hub,
+        "alice",
+        ScriptBehavior(
+            [
+                ScriptStep(
+                    kind="system",
+                    match="returned to you",
+                    reply="revised: maintenance window Thursday 02:00 UTC",
+                    delay=0.05,
+                ),
+            ]
+        ),
+    )
+    make_puppet(hub, "bob", ScriptBehavior([]))
+
+    first = alice.say("bob", "can I touch prod?")
+    admin.decide(first.id, "return", "too vague — when, and what exactly?")
+
+    def revised_pending():
+        pending = admin.pending()
+        return pending if pending and "revised" in pending[0].body else None
+
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if revised_pending():
+            break
+        time.sleep(0.05)
+    (held,) = revised_pending()
+    assert held.sender_name == "alice" and held.body.startswith("revised:")
+
+    history = admin.line_messages(first.line_id)
+    assert [m.kind for m in history] == ["message", "system", "message"]
+    assert history[0].status == "returned"
+    alice.stop()
+    admin.close()

@@ -236,3 +236,53 @@ def test_lines_are_enriched_for_display(client, make_agent):
     pull_inbox(client, "bob", bob)
     line = line_of(client, held)
     assert line["queued_count"] == 0
+
+
+def test_approve_note_is_delivered_as_operator_note(client, make_agent):
+    """D7 'add, not edit': the approve note rides along to the recipient as its own
+    operator_note, threaded to the approved message."""
+    _, alice = make_agent("alice")
+    _, bob = make_agent("bob")
+    held = send(client, alice, "bob", "deploy plan attached").json()
+    decided = decide(client, held["id"], "approve", "looks good — mind the db locks").json()
+    assert decided["gate_note"] == "looks good — mind the db locks"
+
+    inbox = pull_inbox(client, "bob", bob)
+    assert [m["kind"] for m in inbox] == ["message", "operator_note"]
+    note = inbox[1]
+    assert note["body"] == "looks good — mind the db locks"
+    assert note["sender_name"] == "operator"
+    assert note["reply_to"] == held["id"]
+
+
+def test_approve_without_note_delivers_nothing_extra(client, make_agent):
+    _, alice = make_agent("alice")
+    _, bob = make_agent("bob")
+    held = send(client, alice, "bob", "plain").json()
+    decide(client, held["id"], "approve")
+    assert [m["kind"] for m in pull_inbox(client, "bob", bob)] == ["message"]
+
+
+def test_release_while_pending_is_refused(client, make_agent):
+    """The gate decision cannot be side-stepped by releasing the line."""
+    _, alice = make_agent("alice")
+    make_agent("bob")
+    held = send(client, alice, "bob", "held").json()
+    resp = client.post(f"/api/lines/{held['line_id']}/release")
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "cannot_release"
+
+
+def test_returned_message_can_be_revised_and_resent(client, make_agent):
+    _, alice = make_agent("alice")
+    _, bob = make_agent("bob")
+    first = send(client, alice, "bob", "vague ask").json()
+    decide(client, first["id"], "return", "be specific")
+
+    revised = send(client, alice, "bob", "specific ask: window Thursday 02:00")
+    assert revised.status_code == 201
+    approved = decide(client, revised.json()["id"], "approve").json()
+    assert approved["status"] == "queued"
+    assert [m["body"] for m in pull_inbox(client, "bob", bob)] == [
+        "specific ask: window Thursday 02:00"
+    ]

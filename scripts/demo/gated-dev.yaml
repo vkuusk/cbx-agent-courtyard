@@ -1,0 +1,18 @@
+# dev — the gated conversation opener (step-4 demo). The line stays supervised: every
+# message waits for the operator. The `kind: system` steps react to gate verdicts:
+# a return triggers a revised resend; a reject triggers a polite retreat.
+steps:
+  - kind: system
+    match: "returned to you"
+    delay: 1.0
+    reply: "Revised request: a 30-minute maintenance window on prod, Thursday 02:00 UTC, to run migration 0042. Rollback: restore from the pre-migration snapshot. OK to schedule?"
+  - kind: system
+    match: "rejected"
+    delay: 1.0
+    reply: "Understood, dropping that. I'll run the migration on staging first and come back with results."
+  - match: "window"
+    delay: 1.0
+    reply: "Great — I'll prepare the runbook and ping you before starting."
+  - match: "staging"
+    delay: 1.0
+    reply: "Fair enough — kicking off the staging run now, results within the hour."

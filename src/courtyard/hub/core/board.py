@@ -129,6 +129,19 @@ class Board:
             uow.lines.set_turn(line.id, plan.line_state, plan.awaiting_from, plan.in_flight_msg)
             if plan.notify_sender and message.sender is not None:
                 notice = self._notify_sender(uow, updated, verdict, note)
+            elif verdict == "approve" and note:
+                # An approve note rides along to the recipient as an operator note —
+                # "add, not edit" (D7): the message passes untouched, the comment is its own.
+                notice = uow.messages.insert(
+                    message_id=uuid4(),
+                    line_id=message.line_id,
+                    sender=operator.id,
+                    recipient=message.recipient,
+                    kind="operator_note",
+                    body=note,
+                    reply_to=message.id,
+                    status="queued",
+                )
             line = uow.lines.get(line.id)
         self._events.publish("message", updated)
         self._events.publish("line", line)

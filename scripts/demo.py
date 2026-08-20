@@ -181,7 +181,56 @@ def main() -> None:
     wait_for(conversation_done, 30, "the 6-message conversation to finish")
     print_transcript(admin, pending.line_id)
 
-    # -- phase 2: the architect plays an agent ---------------------------------------
+    # -- phase 2: the supervised experience — the architect works the gate ------------
+    dev_name, ops_name = f"dev-{suffix}", f"ops-{suffix}"
+    _, dev_token = admin.register_agent(
+        dev_name, "puppet", "dev puppet asking for risky things (gate demo)"
+    )
+    _, ops_token = admin.register_agent(ops_name, "puppet", "ops puppet guarding prod (gate demo)")
+    start_process(
+        "ops",
+        [
+            *puppet,
+            "--name",
+            ops_name,
+            "--token",
+            ops_token,
+            "--behavior",
+            "script:scripts/demo/gated-ops.yaml",
+        ],
+    )
+    time.sleep(1.0)
+    start_process(
+        "dev",
+        [
+            *puppet,
+            "--name",
+            dev_name,
+            "--token",
+            dev_token,
+            "--behavior",
+            "script:scripts/demo/gated-dev.yaml",
+            "--open",
+            f"{ops_name}: I want to run schema migration 0042 on prod tonight — can I go ahead?",
+        ],
+    )
+    say(f"""
+{"─" * 72}
+Phase 2 — the gate is yours. A second pair ({dev_name} ↔ {ops_name}) just started
+on a SUPERVISED line: every message now waits for you in the browser.
+
+  {HUB_URL}/#/gate
+
+Things to try, in any order — the puppets react to your verdicts:
+
+  · approve with a note      — your note is delivered to the recipient as an operator note
+  · return with a comment    — {dev_name} is scripted to send a REVISED request
+  · reject with a reason     — {dev_name} is scripted to back off politely
+  · click the mode pill      — flips the line to auto-pass mid-conversation (and back)
+  · watch the tab title      — "(N) Agent Courtyard" whenever something awaits you
+""")
+
+    # -- phase 3: the architect plays an agent ---------------------------------------
     guest_name, concierge_name = f"guest-{suffix}", f"concierge-{suffix}"
     _, guest_token = admin.register_agent(guest_name, "puppet", "played live by the operator")
     _, concierge_token = admin.register_agent(
@@ -192,8 +241,8 @@ def main() -> None:
         [*puppet, "--name", concierge_name, "--token", concierge_token, "--behavior", "echo"],
     )
 
-    say(f"""
-Now play an agent yourself. In a second terminal:
+    say(f"""{"─" * 72}
+Phase 3 — play an agent yourself. In a second terminal:
 
   uv run courtyard-puppet --name {guest_name} --token {guest_token} --behavior manual
 
@@ -201,16 +250,8 @@ then talk to the echo puppet:
 
   {concierge_name}: hello out there
 
-Your first message stops at the gate (new lines start supervised). Work the gate right
-from the manual puppet — it doubles as the operator console until the WebUI exists:
-
-  /pending                  see what the gate is holding
-  /auto {concierge_name}    flip the line to auto_pass first (so the echo reply flows)
-  /approve 1                then let your held opening through
-  /help                     everything else (return/reject/release/peers)
-
-The WebUI at {HUB_URL}/ shows all of it live — the board, this conversation's line,
-and the agents registry (where you can add a new puppet and copy its launch command).
+Your opening stops at the gate — approve it in the browser this time
+({HUB_URL}/#/gate), or use the puppet's own console (/help).
 
 Everything keeps running for exploring; `make demo-stop` shuts it all down.""")
     admin.close()

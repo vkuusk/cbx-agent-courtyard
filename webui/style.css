@@ -95,6 +95,23 @@ h2 { font-size: 1.05rem; font-weight: 650; margin: 0 0 0.9rem; }
 .pill.count { background: var(--amber-bg); color: var(--amber); }
 .pill.queued { background: var(--blue-bg); color: var(--blue); }
 
+button.pill { border: none; cursor: pointer; line-height: 1.45; }
+button.pill:hover { filter: brightness(0.94); }
+
+.badge[hidden] { display: none; }
+
+.badge {
+  display: inline-block;
+  min-width: 1.2rem;
+  text-align: center;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: var(--amber);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
 .muted { color: var(--muted); }
 .small { font-size: 0.85rem; }
 
@@ -224,6 +241,35 @@ input:focus, select:focus { outline: 2px solid var(--blue-bg); border-color: var
 .status-chip.pending_gate { color: var(--amber); font-weight: 650; }
 .status-chip.queued { color: var(--blue); }
 .status-chip.returned, .status-chip.rejected { color: var(--red); }
+
+/* ---- gate ---- */
+
+.gate-card { margin-bottom: 0.7rem; }
+.gate-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.8rem;
+  margin-bottom: 0.4rem;
+}
+.gate-head .who { font-weight: 650; }
+.gate-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--amber-bg);
+  border-radius: 8px;
+  padding: 0.55rem 0.8rem;
+}
+
+.gate-controls {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+  flex-wrap: wrap;
+}
+.gate-controls input { flex: 1; min-width: 12rem; font-size: 0.85rem; }
+.gate-controls button { font-size: 0.85rem; white-space: nowrap; }
+button.approve { background: var(--green); border-color: var(--green); color: #fff; }
+button.approve:hover { opacity: 0.88; background: var(--green); }
 
 /* ---- agents ---- */
 

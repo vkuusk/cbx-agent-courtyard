@@ -7,6 +7,7 @@ export const store = {
   agents: new Map(), // id -> agent
   lines: new Map(), // id -> line
   messages: new Map(), // lineId -> Map(messageId -> message)
+  pending: new Map(), // messageId -> message held at the gate
   sse: "connecting", // connecting | live | lost
 };
 
@@ -26,9 +27,14 @@ export function agentName(id) {
 }
 
 export async function refreshSnapshot() {
-  const [agents, lines] = await Promise.all([api.agents(), api.lines()]);
+  const [agents, lines, pending] = await Promise.all([
+    api.agents(),
+    api.lines(),
+    api.pending(),
+  ]);
   store.agents = new Map(agents.map((a) => [a.id, a]));
   store.lines = new Map(lines.map((l) => [l.id, l]));
+  store.pending = new Map(pending.map((m) => [m.id, m]));
   await Promise.all([...store.messages.keys()].map(loadMessages));
   notify();
 }
@@ -49,6 +55,8 @@ function onEvent(kind, data) {
   else if (kind === "message" || kind === "gate") {
     const perLine = store.messages.get(data.line_id);
     if (perLine) perLine.set(data.id, data);
+    if (data.status === "pending_gate") store.pending.set(data.id, data);
+    else store.pending.delete(data.id);
   }
   notify();
 }

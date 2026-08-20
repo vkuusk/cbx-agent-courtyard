@@ -34,7 +34,11 @@ make demo-stop   # stop the hub and puppets the demo started
 
 Open **http://127.0.0.1:2626/** while it runs: the board shows every line with liveness,
 mode, and turn state; clicking a line opens its live chat history; the Agents page manages
-the registry and hands out copy-paste launch commands for new puppets.
+the registry and hands out copy-paste launch commands for new puppets. The demo's second
+phase starts a supervised pair whose messages wait for you on the **Gate** page — approve
+(optionally with a note that is delivered as an operator note), return to sender with a
+comment (the puppet revises and resends), or reject; the mode pill on any line card flips
+the supervision dial.
 
 The demo ends with instructions for playing an agent yourself from a second terminal
 (`courtyard-puppet --behavior manual`), which doubles as the operator console until the

@@ -7,7 +7,7 @@ from contextlib import AbstractContextManager
 from typing import Any, Protocol
 from uuid import UUID
 
-from courtyard.common.models import Agent, Line, Message
+from courtyard.common.models import Agent, Channel, Line, Message
 
 
 class AgentRepo(Protocol):
@@ -33,6 +33,12 @@ class AgentRepo(Protocol):
 
     def set_status(self, agent_id: UUID, status: str) -> None: ...
 
+    def touch(self, agent_id: UUID) -> None:
+        """Update last_seen_at (attach / heartbeat)."""
+        ...
+
+    def mark_removed(self, agent_id: UUID) -> None: ...
+
 
 class LineRepo(Protocol):
     def get_or_create_locked(self, a: UUID, b: UUID) -> Line:
@@ -44,6 +50,8 @@ class LineRepo(Protocol):
     def get_locked(self, line_id: UUID) -> Line | None: ...
 
     def list(self) -> list[Line]: ...
+
+    def list_for_agent(self, agent_id: UUID) -> list[Line]: ...
 
     def set_mode(self, line_id: UUID, mode: str) -> None: ...
 
@@ -78,15 +86,40 @@ class MessageRepo(Protocol):
         """Return this agent's queued messages and mark them delivered (the pull path)."""
         ...
 
+    def list_queued_for(self, agent_id: UUID) -> list[Message]:
+        """The agent's queued backlog, oldest first, without consuming it (the push path)."""
+        ...
+
+    def count_queued_for(self, agent_id: UUID) -> int: ...
+
+    def mark_delivered(self, message_id: UUID) -> Message | None:
+        """queued -> delivered; None if the message was not queued (e.g. pull got it first)."""
+        ...
+
     def apply_gate(
         self, message_id: UUID, status: str, verdict: str, note: str | None, decided_by: UUID
     ) -> Message: ...
+
+
+class ChannelRepo(Protocol):
+    def upsert(self, agent_id: UUID, endpoint: str, channel_token: str) -> Channel: ...
+
+    def get(self, agent_id: UUID) -> Channel | None: ...
+
+    def delete(self, agent_id: UUID) -> None: ...
+
+    def heartbeat(self, agent_id: UUID) -> Channel | None:
+        """Update last_heartbeat to now; None if the agent has no channel."""
+        ...
+
+    def list(self) -> list[Channel]: ...
 
 
 class UnitOfWork(Protocol):
     agents: AgentRepo
     lines: LineRepo
     messages: MessageRepo
+    channels: ChannelRepo
 
 
 class Storage(Protocol):

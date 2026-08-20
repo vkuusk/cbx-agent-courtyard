@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 
@@ -14,8 +15,11 @@ from fastapi.staticfiles import StaticFiles
 from courtyard.hub.api import router
 from courtyard.hub.config import Config, load_config
 from courtyard.hub.core.board import Board
+from courtyard.hub.core.channels import ChannelService
+from courtyard.hub.core.deliver import Deliverer
 from courtyard.hub.core.errors import DomainError
-from courtyard.hub.core.gate import NoopApprover
+from courtyard.hub.core.events import EventBus
+from courtyard.hub.core.gate import EventApprover
 from courtyard.hub.core.registry import Registry
 from courtyard.hub.storage.postgres import PostgresStorage
 
@@ -41,12 +45,36 @@ def create_app(config: Config | None = None) -> FastAPI:
             logger.info("migrations applied: %s", ", ".join(applied))
         storage = PostgresStorage(cfg.database_url)
         storage.open()
-        registry = Registry(storage)
+        events = EventBus()
+        events.bind(asyncio.get_running_loop())
+        registry = Registry(storage, events)
         registry.ensure_operator()
+        deliverer = Deliverer(storage, events, cfg.push_timeout)
+        channels = ChannelService(
+            storage, events, deliverer, cfg.heartbeat_seconds, cfg.gone_seconds
+        )
         app.state.storage = storage
+        app.state.events = events
         app.state.registry = registry
-        app.state.board = Board(storage, registry, NoopApprover(), cfg.max_body_bytes)
+        app.state.channels = channels
+        app.state.board = Board(
+            storage, registry, EventApprover(events), cfg.max_body_bytes, events, deliverer
+        )
+
+        async def sweep_liveness() -> None:
+            while True:
+                await asyncio.sleep(cfg.sweep_seconds)
+                try:
+                    await asyncio.to_thread(channels.sweep)
+                except Exception:
+                    logger.exception("liveness sweep failed")
+
+        sweeper = asyncio.create_task(sweep_liveness())
         yield
+        sweeper.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await sweeper
+        deliverer.close()
         storage.close()
 
     app = FastAPI(title="Agent Courtyard", lifespan=lifespan)

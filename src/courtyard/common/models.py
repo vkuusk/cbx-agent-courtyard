@@ -23,10 +23,11 @@ class Agent(BaseModel):
     type: AgentType
     description: str | None = None  # operator-curated: what this agent is for
     workdir: str | None = None
-    status: AgentStatus
+    status: AgentStatus  # liveness only; removal is removed_at
     launch: dict[str, Any] | None = None
     created_at: datetime
     last_seen_at: datetime | None = None
+    removed_at: datetime | None = None
 
 
 class Line(BaseModel):
@@ -59,3 +60,43 @@ class Message(BaseModel):
     # display enrichment, filled by the storage layer's joins
     sender_name: str | None = None
     recipient_name: str | None = None
+
+
+class Channel(BaseModel):
+    """An agent's live receive endpoint — exactly one per agent, last attach wins."""
+
+    agent_id: UUID
+    endpoint: str
+    channel_token: str
+    registered_at: datetime
+    last_heartbeat: datetime
+    # measured by the database clock at read time (liveness sweep input)
+    heartbeat_age_seconds: float | None = None
+
+
+class PeerInfo(BaseModel):
+    """Roster entry in the attach summary — the discovery substrate (use-cases doc, entry 2)."""
+
+    name: str
+    type: AgentType
+    description: str | None = None
+    status: AgentStatus
+
+
+class LineSummary(BaseModel):
+    line_id: UUID
+    peer: str
+    mode: LineMode
+    state: LineState
+    your_turn: bool
+    # the unanswered message awaiting your reply, if any (never a gated message)
+    in_flight: Message | None = None
+
+
+class AttachSummary(BaseModel):
+    """Attach response: everything a (re)connecting agent needs to catch up (design §6.4)."""
+
+    agent: Agent
+    roster: list[PeerInfo]
+    lines: list[LineSummary]
+    queued: int  # backlog size; the hub pushes these right after this response is built

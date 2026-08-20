@@ -74,3 +74,12 @@ class CannotRemoveOperator(DomainError):
 class InvalidToken(DomainError):
     code = "invalid_token"
     http_status = 401
+
+
+class NotAttached(DomainError):
+    code = "not_attached"
+
+
+class InvalidEndpoint(DomainError):
+    code = "invalid_endpoint"
+    http_status = 400

@@ -1,0 +1,9 @@
+# alice — the coding puppet. Her opening move comes from the CLI (--open); these are
+# her replies. Steps fire once each, first match wins (substring, case-insensitive).
+steps:
+  - match: "staging"
+    delay: 1.0
+    reply: "Thanks! One thing before I merge: does staging already have the new DATABASE_URL secret, or do I need to add it to the deploy manifest?"
+  - match: "secret"
+    delay: 1.0
+    reply: "Perfect, merging and tagging v0.3.0 now. Last thing: can you watch the rollout and ping me if the health check flaps?"

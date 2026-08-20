@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 
 from courtyard.common.models import Agent, Line, Message
 from courtyard.hub.core import turns
+from courtyard.hub.core.deliver import Deliverer
 from courtyard.hub.core.errors import (
     AgentGone,
     BodyTooLarge,
@@ -18,6 +19,7 @@ from courtyard.hub.core.errors import (
     LineNotFound,
     MessageNotFound,
 )
+from courtyard.hub.core.events import EventBus
 from courtyard.hub.core.gate import Approver
 from courtyard.hub.core.registry import OPERATOR_NAME, Registry
 from courtyard.hub.storage.repo import Storage, UnitOfWork
@@ -29,12 +31,20 @@ def _turn_state(line: Line) -> turns.TurnState:
 
 class Board:
     def __init__(
-        self, storage: Storage, registry: Registry, approver: Approver, max_body_bytes: int
+        self,
+        storage: Storage,
+        registry: Registry,
+        approver: Approver,
+        max_body_bytes: int,
+        events: EventBus,
+        deliverer: Deliverer,
     ):
         self._storage = storage
         self._registry = registry
         self._approver = approver
         self._max_body_bytes = max_body_bytes
+        self._events = events
+        self._deliverer = deliverer
 
     # -- sending -------------------------------------------------------------------
 
@@ -45,7 +55,7 @@ class Board:
             recipient = self._registry.resolve(uow, to)
             if recipient.id == sender.id:
                 raise InvalidRecipient("cannot send a message to yourself")
-            if recipient.status == "gone":
+            if recipient.removed_at is not None:
                 raise AgentGone(f"agent {recipient.name!r} was removed from the courtyard")
             line = uow.lines.get_or_create_locked(sender.id, recipient.id)
             plan = turns.plan_message_send(_turn_state(line), sender.id, recipient.id)
@@ -66,8 +76,12 @@ class Board:
                 message.id if plan.track_new_message else None,
             )
             line = uow.lines.get(line.id)
+        self._events.publish("message", message)
+        self._events.publish("line", line)
         if message.status == "pending_gate":
             self._approver.on_pending(line, message)
+        elif message.status == "queued":
+            message = self._deliverer.deliver(message)
         return message
 
     def note(self, line_id: UUID, target: str, body: str) -> Message:
@@ -83,7 +97,7 @@ class Board:
                 raise InvalidRecipient(
                     f"agent {recipient.name!r} is not a participant of this line"
                 )
-            return uow.messages.insert(
+            message = uow.messages.insert(
                 message_id=uuid4(),
                 line_id=line.id,
                 sender=operator.id,
@@ -93,10 +107,13 @@ class Board:
                 reply_to=None,
                 status="queued",
             )
+        self._events.publish("message", message)
+        return self._deliverer.deliver(message)
 
     # -- the gate ------------------------------------------------------------------
 
     def decide(self, message_id: UUID, verdict: str, note: str | None) -> Message:
+        notice = None
         with self._storage.transaction() as uow:
             message = uow.messages.get(message_id)
             if message is None:
@@ -111,17 +128,25 @@ class Board:
             )
             uow.lines.set_turn(line.id, plan.line_state, plan.awaiting_from, plan.in_flight_msg)
             if plan.notify_sender and message.sender is not None:
-                self._notify_sender(uow, updated, verdict, note)
-            return updated
+                notice = self._notify_sender(uow, updated, verdict, note)
+            line = uow.lines.get(line.id)
+        self._events.publish("message", updated)
+        self._events.publish("line", line)
+        if updated.status == "queued":  # approved: now actually deliver it
+            updated = self._deliverer.deliver(updated)
+        if notice is not None:
+            self._events.publish("message", notice)
+            self._deliverer.deliver(notice)
+        return updated
 
     def _notify_sender(
         self, uow: UnitOfWork, message: Message, verdict: str, note: str | None
-    ) -> None:
+    ) -> Message:
         verb = "returned to you for revision" if verdict == "return" else "rejected (do not resend)"
         body = f"Your message (seq {message.seq}) to {message.recipient_name} was {verb}."
         if note:
             body += f" Gate comment: {note}"
-        uow.messages.insert(
+        return uow.messages.insert(
             message_id=uuid4(),
             line_id=message.line_id,
             sender=None,
@@ -145,7 +170,9 @@ class Board:
             if uow.lines.get_locked(line_id) is None:
                 raise LineNotFound("no such line")
             uow.lines.set_mode(line_id, mode)
-            return uow.lines.get(line_id)
+            line = uow.lines.get(line_id)
+        self._events.publish("line", line)
+        return line
 
     def release(self, line_id: UUID) -> Line:
         """Operator escape valve for a line stuck awaiting a reply (design doc §5.4)."""
@@ -155,7 +182,7 @@ class Board:
                 raise LineNotFound("no such line")
             turns.plan_release(_turn_state(line))
             uow.lines.set_turn(line.id, "idle", None, None)
-            uow.messages.insert(
+            entry = uow.messages.insert(
                 message_id=uuid4(),
                 line_id=line.id,
                 sender=None,
@@ -165,7 +192,10 @@ class Board:
                 reply_to=line.in_flight_msg,
                 status="delivered",
             )
-            return uow.lines.get(line.id)
+            line = uow.lines.get(line.id)
+        self._events.publish("message", entry)
+        self._events.publish("line", line)
+        return line
 
     # -- reads ---------------------------------------------------------------------
 

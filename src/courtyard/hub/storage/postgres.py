@@ -15,7 +15,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Json
 from psycopg_pool import ConnectionPool
 
-from courtyard.common.models import Agent, Line, Message
+from courtyard.common.models import Agent, Channel, Line, Message
 
 _MESSAGE_SELECT = """
 SELECT m.*, sa.name AS sender_name, ra.name AS recipient_name
@@ -66,6 +66,14 @@ class PgAgentRepo:
     def set_status(self, agent_id: UUID, status: str) -> None:
         self._conn.execute("UPDATE agents SET status = %s WHERE id = %s", (status, agent_id))
 
+    def touch(self, agent_id: UUID) -> None:
+        self._conn.execute("UPDATE agents SET last_seen_at = now() WHERE id = %s", (agent_id,))
+
+    def mark_removed(self, agent_id: UUID) -> None:
+        self._conn.execute(
+            "UPDATE agents SET removed_at = now(), status = 'gone' WHERE id = %s", (agent_id,)
+        )
+
 
 class PgLineRepo:
     def __init__(self, conn: Connection):
@@ -95,6 +103,13 @@ class PgLineRepo:
 
     def list(self) -> list[Line]:
         rows = self._conn.execute("SELECT * FROM lines ORDER BY created_at").fetchall()
+        return [Line.model_validate(r) for r in rows]
+
+    def list_for_agent(self, agent_id: UUID) -> list[Line]:
+        rows = self._conn.execute(
+            "SELECT * FROM lines WHERE agent_a = %s OR agent_b = %s ORDER BY created_at",
+            (agent_id, agent_id),
+        ).fetchall()
         return [Line.model_validate(r) for r in rows]
 
     def set_mode(self, line_id: UUID, mode: str) -> None:
@@ -163,6 +178,29 @@ class PgMessageRepo:
         ).fetchall()
         return [Message.model_validate(r) for r in rows]
 
+    def list_queued_for(self, agent_id: UUID) -> list[Message]:
+        rows = self._conn.execute(
+            _MESSAGE_SELECT
+            + " WHERE m.recipient = %s AND m.status = 'queued' ORDER BY m.created_at, m.seq",
+            (agent_id,),
+        ).fetchall()
+        return [Message.model_validate(r) for r in rows]
+
+    def count_queued_for(self, agent_id: UUID) -> int:
+        row = self._conn.execute(
+            "SELECT count(*) AS n FROM messages WHERE recipient = %s AND status = 'queued'",
+            (agent_id,),
+        ).fetchone()
+        return row["n"]
+
+    def mark_delivered(self, message_id: UUID) -> Message | None:
+        row = self._conn.execute(
+            "UPDATE messages SET status = 'delivered', delivered_at = now()"
+            " WHERE id = %s AND status = 'queued' RETURNING id",
+            (message_id,),
+        ).fetchone()
+        return self.get(message_id) if row else None
+
     def apply_gate(self, message_id, status, verdict, note, decided_by) -> Message:
         self._conn.execute(
             "UPDATE messages SET status = %s, gate_verdict = %s, gate_note = %s,"
@@ -172,11 +210,52 @@ class PgMessageRepo:
         return self.get(message_id)
 
 
+class PgChannelRepo:
+    def __init__(self, conn: Connection):
+        self._conn = conn
+
+    def upsert(self, agent_id: UUID, endpoint: str, channel_token: str) -> Channel:
+        row = self._conn.execute(
+            "INSERT INTO channels (agent_id, endpoint, channel_token)"
+            " VALUES (%s, %s, %s)"
+            " ON CONFLICT (agent_id) DO UPDATE SET endpoint = EXCLUDED.endpoint,"
+            "   channel_token = EXCLUDED.channel_token,"
+            "   registered_at = now(), last_heartbeat = now()"
+            " RETURNING *",
+            (agent_id, endpoint, channel_token),
+        ).fetchone()
+        return Channel.model_validate(row)
+
+    def get(self, agent_id: UUID) -> Channel | None:
+        row = self._conn.execute(
+            "SELECT * FROM channels WHERE agent_id = %s", (agent_id,)
+        ).fetchone()
+        return Channel.model_validate(row) if row else None
+
+    def delete(self, agent_id: UUID) -> None:
+        self._conn.execute("DELETE FROM channels WHERE agent_id = %s", (agent_id,))
+
+    def heartbeat(self, agent_id: UUID) -> Channel | None:
+        row = self._conn.execute(
+            "UPDATE channels SET last_heartbeat = now() WHERE agent_id = %s RETURNING *",
+            (agent_id,),
+        ).fetchone()
+        return Channel.model_validate(row) if row else None
+
+    def list(self) -> list[Channel]:
+        rows = self._conn.execute(
+            "SELECT *, EXTRACT(EPOCH FROM (now() - last_heartbeat)) AS heartbeat_age_seconds"
+            " FROM channels ORDER BY registered_at"
+        ).fetchall()
+        return [Channel.model_validate(r) for r in rows]
+
+
 class PgUnitOfWork:
     def __init__(self, conn: Connection):
         self.agents = PgAgentRepo(conn)
         self.lines = PgLineRepo(conn)
         self.messages = PgMessageRepo(conn)
+        self.channels = PgChannelRepo(conn)
 
 
 class PostgresStorage:

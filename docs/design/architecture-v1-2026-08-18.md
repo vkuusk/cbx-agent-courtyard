@@ -149,7 +149,9 @@ Agent {
   workdir:       path | null     # the directory the agent works in
   token:         secret          # bearer token for this agent's hub API calls
   launch:        LaunchProfile | null   # §8; null = always started manually
-  status:        invited | connected | stale | gone   # liveness, §6.3
+  status:        invited | connected | stale | gone   # liveness ONLY, §6.3
+  removed_at:    timestamptz | null   # removal from the courtyard (permanent; revokes the
+                                      # token). Liveness `gone` is re-attachable; this is not.
   created_at, last_seen_at
 }
 ```
@@ -328,6 +330,11 @@ configurable window or on clean detach. Liveness is **advisory** (drives UI badg
 short-circuiting); correctness never depends on it, because storage is the source of truth and
 undelivered messages re-deliver on attach.
 
+Liveness and *removal* are distinct facts (found in step 2): `status` answers "is this
+agent's session alive right now" and every value of it — including `gone` — allows
+re-attaching and receiving queued messages. Removal (`removed_at`, set by the registry's
+remove) is permanent: the token is refused and sends to the agent fail with `agent_gone`.
+
 ### 6.4 Disconnect and reconnect
 
 Identity is durable; sessions are not. The agent's id + token live in its hub registration,
@@ -491,7 +498,7 @@ tests run against the real compose Postgres.
 ```sql
 agents   (id uuid PK, name text UNIQUE, type text, description text NULL,
           workdir text, token_hash text, status text, launch jsonb,
-          created_at, last_seen_at)
+          created_at, last_seen_at, removed_at timestamptz NULL)  -- 0004: removal ≠ liveness
 
 lines    (id uuid PK, agent_a uuid, agent_b uuid,      -- pair stored in normalized order
           mode text, state text,

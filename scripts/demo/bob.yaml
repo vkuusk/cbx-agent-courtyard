@@ -1,0 +1,11 @@
+# bob — the infra puppet. Purely reactive; replies once per matching step.
+steps:
+  - match: "deploy"
+    delay: 1.0
+    reply: "Sure — the staging cluster is healthy and has spare capacity. Push your branch and I'll roll it out to staging first."
+  - match: "DATABASE_URL"
+    delay: 1.0
+    reply: "The secret is already in the staging vault and the manifest picks it up automatically — you're good."
+  - match: "watch the rollout"
+    delay: 1.0
+    reply: "Will do. I'll monitor the rollout and alert you if the health check flaps. Good luck with the merge!"

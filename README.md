@@ -25,6 +25,19 @@ make test        # run the test suite (starts postgres if needed)
 
 `make db-down` stops postgres; `make db-nuke` also deletes its data volume.
 
+## Demo (step 2): puppets talking through the hub
+
+```sh
+make demo        # hub + two scripted puppets: gate hold, approve, auto-pass conversation
+make demo-stop   # stop the hub and puppets the demo started
+```
+
+The demo ends with instructions for playing an agent yourself from a second terminal
+(`courtyard-puppet --behavior manual`), which doubles as the operator console until the
+WebUI exists (`/pending`, `/approve`, `/auto`, `/help`, …). Runtime files and process logs
+land in `.demo/` (gitignored). Each run registers a fresh cast with unique name suffixes;
+`make db-nuke` clears the accumulated history.
+
 The Python version is pinned in `.python-version` as `3.14` — deliberately minor-only, not
 `3.14.6`, so homebrew patch upgrades (3.14.7, …) keep matching the pin instead of fighting it.
 
@@ -47,14 +60,18 @@ or fully pip-managed from scratch:
 
 ```sh
 python3.14 -m venv .venv && source .venv/bin/activate
-pip install -e . --group dev     # --group needs pip >= 25.1; else: pip install -e . pytest httpx ruff
+pip install -e . --group dev     # --group needs pip >= 25.1; else: pip install -e . pytest ruff
 ```
+
+Use `-e` (editable): a plain `pip install .` freezes a copy of the code into site-packages,
+which then shadows edits to `src/` until reinstalled.
 
 **Run `uv sync` only for setup and after dependency changes — not casually.** It makes the
 venv match `uv.lock` *exactly*, so it removes packages that were pip-installed by hand.
 When a step adds project dependencies, `uv sync` will run again; re-install personal pip
 extras afterwards, or make them permanent with `uv add <pkg>` (updates `pyproject.toml` +
-`uv.lock` + the venv in one go).
+`uv.lock` + the venv in one go). To pick up new project deps **without** pruning your pip
+extras, use `uv sync --inexact` — it installs what the lock requires and leaves the rest alone.
 
 Lockfile maintenance: `uv lock` re-resolves `uv.lock` from `pyproject.toml` (uv never locks
 from the venv state); `uv lock --upgrade` refreshes all pins within the constraints;

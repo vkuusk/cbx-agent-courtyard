@@ -15,6 +15,7 @@ from courtyard.hub.core.errors import (
     NameTaken,
     UnknownAgent,
 )
+from courtyard.hub.core.events import EventBus
 from courtyard.hub.storage.repo import Storage, UnitOfWork
 
 logger = logging.getLogger("courtyard.hub")
@@ -27,8 +28,9 @@ def hash_token(token: str) -> str:
 
 
 class Registry:
-    def __init__(self, storage: Storage):
+    def __init__(self, storage: Storage, events: EventBus):
         self._storage = storage
+        self._events = events
 
     def create(
         self,
@@ -52,6 +54,7 @@ class Registry:
                 token_hash=hash_token(token),
                 launch=launch,
             )
+        self._events.publish("agent", agent)
         return agent, token
 
     def resolve(self, uow: UnitOfWork, name_or_id: str) -> Agent:
@@ -76,18 +79,21 @@ class Registry:
     def authenticate(self, token: str) -> Agent:
         with self._storage.transaction() as uow:
             agent = uow.agents.get_by_token_hash(hash_token(token))
-        if agent is None or agent.status == "gone":
+        if agent is None or agent.removed_at is not None:
             raise InvalidToken("unknown or revoked agent token")
         return agent
 
     def remove(self, name_or_id: str) -> Agent:
-        """Mark an agent gone (history is retained, so rows are never deleted)."""
+        """Mark an agent removed (history is retained, so rows are never deleted)."""
         with self._storage.transaction() as uow:
             agent = self.resolve(uow, name_or_id)
             if agent.name == OPERATOR_NAME:
                 raise CannotRemoveOperator("the operator registration cannot be removed")
-            uow.agents.set_status(agent.id, "gone")
-            return uow.agents.get(agent.id)
+            uow.agents.mark_removed(agent.id)
+            uow.channels.delete(agent.id)
+            agent = uow.agents.get(agent.id)
+        self._events.publish("agent", agent)
+        return agent
 
     def ensure_operator(self) -> Agent:
         """Create the operator agent on first run (design doc §5.1)."""

@@ -8,3 +8,5 @@ dist/
 .DS_Store
 .idea/
 .demo/
+node_modules/
+spikes/6a-delivery/stop-hook/messages.txt

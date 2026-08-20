@@ -640,13 +640,14 @@ cbx-agent-courtyard/
 | D11 | One Python package, multiple entry points; adapters config-injected, zero-fork | **Accepted** (architect, 2026-08-18) | §12, §7.2 |
 | D12 | Deployment = docker compose: dev_mode (postgres container + app from disk), live_mode (hub + postgres containers) | **Accepted** (architect, 2026-08-18) | §9.4 |
 | D13 | Migrations: forward-only numbered plain-SQL files + the ~40-line custom runner (startup-applied, one tx per file); no migration tool, no down-migrations in v1. Recovery = new forward migration; dev data is disposable (`make db-nuke`), precious data gets `pg_dump` first | **Accepted** (architect, 2026-08-19) | Reviewed Flyway/Liquibase/Prisma/Alembic/yoyo/pgroll — all re-buy what we have at this scale. Revisit triggers: a second deployed environment; parallel dev colliding on numbers (→ yoyo); zero-downtime v2 service (→ pgroll). Format imports into Flyway/yoyo nearly as-is, so no lock-in |
+| D-spike | Claude adapter delivery stack (spike 6a, verified on Claude Code 2.1.237): **(1) channels** — MCP stdio server with the `claude/channel` experimental capability pushes `notifications/claude/channel` events that arrive as live turns; primary mechanism for open sessions (events queue while busy per docs). **(2) Stop hook** — backstop at end-of-turn; emits both `systemMessage` and `reason`; loop-guarded by `stop_hook_active` + Claude Code's 8-consecutive-block override; unread state queried from the **hub API only**, no local mailbox/state files. **(3) `claude -p --resume <name>`** — context-preserving delivery/wake for **closed** sessions only: injecting into an open session forks the transcript tree and orphans the injected branch (verified empirically). Adapter = one stdio MCP server per agent (channels are stdio-only), exposing the courtyard tools on the same server | **Verified by spike** (architect ran all three experiments, 2026-08-20) | Spike code + full results: `spikes/6a-delivery/`. Operational note: while channels are in research preview, launch commands need `--dangerously-load-development-channels server:courtyard` and a per-start consent screen; the preview contract may change — pin the Claude Code version in the launch profile if it drifts. Bonus finding: the injected-content untrusted-data framing held at the `instructions` level (agent refused a redirect attempt) |
 
 ## 14. Risks and required spikes
 
-1. **`claude/channel` MCP capability drift** — the turn-injection mechanism is experimental
-   Claude Code surface. **Spike before step 6** (can run any time earlier): minimal MCP server
-   proving a turn can be injected into a live session on the current Claude Code version.
-   Fallback exists (Stop-hook-only delivery) but degrades busy-agent latency.
+1. **`claude/channel` MCP capability drift** — ~~spike required~~ **RESOLVED by spike 6a
+   (2026-08-20, see D-spike)**: the capability graduated into the official "channels"
+   research-preview feature and works on Claude Code 2.1.237. Residual risk: the preview
+   flag syntax/contract may change before GA; mitigations recorded in D-spike.
 2. **Turn-rule friction with real LLMs** — agents may want to send twice (long answers split,
    follow-up thoughts). The synchronous turn-violation error is designed to be
    LLM-legible; if it still fights the models, the relief valve is a per-line

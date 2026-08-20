@@ -149,3 +149,16 @@ def test_reattach_after_detach_is_silent(client, make_agent):
     client.post("/api/agents/bob/detach", headers=auth(token))
     attach(client, "bob", token)
     assert client.get("/api/lines").json() == []  # no warning line
+
+
+def test_attach_roster_carries_declared_domains(client, make_agent):
+    """A reconnecting agent learns not just who is on the board but what each owns —
+    the input to authority grading (design §7.5)."""
+    client.post(
+        "/api/agents",
+        json={"name": "infra", "type": "puppet", "sme_domain": "the AWS estate"},
+    )
+    _, token = make_agent("coding")
+    roster = {p["name"]: p for p in attach(client, "coding", token).json()["roster"]}
+    assert roster["infra"]["sme_domain"] == "the AWS estate"
+    assert roster["operator"]["sme_domain"] is None

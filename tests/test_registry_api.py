@@ -76,3 +76,24 @@ def test_removed_agents_token_is_revoked(client, make_agent):
     _, token = make_agent("alice")
     client.delete("/api/agents/alice")
     assert client.get("/api/agents/alice/inbox", headers=auth(token)).status_code == 401
+
+
+def test_sme_domain_is_registered_and_listed(client):
+    """The domain of responsibility drives authority grading (design §7.5); it is a
+    separate declaration from `description`, which is prose for discovery."""
+    resp = client.post(
+        "/api/agents",
+        json={
+            "name": "infra",
+            "type": "puppet",
+            "description": "the infrastructure agent",
+            "sme_domain": "the AWS estate and IAM",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["agent"]["sme_domain"] == "the AWS estate and IAM"
+    assert client.get("/api/agents/infra").json()["sme_domain"] == "the AWS estate and IAM"
+
+    # ownership is optional: an agent may be described without owning anything
+    plain = client.post("/api/agents", json={"name": "scout", "type": "puppet"})
+    assert plain.json()["agent"]["sme_domain"] is None

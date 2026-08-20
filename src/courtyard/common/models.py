@@ -22,6 +22,7 @@ class Agent(BaseModel):
     name: str
     type: AgentType
     description: str | None = None  # operator-curated: what this agent is for
+    sme_domain: str | None = None  # operator-curated: what this agent OWNS (§7.5 grading)
     workdir: str | None = None
     status: AgentStatus  # liveness only; removal is removed_at
     launch: dict[str, Any] | None = None
@@ -67,6 +68,11 @@ class Message(BaseModel):
     # display enrichment, filled by the storage layer's joins
     sender_name: str | None = None
     recipient_name: str | None = None
+    # authority grading inputs (design §7.5): the sender's role decides the grade, and
+    # the two declared domains let the recipient weigh whose ground the message touches
+    sender_type: AgentType | None = None
+    sender_sme_domain: str | None = None
+    recipient_sme_domain: str | None = None
 
 
 class Channel(BaseModel):
@@ -87,6 +93,7 @@ class PeerInfo(BaseModel):
     name: str
     type: AgentType
     description: str | None = None
+    sme_domain: str | None = None
     status: AgentStatus
 
 

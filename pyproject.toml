@@ -15,6 +15,7 @@ dependencies = [
 [project.scripts]
 courtyard-hub = "courtyard.hub.main:cli"
 courtyard-puppet = "courtyard.puppet.main:cli"
+courtyard-claude-mcp = "courtyard.adapters.claude_code.mcp_server:cli"
 
 [dependency-groups]
 dev = [

@@ -37,6 +37,7 @@ class Registry:
         name: str,
         type: str,
         description: str | None = None,
+        sme_domain: str | None = None,
         workdir: str | None = None,
         launch: dict[str, Any] | None = None,
     ) -> tuple[Agent, str]:
@@ -50,6 +51,7 @@ class Registry:
                 name=name,
                 type=type,
                 description=description,
+                sme_domain=sme_domain,
                 workdir=workdir,
                 token_hash=hash_token(token),
                 launch=launch,

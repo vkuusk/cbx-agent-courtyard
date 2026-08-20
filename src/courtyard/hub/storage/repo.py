@@ -18,6 +18,7 @@ class AgentRepo(Protocol):
         name: str,
         type: str,
         description: str | None,
+        sme_domain: str | None,
         workdir: str | None,
         token_hash: str,
         launch: dict[str, Any] | None,

@@ -18,7 +18,9 @@ from psycopg_pool import ConnectionPool
 from courtyard.common.models import Agent, Channel, Line, Message
 
 _MESSAGE_SELECT = """
-SELECT m.*, sa.name AS sender_name, ra.name AS recipient_name
+SELECT m.*, sa.name AS sender_name, ra.name AS recipient_name,
+       sa.type AS sender_type,
+       sa.sme_domain AS sender_sme_domain, ra.sme_domain AS recipient_sme_domain
 FROM messages m
 LEFT JOIN agents sa ON sa.id = m.sender
 LEFT JOIN agents ra ON ra.id = m.recipient
@@ -41,15 +43,19 @@ class PgAgentRepo:
     def __init__(self, conn: Connection):
         self._conn = conn
 
-    def create(self, *, agent_id, name, type, description, workdir, token_hash, launch) -> Agent:
+    def create(
+        self, *, agent_id, name, type, description, sme_domain, workdir, token_hash, launch
+    ) -> Agent:
         row = self._conn.execute(
-            "INSERT INTO agents (id, name, type, description, workdir, token_hash, launch)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING *",
+            "INSERT INTO agents"
+            " (id, name, type, description, sme_domain, workdir, token_hash, launch)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
             (
                 agent_id,
                 name,
                 type,
                 description,
+                sme_domain,
                 workdir,
                 token_hash,
                 Json(launch) if launch else None,
@@ -182,7 +188,9 @@ class PgMessageRepo:
             "WITH taken AS ("
             "  UPDATE messages SET status = 'delivered', delivered_at = now()"
             "  WHERE recipient = %s AND status = 'queued' RETURNING *)"
-            " SELECT t.*, sa.name AS sender_name, ra.name AS recipient_name"
+            " SELECT t.*, sa.name AS sender_name, ra.name AS recipient_name,"
+            "        sa.type AS sender_type,"
+            "        sa.sme_domain AS sender_sme_domain, ra.sme_domain AS recipient_sme_domain"
             " FROM taken t"
             " LEFT JOIN agents sa ON sa.id = t.sender"
             " LEFT JOIN agents ra ON ra.id = t.recipient"

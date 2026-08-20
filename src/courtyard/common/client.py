@@ -101,12 +101,19 @@ class HubClient:
         name: str,
         type: str,
         description: str | None = None,
+        sme_domain: str | None = None,
         workdir: str | None = None,
     ) -> tuple[Agent, str]:
         data = self._call(
             "POST",
             "/api/agents",
-            {"name": name, "type": type, "description": description, "workdir": workdir},
+            {
+                "name": name,
+                "type": type,
+                "description": description,
+                "sme_domain": sme_domain,
+                "workdir": workdir,
+            },
         )
         return Agent.model_validate(data["agent"]), data["token"]
 

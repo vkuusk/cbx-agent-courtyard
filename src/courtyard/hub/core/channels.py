@@ -143,7 +143,13 @@ class ChannelService:
 
     def _build_summary(self, uow: UnitOfWork, agent: Agent) -> AttachSummary:
         roster = [
-            PeerInfo(name=a.name, type=a.type, description=a.description, status=a.status)
+            PeerInfo(
+                name=a.name,
+                type=a.type,
+                description=a.description,
+                sme_domain=a.sme_domain,
+                status=a.status,
+            )
             for a in uow.agents.list()
             if a.removed_at is None and a.id != agent.id
         ]

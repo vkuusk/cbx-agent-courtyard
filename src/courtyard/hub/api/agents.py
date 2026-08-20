@@ -21,6 +21,8 @@ class AgentCreate(BaseModel):
     name: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
     type: AgentType
     description: str | None = Field(default=None, max_length=500)
+    # what this agent OWNS — drives authority grading (design §7.5); short on purpose
+    sme_domain: str | None = Field(default=None, max_length=120)
     workdir: str | None = None
     launch: dict[str, Any] | None = None
 
@@ -35,7 +37,7 @@ def create_agent(
     body: AgentCreate, registry: Annotated[Registry, Depends(get_registry)]
 ) -> AgentCreated:
     agent, token = registry.create(
-        body.name, body.type, body.description, body.workdir, body.launch
+        body.name, body.type, body.description, body.sme_domain, body.workdir, body.launch
     )
     return AgentCreated(agent=agent, token=token)
 

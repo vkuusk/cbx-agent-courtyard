@@ -203,12 +203,12 @@ no-gate-on-operator-lines invariant.
 **Goal:** real agents in the courtyard.
 
 - **6a. Spike (do first; can start any time after step 2):** minimal MCP stdio server proving
-  turn-injection via the `claude/channel` capability on the current Claude Code version.
+  turn delivery via the `claude/channel` capability on the current Claude Code version.
   Outcome recorded in the design doc's decision log (D-spike). Fallback if dead: Stop-hook-only
   delivery.
 - **6b. MCP server** (`courtyard-claude-mcp`): tools `courtyard_send` / `courtyard_inbox` /
   `courtyard_peers`; attach-on-start via env; channel endpoint with token; untrusted-content
-  wrapping on every injection (design §7.2).
+  wrapping on every delivery (design §7.2).
 - **6c. Stop hook** (`courtyard-claude-hook`): block-on-unread with `stop_hook_active` +
   seen-id dedup.
 - **6d. Invite installer** (`courtyard-invite`): registers agent, writes project-level
@@ -225,7 +225,7 @@ supervised line; (2) **two real Claude Code agents** — e.g. a coding agent and
 in different directories — collaborate on a small real task through the courtyard, with the
 architect supervising one line from the browser. This demo *is* the v1 acceptance scenario.
 **Tests:** unit tests on hook decision logic (loop safety, dedup) and MCP server handlers
-against a test hub; invite installer writes-then-reverts round-trip on a temp dir; injection
+against a test hub; invite installer writes-then-reverts round-trip on a temp dir; delivery
 wrapping. (The live Claude Code end-to-end stays a scripted-but-manual demo — we don't burn
 tokens in CI.)
 **UX checkpoint = v1 acceptance:** the architect replaces himself as relay on a real
@@ -235,7 +235,7 @@ two-agent task.
 
 ## Step 7 (v1.1) — pi-coding-agent adapter (M, later)
 
-TypeScript extension implementing the same adapter contract (attach / send tool / inject /
+TypeScript extension implementing the same adapter contract (attach / send tool / deliver /
 heartbeat / detach) against the unchanged hub API — the proof that the tunnel seam is truly
 pluggable. Scoped in detail only after step 6 experience; tracked here so it stays on the map.
 

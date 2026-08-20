@@ -39,7 +39,7 @@ amount of judgment per line an explicit, adjustable dial.
   working directory, and its own relationship with the operator.
 - **Not an ai-maestro clone.** ai-maestro was reviewed
   (`/Volumes/Crucial-P310/work/ai-maestro/docs/vvk-review/`) as a source of proven mechanisms
-  and cautionary lessons. We borrow a few ideas (MCP turn injection, Stop-hook wake,
+  and cautionary lessons. We borrow a few ideas (MCP turn delivery, Stop-hook wake,
   disk-as-source-of-truth delivery); the architecture — hub-centric, gated, turn-based — is our
   own. ai-maestro is hub-less peer inboxes, which is precisely why it could not offer a human
   gate.
@@ -88,7 +88,8 @@ not a commit:
 | **Turn rule** | Per line: never a second message before the answer to the first. |
 | **Gate** | The approval step a message passes on a supervised line. |
 | **Approver** | Whoever decides at the gate. v1: the operator via WebUI. Later: an orchestrator agent behind the same interface. |
-| **Tunnel / adapter** | The agent-type-specific mechanism that connects a running agent to the hub (registration, send, receive-inject, heartbeat). |
+| **Tunnel / adapter** | The agent-type-specific mechanism that connects a running agent to the hub (registration, send, receive, heartbeat). |
+| **Delivery** | Hub → agent. The hub hands a message to the recipient's tunnel, which presents it to the agent as a real conversation turn; the status vocabulary (`queued` → `delivered`) names the same path. **Never called "injection" in this design** — that word is reserved for *prompt injection*, the attack the §7.2 wrapper defends against. |
 | **Invite** | Installing tunnel config into an agent's environment + creating its hub registration. No agent code is modified. |
 | **Launch profile** | Per-agent recipe for starting it (command, cwd, env). Launching is a convenience; it is *not* how the channel is established (§8). |
 | **Puppet** | A fake agent (Python) that behaves like a real adapter — scriptable or human-driven — used for tests and UX evaluation. |
@@ -209,7 +210,7 @@ Message {
   Logged, no turn effect.
 
 Status semantics: `queued` = accepted for delivery (gate passed or not required) but not yet
-acknowledged by the recipient's tunnel; `delivered` = the tunnel acknowledged the injection
+acknowledged by the recipient's tunnel; `delivered` = the tunnel acknowledged the delivery
 (or, for the operator, the WebUI holds it); `returned` = the gate sent it back to the sender
 for revision (§5.5). History retains messages in every terminal state.
 
@@ -352,7 +353,7 @@ not an edge case.
   re-delivers every `queued` message in line/seq order. The Claude adapter can surface the
   summary as a small recap turn (config-toggleable); the Stop hook's seen-id dedup
   guarantees re-deliveries are never double-processed.
-- **Delivered-but-lost.** If a session crashed *after* an injection was acknowledged, the
+- **Delivered-but-lost.** If a session crashed *after* a delivery was acknowledged, the
   message is `delivered` but the new session has no memory of it. The recap plus the
   `courtyard_inbox` pull tool cover this — history is always re-readable from the hub.
 - **Owes a reply.** If an agent dies while a line is `AWAITING_REPLY` from it, the line
@@ -369,7 +370,7 @@ Anything that can do these five things can join the courtyard; this is the plugg
 |---|---|---|
 | `attach` | adapter → hub | `POST /api/agents/{id}/attach` (bearer token) with channel endpoint + channel token |
 | `send` | adapter → hub | `POST /api/lines/send` — returns delivered / pending-gate / turn-violation, which the adapter surfaces verbatim to its agent |
-| `receive` | hub → adapter | HTTP POST to the channel endpoint → adapter injects a turn into its agent |
+| `receive` | hub → adapter | HTTP POST to the channel endpoint → adapter delivers it to its agent as a conversation turn |
 | `pull` (fallback) | adapter → hub | `GET /api/agents/{id}/inbox?after=<seq>` — undelivered messages |
 | `heartbeat` / `detach` | adapter → hub | periodic POST; clean detach at session end |
 
@@ -388,7 +389,7 @@ All through official extension points — Claude Code itself is untouched:
   - on session start, attaches to the hub (env: `COURTYARD_HUB_URL`, `COURTYARD_AGENT_ID`,
     `COURTYARD_TOKEN` — placed by the invite installer);
   - binds an ephemeral `127.0.0.1` port as the **channel endpoint**; on authorized POST it
-    injects the message as a **real conversation turn** via the MCP channel notification
+    delivers the message as a **real conversation turn** via the MCP channel notification
     mechanism (`claude/channel` capability — no simulated keystrokes). ai-maestro proved this
     mechanism (~140 lines); we add the missing channel token.
   - **Spike required before step 6:** verify the capability's current name/shape against
@@ -399,7 +400,7 @@ All through official extension points — Claude Code itself is untouched:
   agent is about to go idle with unread courtyard messages, return
   `{"decision": "block", "reason": "<the message(s)>"}` so the agent processes its inbox.
   Loop-safe via `stop_hook_active` + a per-agent seen-id file (ai-maestro's proven pattern).
-- **Untrusted-by-default injection wrapping.** Every injected message body is wrapped:
+- **Untrusted-by-default content wrapping.** Every delivered message body is wrapped:
 
   ```
   <courtyard-message from="infra" line="coding↔infra" id="…" kind="message">
@@ -410,8 +411,10 @@ All through official extension points — Claude Code itself is untouched:
   </courtyard-message>
   ```
 
-  This is the ai-maestro content-security lesson **inverted**: everything is untrusted by
-  default; there is no "verified sender" bypass in v1 at all.
+  This wrapper is the defense against **prompt injection** — which is precisely why this
+  document never calls the delivery mechanism itself "injection" (§3). It is the ai-maestro
+  content-security lesson **inverted**: everything is untrusted by default; there is no
+  "verified sender" bypass in v1 at all.
 
 - **Invite installer** (`courtyard-invite --type claude-code --name coding --workdir …`):
   creates the hub registration + token, writes `.mcp.json` (merge, with backup) and the Stop
@@ -423,9 +426,9 @@ All through official extension points — Claude Code itself is untouched:
 ### 7.3 pi adapter (v1.1 — sketch only)
 
 A TypeScript extension in `~/.pi/agent/extensions/` (or project-scoped equivalent): registers a
-`courtyard_send` tool, attaches on `session_start`, detaches on `session_shutdown`, injects
-incoming messages via pi's inject-message-before-turn hook, heartbeats on a timer. Same HTTP
-contract; wrapped injection likewise. Design detail deferred until the Claude adapter has
+`courtyard_send` tool, attaches on `session_start`, detaches on `session_shutdown`, delivers
+incoming messages via pi's inject-message-before-turn hook (pi's own API name), heartbeats on
+a timer. Same HTTP contract; wrapped delivery likewise. Design detail deferred until the Claude adapter has
 proven the contract.
 
 ### 7.4 Puppet (test twin)
@@ -574,7 +577,7 @@ against are *accidents and prompt-level attacks*, not a hostile local user.
 2. Per-agent bearer tokens on every adapter→hub call; per-channel tokens on every hub→adapter
    push. Bearer tokens are stored hashed in the hub database; the invited agent's copy lives
    in its project config with `600` permissions.
-3. All injected content wrapped untrusted-by-default (§7.2). No signature system in v1
+3. All delivered content wrapped untrusted-by-default (§7.2). No signature system in v1
    (Decision D3): filesystem permissions are the trust boundary on one machine; Ed25519
    envelopes verified at read-time are the documented v2 path if agents ever span machines.
 4. WebUI has no login in v1 — it is a localhost page on the operator's own machine
@@ -637,10 +640,10 @@ cbx-agent-courtyard/
 | D8 | Launch: L0 (copy-paste) + L1 (macOS terminal spawn — opens the window already `cd`-ed into the agent's workdir, env set, `claude` started); channel always via self-registration | **Accepted** (architect, 2026-08-18) | §8; L2 tmux deferred |
 | D9 | Operator is a registered agent (type `human`); operator lines ungated | **Accepted** (architect) | §5.6 |
 | D10 | Approver is a pluggable interface; human-only implementation in v1 | **Accepted** (architect) | §5.5 |
-| D11 | One Python package, multiple entry points; adapters config-injected, zero-fork | **Accepted** (architect, 2026-08-18) | §12, §7.2 |
+| D11 | One Python package, multiple entry points; adapters installed by config, zero-fork | **Accepted** (architect, 2026-08-18) | §12, §7.2 |
 | D12 | Deployment = docker compose: dev_mode (postgres container + app from disk), live_mode (hub + postgres containers) | **Accepted** (architect, 2026-08-18) | §9.4 |
 | D13 | Migrations: forward-only numbered plain-SQL files + the ~40-line custom runner (startup-applied, one tx per file); no migration tool, no down-migrations in v1. Recovery = new forward migration; dev data is disposable (`make db-nuke`), precious data gets `pg_dump` first | **Accepted** (architect, 2026-08-19) | Reviewed Flyway/Liquibase/Prisma/Alembic/yoyo/pgroll — all re-buy what we have at this scale. Revisit triggers: a second deployed environment; parallel dev colliding on numbers (→ yoyo); zero-downtime v2 service (→ pgroll). Format imports into Flyway/yoyo nearly as-is, so no lock-in |
-| D-spike | Claude adapter delivery stack (spike 6a, verified on Claude Code 2.1.237): **(1) channels** — MCP stdio server with the `claude/channel` experimental capability pushes `notifications/claude/channel` events that arrive as live turns; primary mechanism for open sessions (events queue while busy per docs). **(2) Stop hook** — backstop at end-of-turn; emits both `systemMessage` and `reason`; loop-guarded by `stop_hook_active` + Claude Code's 8-consecutive-block override; unread state queried from the **hub API only**, no local mailbox/state files. **(3) `claude -p --resume <name>`** — context-preserving delivery/wake for **closed** sessions only: injecting into an open session forks the transcript tree and orphans the injected branch (verified empirically). Adapter = one stdio MCP server per agent (channels are stdio-only), exposing the courtyard tools on the same server | **Verified by spike** (architect ran all three experiments, 2026-08-20) | Spike code + full results: `spikes/6a-delivery/`. Operational note: while channels are in research preview, launch commands need `--dangerously-load-development-channels server:courtyard` and a per-start consent screen; the preview contract may change — pin the Claude Code version in the launch profile if it drifts. Bonus finding: the injected-content untrusted-data framing held at the `instructions` level (agent refused a redirect attempt) |
+| D-spike | Claude adapter delivery stack (spike 6a, verified on Claude Code 2.1.237): **(1) channels** — MCP stdio server with the `claude/channel` experimental capability pushes `notifications/claude/channel` events that arrive as live turns; primary mechanism for open sessions (events queue while busy per docs). **(2) Stop hook** — backstop at end-of-turn; emits both `systemMessage` and `reason`; loop-guarded by `stop_hook_active` + Claude Code's 8-consecutive-block override; unread state queried from the **hub API only**, no local mailbox/state files. **(3) `claude -p --resume <name>`** — context-preserving delivery/wake for **closed** sessions only: delivering into an open session forks the transcript tree and orphans the delivered branch (verified empirically). Adapter = one stdio MCP server per agent (channels are stdio-only), exposing the courtyard tools on the same server | **Verified by spike** (architect ran all three experiments, 2026-08-20) | Spike code + full results: `spikes/6a-delivery/`. Operational note: while channels are in research preview, launch commands need `--dangerously-load-development-channels server:courtyard` and a per-start consent screen; the preview contract may change — pin the Claude Code version in the launch profile if it drifts. Bonus finding: the delivered-content untrusted-data framing held at the `instructions` level (agent refused a redirect attempt) |
 
 ## 14. Risks and required spikes
 
@@ -652,7 +655,7 @@ cbx-agent-courtyard/
    follow-up thoughts). The synchronous turn-violation error is designed to be
    LLM-legible; if it still fights the models, the relief valve is a per-line
    "batch" convention (one message, multiple sections), not loosening the invariant.
-3. **Injection UX** — a message injected mid-task interrupts the receiving agent's work. The
+3. **Delivery UX** — a message delivered mid-task interrupts the receiving agent's work. The
    Stop-hook path (deliver when idle) may in practice be the *better default*, with channel
    push reserved for operator-urgent messages. Evaluate during step 6; the design supports
    either as policy without structural change.

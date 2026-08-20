@@ -1,5 +1,10 @@
 # Spike 6a — delivery into a live Claude Code session
 
+> Lab notebook, kept verbatim as run. It predates the vocabulary decision in design §3:
+> where this page says "injection" it means **delivery** (hub → agent). In the design,
+> planning docs, and all code, "injection" now names only the *attack* (prompt injection).
+> Script and directory names here are left alone so the recorded commands still work.
+
 - **Question:** which mechanism(s) deliver a courtyard message into a Claude Code agent?
 - **Outcome goes to:** design doc §13 as **D-spike** (delivery stack for step 6).
 - **Everything in `spikes/` is throwaway** — the real adapter (6b/6c) reuses the

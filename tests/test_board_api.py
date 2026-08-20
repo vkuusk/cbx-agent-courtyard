@@ -215,3 +215,24 @@ def test_line_history_and_after_filter(client, make_agent):
     # the board lists exactly one line for the pair
     lines = client.get("/api/lines").json()
     assert [ln["id"] for ln in lines] == [line_id]
+
+
+def test_lines_are_enriched_for_display(client, make_agent):
+    """The board UI renders straight from /api/lines: names + live counters."""
+    _, alice = make_agent("alice")
+    _, bob = make_agent("bob")
+    held = send(client, alice, "bob", "one for the gate").json()
+
+    (line,) = client.get("/api/lines").json()
+    assert {line["agent_a_name"], line["agent_b_name"]} == {"alice", "bob"}
+    assert line["pending_count"] == 1 and line["queued_count"] == 0
+    assert line["last_activity_at"] is not None
+
+    decide(client, held["id"], "approve")
+    line = line_of(client, held)
+    assert line["pending_count"] == 0
+    assert line["queued_count"] == 1  # approved, recipient has no channel yet
+
+    pull_inbox(client, "bob", bob)
+    line = line_of(client, held)
+    assert line["queued_count"] == 0

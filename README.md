@@ -25,12 +25,16 @@ make test        # run the test suite (starts postgres if needed)
 
 `make db-down` stops postgres; `make db-nuke` also deletes its data volume.
 
-## Demo (step 2): puppets talking through the hub
+## Demo: puppets talking through the hub, live in the browser
 
 ```sh
 make demo        # hub + two scripted puppets: gate hold, approve, auto-pass conversation
 make demo-stop   # stop the hub and puppets the demo started
 ```
+
+Open **http://127.0.0.1:2626/** while it runs: the board shows every line with liveness,
+mode, and turn state; clicking a line opens its live chat history; the Agents page manages
+the registry and hands out copy-paste launch commands for new puppets.
 
 The demo ends with instructions for playing an agent yourself from a second terminal
 (`courtyard-puppet --behavior manual`), which doubles as the operator console until the

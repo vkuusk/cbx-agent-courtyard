@@ -127,6 +127,7 @@ def main() -> None:
         bob_name, "puppet", "infra agent owning the staging and prod clusters"
     )
 
+    say(f"\n  ▶ open {HUB_URL}/ in your browser now to watch the board live\n")
     say("launching them as separate processes (logs: .demo/alice.log, .demo/bob.log)")
     puppet = ["uv", "run", "courtyard-puppet", "--hub", HUB_URL, "--heartbeat", "5"]
     start_process(
@@ -208,9 +209,8 @@ from the manual puppet — it doubles as the operator console until the WebUI ex
   /approve 1                then let your held opening through
   /help                     everything else (return/reject/release/peers)
 
-Watch the live event stream in a third terminal, if curious:
-
-  curl -N {HUB_URL}/api/events
+The WebUI at {HUB_URL}/ shows all of it live — the board, this conversation's line,
+and the agents registry (where you can add a new puppet and copy its launch command).
 
 Everything keeps running for exploring; `make demo-stop` shuts it all down.""")
     admin.close()

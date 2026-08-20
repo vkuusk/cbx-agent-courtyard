@@ -39,6 +39,13 @@ class Line(BaseModel):
     awaiting_from: UUID | None = None
     in_flight_msg: UUID | None = None
     created_at: datetime
+    # display enrichment, filled by the storage layer's joins/aggregates (None on
+    # locked reads inside transactions, which only the turn machine consumes)
+    agent_a_name: str | None = None
+    agent_b_name: str | None = None
+    pending_count: int | None = None  # messages held at the gate
+    queued_count: int | None = None  # accepted, not yet delivered
+    last_activity_at: datetime | None = None
 
 
 class Message(BaseModel):

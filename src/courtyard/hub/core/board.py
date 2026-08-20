@@ -218,7 +218,13 @@ class Board:
 
     def inbox(self, agent: Agent) -> list[Message]:
         with self._storage.transaction() as uow:
-            return uow.messages.take_queued_for(agent.id)
+            taken = uow.messages.take_queued_for(agent.id)
+            lines = {m.line_id: uow.lines.get(m.line_id) for m in taken}
+        for message in taken:
+            self._events.publish("message", message)
+        for line in lines.values():
+            self._events.publish("line", line)  # queued counters changed
+        return taken
 
     # -- helpers -------------------------------------------------------------------
 

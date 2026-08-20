@@ -87,5 +87,7 @@ class Deliverer:
             updated = uow.messages.mark_delivered(message.id)
             if updated is None:  # the pull path beat us to it
                 updated = uow.messages.get(message.id)
+            line = uow.lines.get(updated.line_id)
         self._events.publish("message", updated)
+        self._events.publish("line", line)  # its queued counter changed
         return updated

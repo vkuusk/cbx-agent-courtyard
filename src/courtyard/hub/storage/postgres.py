@@ -24,6 +24,18 @@ LEFT JOIN agents sa ON sa.id = m.sender
 LEFT JOIN agents ra ON ra.id = m.recipient
 """
 
+_LINE_SELECT = """
+SELECT l.*, aa.name AS agent_a_name, ab.name AS agent_b_name,
+  (SELECT count(*) FROM messages m
+    WHERE m.line_id = l.id AND m.status = 'pending_gate') AS pending_count,
+  (SELECT count(*) FROM messages m
+    WHERE m.line_id = l.id AND m.status = 'queued') AS queued_count,
+  (SELECT max(m.created_at) FROM messages m WHERE m.line_id = l.id) AS last_activity_at
+FROM lines l
+JOIN agents aa ON aa.id = l.agent_a
+JOIN agents ab ON ab.id = l.agent_b
+"""
+
 
 class PgAgentRepo:
     def __init__(self, conn: Connection):
@@ -92,22 +104,23 @@ class PgLineRepo:
         return Line.model_validate(row)
 
     def get(self, line_id: UUID) -> Line | None:
-        row = self._conn.execute("SELECT * FROM lines WHERE id = %s", (line_id,)).fetchone()
+        row = self._conn.execute(_LINE_SELECT + " WHERE l.id = %s", (line_id,)).fetchone()
         return Line.model_validate(row) if row else None
 
     def get_locked(self, line_id: UUID) -> Line | None:
+        # Plain row for the turn machine; enrichment is for display reads.
         row = self._conn.execute(
             "SELECT * FROM lines WHERE id = %s FOR UPDATE", (line_id,)
         ).fetchone()
         return Line.model_validate(row) if row else None
 
     def list(self) -> list[Line]:
-        rows = self._conn.execute("SELECT * FROM lines ORDER BY created_at").fetchall()
+        rows = self._conn.execute(_LINE_SELECT + " ORDER BY l.created_at").fetchall()
         return [Line.model_validate(r) for r in rows]
 
     def list_for_agent(self, agent_id: UUID) -> list[Line]:
         rows = self._conn.execute(
-            "SELECT * FROM lines WHERE agent_a = %s OR agent_b = %s ORDER BY created_at",
+            _LINE_SELECT + " WHERE l.agent_a = %s OR l.agent_b = %s ORDER BY l.created_at",
             (agent_id, agent_id),
         ).fetchall()
         return [Line.model_validate(r) for r in rows]

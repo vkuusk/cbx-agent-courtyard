@@ -83,7 +83,7 @@ commit:
 | **Gate** | The approval step a message passes on a supervised line. |
 | **Approver** | Whoever decides at the gate. v1: the operator via WebUI. Later: an orchestrator agent behind the same interface. |
 | **Tunnel / adapter** | The agent-type-specific mechanism that connects a running agent to the hub (registration, send, receive, heartbeat). |
-| **Delivery** | Hub → agent. The hub hands a message to the recipient's tunnel, which presents it to the agent as a real conversation turn; the status vocabulary (`queued` → `delivered`) names the same path. **Never called "injection" in this design** — that word is reserved for *prompt injection*, the attack the §7.2 wrapper defends against. |
+| **Delivery** | Hub → agent. The hub hands a message to the recipient's tunnel, which presents it to the agent as a real conversation turn; the status vocabulary (`queued` → `delivered`) names the same path. **Never called "injection" in this design** — that word is reserved for *prompt injection*, the attack the §7.5 envelope defends against. |
 | **Authority grade** | How much say a delivered message's content has in what the recipient decides to do: `policy`, `operator`, `domain-owner`, `agent`, or `hub-notice` (§7.5), in that order of precedence. Derived by the hub from the sender's role, never claimed by the sender. This replaces any "trusted / untrusted" framing: provenance is already reliable, so the question worth answering for the model is one of standing, and standing is graded rather than binary. |
 | **SME domain** | An agent's declared area of responsibility (`sme_domain`, §5.1): a short operator-written phrase like `AWS estate and IAM`. Inside it the agent speaks as the owner; outside it, it may ask but not order (§7.5). Distinct from `description`, which is prose for discovery — an agent may be described without being given ownership of anything. |
 | **Invite** | Installing tunnel config into an agent's environment + creating its hub registration. No agent code is modified. |
@@ -515,11 +515,6 @@ is on the post-v1 list. (It is spelled `policy` rather than `system` only becaus
 is already a message *kind*; one word meaning two things inside one envelope is exactly the
 confusion this section exists to remove.)
 
-The operator sits above both, with one qualification worth stating: being the highest
-authority is not the same as being the most expert. An operator directive inside an agent's
-own domain is still a directive, and the agent is still expected to say so when it believes
-the instruction is wrong.
-
 Two properties hold regardless of grade:
 
 1. **Delimitation is uniform.** Every body, of every grade, is enclosed and escaped so it
@@ -530,7 +525,7 @@ Two properties hold regardless of grade:
 2. **The grade is never sender-claimed.** It is derived from the hub's own record of who
    sent what, so an agent cannot promote its own message.
 
-**v1 limit, stated plainly.** `directive` is exactly as strong as the hub's integrity plus
+**v1 limit, stated plainly.** `operator` is exactly as strong as the hub's integrity plus
 the localhost trust model (D3): the operator endpoints are unauthenticated, so anything that
 can reach `127.0.0.1:2626` can produce a message that speaks to an agent with the operator's
 authority. That is inside the v1 threat model — one operator, one machine, accidents rather
@@ -737,7 +732,7 @@ cbx-agent-courtyard/
 | D11 | One Python package, multiple entry points; adapters installed by config, zero-fork | **Accepted** (architect, 2026-08-18) | §12, §7.2 |
 | D12 | Deployment = docker compose: dev_mode (postgres container + app from disk), live_mode (hub + postgres containers) | **Accepted** (architect, 2026-08-18) | §9.4 |
 | D13 | Migrations: forward-only numbered plain-SQL files + the ~40-line custom runner (startup-applied, one tx per file); no migration tool, no down-migrations in v1. Recovery = new forward migration; dev data is disposable (`make db-nuke`), precious data gets `pg_dump` first | **Accepted** (architect, 2026-08-19) | Reviewed Flyway/Liquibase/Prisma/Alembic/yoyo/pgroll — all re-buy what we have at this scale. Revisit triggers: a second deployed environment; parallel dev colliding on numbers (→ yoyo); zero-downtime v2 service (→ pgroll). Format imports into Flyway/yoyo nearly as-is, so no lock-in |
-| D-spike | Claude adapter delivery stack (spike 6a, verified on Claude Code 2.1.237): **(1) channels** — MCP stdio server with the `claude/channel` experimental capability pushes `notifications/claude/channel` events that arrive as live turns; primary mechanism for open sessions (events queue while busy per docs). **(2) Stop hook** — backstop at end-of-turn; emits both `systemMessage` and `reason`; loop-guarded by `stop_hook_active` + Claude Code's 8-consecutive-block override; unread state queried from the **hub API only**, no local mailbox/state files. **(3) `claude -p --resume <name>`** — context-preserving delivery/wake for **closed** sessions only: delivering into an open session forks the transcript tree and orphans the delivered branch (verified empirically). Adapter = one stdio MCP server per agent (channels are stdio-only), exposing the courtyard tools on the same server | **Verified by spike** (architect ran all three experiments, 2026-08-20) | Spike code + full results: `spikes/6a-delivery/`. Operational note: while channels are in research preview, launch commands need `--dangerously-load-development-channels server:courtyard` and a per-start consent screen; the preview contract may change — pin the Claude Code version in the launch profile if it drifts. Bonus finding: the delivered-content untrusted-data framing held at the `instructions` level (agent refused a redirect attempt) |
+| D-spike | Claude adapter delivery stack (spike 6a, verified on Claude Code 2.1.237): **(1) channels** — MCP stdio server with the `claude/channel` experimental capability pushes `notifications/claude/channel` events that arrive as live turns; primary mechanism for open sessions (events queue while busy per docs). **(2) Stop hook** — backstop at end-of-turn; emits both `systemMessage` and `reason`; loop-guarded by `stop_hook_active` + Claude Code's 8-consecutive-block override; unread state queried from the **hub API only**, no local mailbox/state files. **(3) `claude -p --resume <name>`** — context-preserving delivery/wake for **closed** sessions only: delivering into an open session forks the transcript tree and orphans the delivered branch (verified empirically). Adapter = one stdio MCP server per agent (channels are stdio-only), exposing the courtyard tools on the same server | **Verified by spike** (architect ran all three experiments, 2026-08-20) | Spike code + full results: `spikes/6a-delivery/`. Operational note: while channels are in research preview, launch commands need `--dangerously-load-development-channels server:courtyard` and a per-start consent screen; the preview contract may change — pin the Claude Code version in the launch profile if it drifts. Bonus finding: the delivered-content-is-data framing (now graded, §7.5) held at the `instructions` level (agent refused a redirect attempt) |
 
 ## 14. Risks and required spikes
 

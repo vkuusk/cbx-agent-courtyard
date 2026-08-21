@@ -1,10 +1,10 @@
 #!/bin/sh
-# Spike 6a-C: vkuusk's subprocess-injection scheme.
-# Appends one headless turn to a named session:  ./inject.sh <session-name-or-uuid> "<message>"
+# Spike 6a-C: vkuusk's subprocess-delivery scheme.
+# Appends one headless turn to a named session:  ./deliver.sh <session-name-or-uuid> "<message>"
 set -eu
 NAME="$1"
 shift
-echo "injecting into session '$NAME'…"
+echo "delivering into session '$NAME'…"
 OUT=$(time claude -p --resume "$NAME" --output-format json "$*") || {
   echo "claude failed:"
   echo "$OUT"

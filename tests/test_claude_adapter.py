@@ -31,7 +31,7 @@ from courtyard.adapters.claude_code.wrapping import wrap
 from courtyard.common.client import HubClient
 from courtyard.common.models import Message
 
-# -- the untrusted-content envelope (design §7.2) -------------------------------------
+# -- the authority-graded envelope (design §7.5) --------------------------------------
 
 
 def fake_message(

@@ -1,5 +1,5 @@
-// Tiny DOM helpers. Strings become text nodes — message bodies are untrusted data and
-// must never reach innerHTML.
+// Tiny DOM helpers. Strings become text nodes — message bodies are agent-authored data,
+// never markup, and must never reach innerHTML.
 
 export function el(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);

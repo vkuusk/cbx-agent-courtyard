@@ -48,7 +48,7 @@ amount of judgment per line an explicit, adjustable dial.
    orchestrator-agent later.
 3. **Strict turn-taking** per line: at most one unanswered message in flight.
 4. Pluggable **communication tunnel** (adapter) per agent type; **Claude Code adapter** in v1,
-   **pi-coding-agent** next.
+   **pi-coding-agent** is out of scope of V1.
 5. **Zero-fork invitation**: agents join via their existing extension points (MCP servers,
    hooks, extensions) — never by modifying agent code.
 6. Operator registered as an agent: can initiate conversations and insert into lines.
@@ -83,7 +83,7 @@ commit:
 | **Gate** | The approval step a message passes on a supervised line. |
 | **Approver** | Whoever decides at the gate. v1: the operator via WebUI. Later: an orchestrator agent behind the same interface. |
 | **Tunnel / adapter** | The agent-type-specific mechanism that connects a running agent to the hub (registration, send, receive, heartbeat). |
-| **Delivery** | Hub → agent. The hub hands a message to the recipient's tunnel, which presents it to the agent as a real conversation turn; the status vocabulary (`queued` → `delivered`) names the same path. **Never called "injection" in this design** — that word is reserved for *prompt injection*, the attack the §7.5 envelope defends against. |
+| **Delivery** | Hub → agent. The hub hands a message to the recipient's tunnel, which presents it to the agent as a real conversation turn; the status vocabulary (`queued` → `delivered`) names the same path. 
 | **Authority grade** | How much say a delivered message's content has in what the recipient decides to do: `policy`, `operator`, `domain-owner`, `agent`, or `hub-notice` (§7.5), in that order of precedence. Derived by the hub from the sender's role, never claimed by the sender. This replaces any "trusted / untrusted" framing: provenance is already reliable, so the question worth answering for the model is one of standing, and standing is graded rather than binary. |
 | **SME domain** | An agent's declared area of responsibility (`sme_domain`, §5.1): a short operator-written phrase like `AWS estate and IAM`. Inside it the agent speaks as the owner; outside it, it may ask but not order (§7.5). Distinct from `description`, which is prose for discovery — an agent may be described without being given ownership of anything. |
 | **Invite** | Installing tunnel config into an agent's environment + creating its hub registration. No agent code is modified. |
@@ -434,14 +434,6 @@ All through official extension points — Claude Code itself is untouched:
   install result says so, and the WebUI surfaces the warning. In live/container mode the hub
   cannot see the workdir, so the copy-paste panel is the path there.
 
-### 7.3 pi adapter (v1.1 — sketch only)
-
-A TypeScript extension in `~/.pi/agent/extensions/` (or project-scoped equivalent): registers a
-`courtyard_send` tool, attaches on `session_start`, detaches on `session_shutdown`, delivers
-incoming messages via pi's inject-message-before-turn hook (pi's own API name), heartbeats on
-a timer. Same HTTP contract; wrapped delivery likewise. Design detail deferred until the Claude adapter has
-proven the contract.
-
 ### 7.4 Puppet (test twin)
 
 `courtyard-puppet --name fake-infra --behavior echo|script:<file>|manual`:
@@ -532,9 +524,7 @@ Two properties hold regardless of grade:
 
 1. **Delimitation is uniform.** Every body, of every grade, is enclosed and escaped so it
    cannot close or forge the envelope around it — a peer that sends `</courtyard-message>`
-   would otherwise appear to address the model from outside the wrapper. This is the actual
-   defense against **prompt injection**, and it is precisely why this document never calls
-   the delivery mechanism itself "injection" (§3).
+   would otherwise appear to address the model from outside the wrapper. 
 2. **The grade is never sender-claimed.** It is derived from the hub's own record of who
    sent what, so an agent cannot promote its own message.
 3. **The hub renders it.** The envelope is built once, hub-side, and shipped as
@@ -658,6 +648,12 @@ The operator is a beginner in web development and the UI must stay maintainable 
   (message appended, gate pending, line state, agent liveness). Actions go through plain REST
   POSTs. No WebSockets — nothing here needs client→server streaming.
 
+**Step 7 consolidation (D16).** The views below shipped in steps 3–5 as Board / Line / Gate /
+Inbox / Agents. Step 7 reshapes them around the quickstart configuration: **MainBoard**
+absorbs the Gate and Inbox pages, **Agent Admin** stays, **Courtyard Admin** is added
+(housekeeping, defaults, health). This section is updated page by page as each design is
+approved — agile, per D16 — rather than re-specified up front.
+
 ### Views (v1)
 
 1. **Board** — all lines with liveness badges, mode dial (auto/supervised), unread and
@@ -727,7 +723,7 @@ cbx-agent-courtyard/
 │   └── puppet/                     # fake agent (echo / script / manual)
 ├── webui/                          # static: index.html, css/, js/ (ES modules, no build)
 ├── adapters-js/
-│   └── pi/                         # v1.1: pi TypeScript extension (own package.json)
+│   └── pi/                         # post-v1 (D16): pi TypeScript extension (own package.json)
 ├── scripts/                        # demo scenarios (e.g. two-puppets-conversation)
 └── tests/                          # pytest: unit (core) + integration (hub+puppets over HTTP)
 ```
@@ -750,6 +746,7 @@ cbx-agent-courtyard/
 | D12 | Deployment = docker compose: dev_mode (postgres container + app from disk), live_mode (hub + postgres containers) | **Accepted** (architect, 2026-08-18) | §9.4 |
 | D13 | Migrations: forward-only numbered plain-SQL files + the ~40-line custom runner (startup-applied, one tx per file); no migration tool, no down-migrations in v1. Recovery = new forward migration; dev data is disposable (`make db-nuke`), precious data gets `pg_dump` first | **Accepted** (architect, 2026-08-19) | Reviewed Flyway/Liquibase/Prisma/Alembic/yoyo/pgroll — all re-buy what we have at this scale. Revisit triggers: a second deployed environment; parallel dev colliding on numbers (→ yoyo); zero-downtime v2 service (→ pgroll). Format imports into Flyway/yoyo nearly as-is, so no lock-in |
 | D-spike | Claude adapter delivery stack (spike 6a, verified on Claude Code 2.1.237): **(1) channels** — MCP stdio server with the `claude/channel` experimental capability pushes `notifications/claude/channel` events that arrive as live turns; primary mechanism for open sessions (events queue while busy per docs). **(2) Stop hook** — backstop at end-of-turn; emits both `systemMessage` and `reason`; loop-guarded by `stop_hook_active` + Claude Code's 8-consecutive-block override; unread state queried from the **hub API only**, no local mailbox/state files. **(3) `claude -p --resume <name>`** — context-preserving delivery/wake for **closed** sessions only: delivering into an open session forks the transcript tree and orphans the delivered branch (verified empirically). Adapter = one stdio MCP server per agent (channels are stdio-only), exposing the courtyard tools on the same server | **Verified by spike** (architect ran all three experiments, 2026-08-20) | Spike code + full results: `spikes/6a-delivery/`. Operational note: while channels are in research preview, launch commands need `--dangerously-load-development-channels server:courtyard` and a per-start consent screen; the preview contract may change — pin the Claude Code version in the launch profile if it drifts. Bonus finding: the delivered-content-is-data framing (now graded, §7.5) held at the `instructions` level (agent refused a redirect attempt). **Adoption (D14):** (1) primary; (3) reserved as an operator action; (2) verified but not installed in v1 |
+| D16 | **v1 scope cut around the quickstart** — launch L1, live mode (6e/6f) and the pi adapter leave v1 for the parking lot; v1 is Claude Code only, hub on the host. The freed room becomes step 7: the WebUI consolidated for the quickstart configuration (operator + two claude-code agents) — MainBoard absorbs the Gate and Inbox pages, Agent Admin stays, **Courtyard Admin** is added (housekeeping: dead registrations/lines; defaults: supervision mode; health). v1 acceptance = the quickstart scenario run through this UI. Step 7 is worked **agile, per page** (design proposal → review → implement → approve), not waterfall | **Accepted** (architect, 2026-08-20) | Functional, minimalistic, intuitive is the bar. §10 is updated per page as each is approved rather than re-specified up front |
 | D15 | **Agent token placement: inline in `.mcp.json` + `chmod 600`.** The install writes the bearer token straight into the file's `env` block and locks the file 0600 | **Accepted** (architect, 2026-08-20) | Chosen over (b) `${COURTYARD_TOKEN}` expansion and (c) a separate 600 token file. Decider: the hub reveals the plaintext token only once at registration and never stores it, so (b) — the only option that keeps the secret out of a project file entirely — would force the operator to re-supply the token on every launch. Inline is self-contained across restarts; the accepted cost is that `.mcp.json` (designed to be committable) now carries a secret, mitigated by 0600 + a "do not commit" warning in the install result rather than by editing the operator's `.gitignore` (which could un-track other MCP servers). Revisit if the hub ever persists reusable tokens, or agents span machines (→ token file or short-lived tokens) |
 | D14 | **Minimal agent-side footprint — one MCP server + the launch flag, nothing else; no Stop hook in v1.** Whatever can live in the hub does: the authority envelope is rendered hub-side (`Message.rendered`), peer discovery is ranked/trimmed/worded hub-side (`GET /peers`), and blue-moon delivery failures are shown to the operator on the board instead of being patched agent-side. Hub→agent delivery = channel push to open sessions + backlog on attach + heartbeat-driven pull; a closed session's mail waits (durably `queued`) until the operator reopens its terminal — resume-wake is an operator action, never a hub reflex | **Accepted** (architect, 2026-08-20) | Every agent-side mechanism is one more thing to port per agent type. The Stop hook's unique coverage (adapter crashed while the session lives; channel silently broken) is hub-detectable — stale channel, line stuck in `awaiting_reply` — and operator-fixable; it cannot confirm model-read any better than the channel; and it is reversible at zero hub cost (`GET /inbox` already takes-and-marks). **Open fact, on the v1 acceptance checklist:** a channel event queued while the agent is busy must start a turn by itself when the turn ends (docs say so; spike A never exercised it). Turn-taking is per line, so busy-arrival is routine — fan-in from other lines, the operator's own terminal tasks — and if the fact fails, the hook is the only fix. Automatic `-p --resume` rejected for now: without a clean detach the hub cannot tell "closed" from "adapter crashed, session open" (and the latter forks — spike C); headless turns cannot be prompted for tool permissions; it is a host-side spawn that 6f's container cannot do |
 
@@ -771,8 +768,8 @@ cbx-agent-courtyard/
    acceptance checklist: give an agent a 60-second task, message it from the board, watch
    whether it answers unprompted. If it does not, the Stop hook is the fix — verified in
    6a, adoptable with no hub change.
-4. **macOS-only L1** — acceptable (target machine is a Mac); Linux terminal spawn is a small
-   additive later.
+4. **macOS-only L1** — moot for v1: the L1 spawn itself is parked post-v1 (D16); L0 plus the
+   6d install button cover the quickstart.
 
 ## 15. References
 

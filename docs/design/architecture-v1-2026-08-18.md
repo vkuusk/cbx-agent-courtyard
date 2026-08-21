@@ -388,8 +388,8 @@ All through official extension points — Claude Code itself is untouched:
   - exposes tools: `courtyard_send(to, message)`, `courtyard_inbox()`,
     `courtyard_peers()` (who's on the board — ranked and worded by the hub, forwarded as-is);
   - attaches to the hub once the MCP handshake completes (env: `COURTYARD_HUB_URL`,
-    `COURTYARD_AGENT_NAME` or `COURTYARD_AGENT_ID`, `COURTYARD_TOKEN` — placed by the invite
-    installer). Attach waits for `notifications/initialized`: the hub pushes the queued
+    `COURTYARD_AGENT_NAME` or `COURTYARD_AGENT_ID`, `COURTYARD_TOKEN` — placed in `.mcp.json`
+    by install, §7.2/6d). Attach waits for `notifications/initialized`: the hub pushes the queued
     backlog during attach, and a channel event sent before initialization is dropped;
   - binds an ephemeral `127.0.0.1` port as the **channel endpoint**; on authorized POST it
     delivers the message as a **real conversation turn** by emitting
@@ -421,11 +421,18 @@ All through official extension points — Claude Code itself is untouched:
   operator's to fix, which for one operator and a handful of agents is a cheaper contract
   than a second agent-side mechanism per agent type. Reversible at zero hub cost: the hook
   would only consume `GET /inbox`, which already takes-and-marks.
-- **Invite installer** (`courtyard-invite --type claude-code --name coding --workdir …`):
-  creates the hub registration + token, writes `.mcp.json` (merge, with backup) and the Stop
-  hook into the *project-level* `.claude/settings.json` of the agent's workdir, prints the
-  launch command. `courtyard-invite --remove` reverts everything it wrote. Project-level (not
-  `~/.claude`) so a deleted workdir can't leave global breakage.
+- **Install (6d).** Writing the agent's *project-level* `.mcp.json` — merge with any existing
+  file, keep a `.courtyard-bak` backup, other servers and keys preserved (no Stop hook or
+  `.claude/settings.json` to write, per D14). Two front doors over one core
+  (`hub/core/install.py`): the **WebUI** button (`POST /api/agents/{id}/install`, the hub
+  writes it — dev mode, since the hub must share the workdir's disk) and the
+  **`courtyard-invite`** CLI (`--register` to create-and-install, `--remove` to revert), a
+  thin client over the same endpoint for terminal-first launch. The hub never stores the
+  plaintext token, so install is handed the token (from registration) and verifies it belongs
+  to the agent before writing. **Token placement: inline in `.mcp.json` + `chmod 600`**
+  (architect, 2026-08-20, D15): the file carries the secret and must not be committed — the
+  install result says so, and the WebUI surfaces the warning. In live/container mode the hub
+  cannot see the workdir, so the copy-paste panel is the path there.
 
 ### 7.3 pi adapter (v1.1 — sketch only)
 
@@ -683,9 +690,10 @@ against are *accidents and prompt-level attacks*, not a hostile local user.
    ("on-my-laptop-only" deployment, D3). The recorded v2 requirement: the hub becomes
    runnable as a service off the operator's hardware, at which point WebUI login and
    transport security are mandatory, not optional.
-5. The invite installer only ever writes: hub registration (in `data/`) + the agent's
-   *project-level* config; `--remove` reverts both; it never touches `~/.claude`, shell rc
-   files, or anything global.
+5. Install only ever writes the agent's *project-level* `.mcp.json` (with a backup);
+   uninstall reverts it; it never touches `~/.claude`, shell rc files, or anything global.
+   The file holds the agent's token inline and is written `chmod 600` (D15) — it is not for
+   committing, and the install result says so.
 
 ## 12. Repository directory layout
 
@@ -715,7 +723,7 @@ cbx-agent-courtyard/
 │   │   ├── storage/                # repository interfaces, postgres backend, migrations/
 │   │   └── launch/                 # launch profiles, L1 terminal spawn (macOS)
 │   ├── adapters/
-│   │   └── claude_code/            # MCP stdio server (thin, D14), install
+│   │   └── claude_code/            # MCP stdio server (thin, D14), courtyard-invite (6d)
 │   └── puppet/                     # fake agent (echo / script / manual)
 ├── webui/                          # static: index.html, css/, js/ (ES modules, no build)
 ├── adapters-js/
@@ -742,6 +750,7 @@ cbx-agent-courtyard/
 | D12 | Deployment = docker compose: dev_mode (postgres container + app from disk), live_mode (hub + postgres containers) | **Accepted** (architect, 2026-08-18) | §9.4 |
 | D13 | Migrations: forward-only numbered plain-SQL files + the ~40-line custom runner (startup-applied, one tx per file); no migration tool, no down-migrations in v1. Recovery = new forward migration; dev data is disposable (`make db-nuke`), precious data gets `pg_dump` first | **Accepted** (architect, 2026-08-19) | Reviewed Flyway/Liquibase/Prisma/Alembic/yoyo/pgroll — all re-buy what we have at this scale. Revisit triggers: a second deployed environment; parallel dev colliding on numbers (→ yoyo); zero-downtime v2 service (→ pgroll). Format imports into Flyway/yoyo nearly as-is, so no lock-in |
 | D-spike | Claude adapter delivery stack (spike 6a, verified on Claude Code 2.1.237): **(1) channels** — MCP stdio server with the `claude/channel` experimental capability pushes `notifications/claude/channel` events that arrive as live turns; primary mechanism for open sessions (events queue while busy per docs). **(2) Stop hook** — backstop at end-of-turn; emits both `systemMessage` and `reason`; loop-guarded by `stop_hook_active` + Claude Code's 8-consecutive-block override; unread state queried from the **hub API only**, no local mailbox/state files. **(3) `claude -p --resume <name>`** — context-preserving delivery/wake for **closed** sessions only: delivering into an open session forks the transcript tree and orphans the delivered branch (verified empirically). Adapter = one stdio MCP server per agent (channels are stdio-only), exposing the courtyard tools on the same server | **Verified by spike** (architect ran all three experiments, 2026-08-20) | Spike code + full results: `spikes/6a-delivery/`. Operational note: while channels are in research preview, launch commands need `--dangerously-load-development-channels server:courtyard` and a per-start consent screen; the preview contract may change — pin the Claude Code version in the launch profile if it drifts. Bonus finding: the delivered-content-is-data framing (now graded, §7.5) held at the `instructions` level (agent refused a redirect attempt). **Adoption (D14):** (1) primary; (3) reserved as an operator action; (2) verified but not installed in v1 |
+| D15 | **Agent token placement: inline in `.mcp.json` + `chmod 600`.** The install writes the bearer token straight into the file's `env` block and locks the file 0600 | **Accepted** (architect, 2026-08-20) | Chosen over (b) `${COURTYARD_TOKEN}` expansion and (c) a separate 600 token file. Decider: the hub reveals the plaintext token only once at registration and never stores it, so (b) — the only option that keeps the secret out of a project file entirely — would force the operator to re-supply the token on every launch. Inline is self-contained across restarts; the accepted cost is that `.mcp.json` (designed to be committable) now carries a secret, mitigated by 0600 + a "do not commit" warning in the install result rather than by editing the operator's `.gitignore` (which could un-track other MCP servers). Revisit if the hub ever persists reusable tokens, or agents span machines (→ token file or short-lived tokens) |
 | D14 | **Minimal agent-side footprint — one MCP server + the launch flag, nothing else; no Stop hook in v1.** Whatever can live in the hub does: the authority envelope is rendered hub-side (`Message.rendered`), peer discovery is ranked/trimmed/worded hub-side (`GET /peers`), and blue-moon delivery failures are shown to the operator on the board instead of being patched agent-side. Hub→agent delivery = channel push to open sessions + backlog on attach + heartbeat-driven pull; a closed session's mail waits (durably `queued`) until the operator reopens its terminal — resume-wake is an operator action, never a hub reflex | **Accepted** (architect, 2026-08-20) | Every agent-side mechanism is one more thing to port per agent type. The Stop hook's unique coverage (adapter crashed while the session lives; channel silently broken) is hub-detectable — stale channel, line stuck in `awaiting_reply` — and operator-fixable; it cannot confirm model-read any better than the channel; and it is reversible at zero hub cost (`GET /inbox` already takes-and-marks). **Open fact, on the v1 acceptance checklist:** a channel event queued while the agent is busy must start a turn by itself when the turn ends (docs say so; spike A never exercised it). Turn-taking is per line, so busy-arrival is routine — fan-in from other lines, the operator's own terminal tasks — and if the fact fails, the hook is the only fix. Automatic `-p --resume` rejected for now: without a clean detach the hub cannot tell "closed" from "adapter crashed, session open" (and the latter forks — spike C); headless turns cannot be prompted for tool permissions; it is a host-side spawn that 6f's container cannot do |
 
 ## 14. Risks and required spikes

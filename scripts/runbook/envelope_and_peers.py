@@ -26,8 +26,9 @@ def hr(title):
 
 admin = HubClient(HUB)  # unauthenticated operator/admin surface (v1, D3)
 
-# Fresh names each run so repeated runs don't collide.
-tag = str(int(time.time()))[-5:]
+# Fresh names each run so repeated runs don't collide (agent names are permanent, even
+# after removal, so a coarse suffix would clash on a fast re-run).
+tag = str(time.time_ns())[-7:]
 coding_name, infra_name = f"coding-{tag}", f"infra-{tag}"
 
 _, coding_token = admin.register_agent(

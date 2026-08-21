@@ -6,6 +6,39 @@ import { api, ApiError } from "../api.js";
 import { store } from "../store.js";
 import { el, statusDot, fmtAgo } from "../ui.js";
 
+// One-click install: ask the hub to write .mcp.json into the agent's workdir (dev mode,
+// design §8/D8). The hub has no plaintext token, so we hand back the one just shown.
+function installButton(created) {
+  const out = el("div", { class: "small", style: "margin-top:0.5rem" });
+  const workdir = created.agent.workdir;
+  const btn = el(
+    "button",
+    {
+      onclick: async () => {
+        btn.disabled = true;
+        out.className = "small muted";
+        out.textContent = "writing…";
+        try {
+          const r = await api.installAgent(created.agent.name, created.token, workdir);
+          out.className = "small";
+          out.replaceChildren(
+            el("div", {}, `Wrote ${r.path}`),
+            r.backed_up ? el("div", { class: "muted" }, `backed up to ${r.backed_up}`) : "",
+            el("div", { class: "warn", style: "margin-top:0.3rem" }, r.warning),
+          );
+        } catch (err) {
+          out.className = "small error-banner";
+          out.textContent = err.message;
+          btn.disabled = false;
+        }
+      },
+    },
+    workdir ? `write .mcp.json into ${workdir}` : "write .mcp.json (set a workdir first)",
+  );
+  if (!workdir) btn.disabled = true;
+  return el("div", { style: "margin-top:0.8rem" }, btn, out);
+}
+
 function puppetCommand(agent, token, behavior) {
   return [
     "uv run courtyard-puppet \\",
@@ -93,6 +126,12 @@ function claudePanel(created, adapterCommand) {
     ),
     launch,
     copyButton(() => CLAUDE_LAUNCH),
+    el(
+      "div",
+      { class: "small muted", style: "margin-top:0.8rem" },
+      "…or let the hub write it for you (dev mode — the hub must share this machine's disk):",
+    ),
+    installButton(created),
   );
 }
 
@@ -167,6 +206,7 @@ export function mount(root) {
             type: data.get("type"),
             description: data.get("description") || null,
             sme_domain: data.get("sme_domain") || null,
+            workdir: data.get("workdir") || null,
           });
           form.reset();
           feedback.replaceChildren(tokenPanel(created, adapterCommand));
@@ -198,6 +238,11 @@ export function mount(root) {
       name: "sme_domain",
       placeholder: "what does it own? (e.g. the AWS estate)",
       title: "its domain of responsibility — raises its standing there when it messages peers",
+    }),
+    el("input", {
+      name: "workdir",
+      placeholder: "project dir (claude-code, optional)",
+      title: "the agent's project directory — lets the hub write .mcp.json there for you",
     }),
     el("button", { class: "primary" }, "add agent"),
   );

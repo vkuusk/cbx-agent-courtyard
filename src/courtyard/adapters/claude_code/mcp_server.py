@@ -110,7 +110,7 @@ TOOLS: list[dict[str, Any]] = [
 
 
 class ConfigError(Exception):
-    """The adapter was started without the environment the invite installer writes."""
+    """The adapter was started without the environment install writes into `.mcp.json`."""
 
 
 @dataclass(frozen=True)
@@ -136,8 +136,8 @@ def load_config(env: Mapping[str, str] | None = None) -> AdapterConfig:
     if missing:
         raise ConfigError(
             "missing environment: " + ", ".join(missing) + ". The courtyard adapter is "
-            "configured by `courtyard-invite`; run it in this project, or set the "
-            "variables by hand."
+            "configured by `courtyard-invite` (or the WebUI's install button); run it in "
+            "this project, or set the variables by hand."
         )
     return AdapterConfig(
         hub_url=env.get("COURTYARD_HUB_URL", DEFAULT_HUB_URL),

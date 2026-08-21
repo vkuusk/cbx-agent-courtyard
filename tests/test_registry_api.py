@@ -158,3 +158,62 @@ def test_peers_trims_the_long_tail_and_says_so(client, make_agent):
 
 def test_peers_wording_when_alone():
     assert render([], 0) == "You are the only agent on this courtyard board."
+
+
+# -- install: the hub writes .mcp.json into the agent's workdir (design §8/D8, 6d) ------
+
+
+def test_install_writes_mcp_json_into_the_workdir(client, tmp_path):
+    created = client.post(
+        "/api/agents",
+        json={"name": "coding", "type": "claude-code", "workdir": str(tmp_path)},
+    ).json()
+    token = created["token"]
+
+    resp = client.post("/api/agents/coding/install", json={"token": token})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    target = tmp_path / ".mcp.json"
+    assert body["path"] == str(target)
+    assert "do not commit" in body["warning"].lower()
+
+    import json as _json
+
+    env = _json.loads(target.read_text())["mcpServers"]["courtyard"]["env"]
+    assert env["COURTYARD_AGENT_NAME"] == "coding"
+    assert env["COURTYARD_TOKEN"] == token
+
+
+def test_install_rejects_a_token_that_is_not_this_agents(client, make_agent, tmp_path):
+    client.post(
+        "/api/agents", json={"name": "coding", "type": "claude-code", "workdir": str(tmp_path)}
+    )
+    _, other_token = make_agent("bob")
+    resp = client.post("/api/agents/coding/install", json={"token": other_token})
+    assert resp.status_code == 401
+    assert resp.json()["error"]["code"] == "invalid_token"
+    assert not (tmp_path / ".mcp.json").exists()  # nothing written on a bad token
+
+
+def test_install_without_a_workdir_is_a_clear_error(client):
+    created = client.post("/api/agents", json={"name": "coding", "type": "claude-code"}).json()
+    resp = client.post("/api/agents/coding/install", json={"token": created["token"]})
+    assert resp.status_code == 400
+    assert resp.json()["error"]["code"] == "workdir_not_found"
+
+
+def test_install_then_uninstall_round_trips(client, tmp_path):
+    (tmp_path / ".mcp.json").write_text('{"mcpServers": {"other": {"command": "x"}}}')
+    created = client.post(
+        "/api/agents",
+        json={"name": "coding", "type": "claude-code", "workdir": str(tmp_path)},
+    ).json()
+    client.post("/api/agents/coding/install", json={"token": created["token"]})
+
+    resp = client.post("/api/agents/coding/uninstall", json={})
+    assert resp.status_code == 200 and resp.json()["restored_from_backup"] is True
+    import json as _json
+
+    assert _json.loads((tmp_path / ".mcp.json").read_text())["mcpServers"] == {
+        "other": {"command": "x"}
+    }

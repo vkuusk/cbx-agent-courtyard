@@ -27,6 +27,8 @@ export const api = {
   agents: () => call("GET", "/api/agents"),
   createAgent: (payload) => call("POST", "/api/agents", payload),
   removeAgent: (name) => call("DELETE", `/api/agents/${encodeURIComponent(name)}`),
+  installAgent: (name, token, workdir) =>
+    call("POST", `/api/agents/${encodeURIComponent(name)}/install`, { token, workdir }),
   lines: () => call("GET", "/api/lines"),
   line: (id) => call("GET", `/api/lines/${id}`),
   lineMessages: (id, after) =>

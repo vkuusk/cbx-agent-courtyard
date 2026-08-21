@@ -123,6 +123,15 @@ class HubClient:
     def agents(self) -> list[Agent]:
         return [Agent.model_validate(a) for a in self._call("GET", "/api/agents")]
 
+    def install(self, name: str, token: str, workdir: str | None = None) -> dict:
+        """Write the agent's `.mcp.json` into its workdir (dev mode). Returns {path, ...}."""
+        return self._call(
+            "POST", f"/api/agents/{name}/install", {"token": token, "workdir": workdir}
+        )
+
+    def uninstall(self, name: str, workdir: str | None = None) -> dict:
+        return self._call("POST", f"/api/agents/{name}/uninstall", {"workdir": workdir})
+
     def lines(self) -> list[Line]:
         return [Line.model_validate(li) for li in self._call("GET", "/api/lines")]
 

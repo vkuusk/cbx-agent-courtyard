@@ -5,13 +5,14 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
 from courtyard.common.models import Agent, AgentType, Message, PeersView
 from courtyard.hub.api.deps import get_board, get_registry, require_agent
+from courtyard.hub.core import install as install_core
 from courtyard.hub.core.board import Board
-from courtyard.hub.core.errors import NotAllowed
+from courtyard.hub.core.errors import InvalidToken, NotAllowed, WorkdirNotFound
 from courtyard.hub.core.registry import Registry
 
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -82,3 +83,69 @@ def peers(
     if agent.id != caller.id:
         raise NotAllowed("token does not belong to this agent")
     return registry.peers(agent)
+
+
+class InstallRequest(BaseModel):
+    # The token is passed in (the hub never stores the plaintext), and verified to belong to
+    # this agent before it is written into the file. workdir defaults to the agent's own.
+    token: str
+    workdir: str | None = None
+
+
+class InstallResponse(BaseModel):
+    path: str
+    backed_up: str | None
+    replaced_server: bool
+    warning: str
+
+
+@router.post("/{name_or_id}/install")
+def install(
+    name_or_id: str,
+    body: InstallRequest,
+    request: Request,
+    registry: Annotated[Registry, Depends(get_registry)],
+) -> InstallResponse:
+    """Write the agent's `.mcp.json` into its workdir (dev mode; design §8/D8, 6d).
+
+    Admin surface (localhost, D3). The caller proves it holds the agent's token by passing
+    it — a wrong token is refused rather than written into a file that would never authenticate.
+    """
+    agent = registry.get(name_or_id)
+    if registry.authenticate(body.token).id != agent.id:
+        raise InvalidToken("that token does not belong to this agent")
+    workdir = body.workdir or agent.workdir
+    if not workdir:
+        raise WorkdirNotFound(
+            f"{agent.name} has no workdir set; add one when registering, or pass one here."
+        )
+    hub_url = str(request.base_url).rstrip("/")
+    result = install_core.install(
+        workdir, install_core.adapter_command(), hub_url, agent.name, body.token
+    )
+    return InstallResponse(**result.__dict__)
+
+
+class UninstallRequest(BaseModel):
+    workdir: str | None = None
+
+
+class UninstallResponse(BaseModel):
+    path: str
+    restored_from_backup: bool
+    removed_server: bool
+
+
+@router.post("/{name_or_id}/uninstall")
+def uninstall(
+    name_or_id: str,
+    body: UninstallRequest,
+    registry: Annotated[Registry, Depends(get_registry)],
+) -> UninstallResponse:
+    """Reverse an install: restore the pre-install `.mcp.json`, or drop just our entry."""
+    agent = registry.get(name_or_id)
+    workdir = body.workdir or agent.workdir
+    if not workdir:
+        raise WorkdirNotFound(f"{agent.name} has no workdir set; pass one here.")
+    result = install_core.uninstall(workdir)
+    return UninstallResponse(**result.__dict__)

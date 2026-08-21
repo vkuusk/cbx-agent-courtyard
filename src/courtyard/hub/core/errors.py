@@ -83,3 +83,18 @@ class NotAttached(DomainError):
 class InvalidEndpoint(DomainError):
     code = "invalid_endpoint"
     http_status = 400
+
+
+class WorkdirNotFound(DomainError):
+    code = "workdir_not_found"
+    http_status = 400
+
+
+class MalformedMcpJson(DomainError):
+    code = "malformed_mcp_json"
+    http_status = 409
+
+
+class NothingToUninstall(DomainError):
+    code = "nothing_to_uninstall"
+    http_status = 404

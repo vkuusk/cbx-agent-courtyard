@@ -12,10 +12,11 @@ import logging
 from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
-from courtyard.common.models import Agent, AttachSummary, LineSummary, PeerInfo
+from courtyard.common.models import Agent, AttachSummary, LineSummary
 from courtyard.hub.core.deliver import Deliverer
 from courtyard.hub.core.errors import InvalidEndpoint, NotAttached
 from courtyard.hub.core.events import EventBus
+from courtyard.hub.core.peers import roster
 from courtyard.hub.core.registry import OPERATOR_NAME
 from courtyard.hub.storage.repo import Storage, UnitOfWork
 
@@ -142,17 +143,7 @@ class ChannelService:
         )
 
     def _build_summary(self, uow: UnitOfWork, agent: Agent) -> AttachSummary:
-        roster = [
-            PeerInfo(
-                name=a.name,
-                type=a.type,
-                description=a.description,
-                sme_domain=a.sme_domain,
-                status=a.status,
-            )
-            for a in uow.agents.list()
-            if a.removed_at is None and a.id != agent.id
-        ]
+        peers = roster(uow.agents.list(), agent)  # reachable first, like `GET /peers`
         lines = []
         for line in uow.lines.list_for_agent(agent.id):
             peer_id = line.agent_b if line.agent_a == agent.id else line.agent_a
@@ -172,4 +163,4 @@ class ChannelService:
                 )
             )
         queued = uow.messages.count_queued_for(agent.id)
-        return AttachSummary(agent=agent, roster=roster, lines=lines, queued=queued)
+        return AttachSummary(agent=agent, roster=peers, lines=lines, queued=queued)

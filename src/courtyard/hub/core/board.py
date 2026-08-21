@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 from courtyard.common.models import Agent, Line, Message
 from courtyard.hub.core import turns
 from courtyard.hub.core.deliver import Deliverer
+from courtyard.hub.core.envelope import with_rendering
 from courtyard.hub.core.errors import (
     AgentGone,
     BodyTooLarge,
@@ -259,6 +260,8 @@ class Board:
             return uow.messages.list_line(line_id, after)
 
     def inbox(self, agent: Agent) -> list[Message]:
+        """The pull path: take the agent's queued messages (queued -> delivered, one
+        transaction) and hand them over rendered, exactly as a push would (D14)."""
         with self._storage.transaction() as uow:
             taken = uow.messages.take_queued_for(agent.id)
             lines = {m.line_id: uow.lines.get(m.line_id) for m in taken}
@@ -266,7 +269,7 @@ class Board:
             self._events.publish("message", message)
         for line in lines.values():
             self._events.publish("line", line)  # queued counters changed
-        return taken
+        return [with_rendering(m) for m in taken]
 
     # -- helpers -------------------------------------------------------------------
 

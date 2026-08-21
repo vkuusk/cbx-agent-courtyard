@@ -12,6 +12,7 @@ import logging
 import httpx
 
 from courtyard.common.models import Message
+from courtyard.hub.core.envelope import with_rendering
 from courtyard.hub.core.events import EventBus
 from courtyard.hub.storage.repo import Storage
 
@@ -47,9 +48,11 @@ class Deliverer:
             return message
 
         try:
+            # The push carries the authority-graded envelope (§7.5), rendered here so
+            # every adapter presents the same text (D14).
             resp = self._http.post(
                 channel.endpoint,
-                json={"message": message.model_dump(mode="json")},
+                json={"message": with_rendering(message).model_dump(mode="json")},
                 headers={CHANNEL_TOKEN_HEADER: channel.channel_token},
             )
             pushed = resp.is_success

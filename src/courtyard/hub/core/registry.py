@@ -8,7 +8,7 @@ import secrets
 from typing import Any
 from uuid import UUID, uuid4
 
-from courtyard.common.models import Agent
+from courtyard.common.models import Agent, PeersView
 from courtyard.hub.core.errors import (
     CannotRemoveOperator,
     InvalidToken,
@@ -16,6 +16,7 @@ from courtyard.hub.core.errors import (
     UnknownAgent,
 )
 from courtyard.hub.core.events import EventBus
+from courtyard.hub.core.peers import peers_view
 from courtyard.hub.storage.repo import Storage, UnitOfWork
 
 logger = logging.getLogger("courtyard.hub")
@@ -77,6 +78,11 @@ class Registry:
     def list(self) -> list[Agent]:
         with self._storage.transaction() as uow:
             return uow.agents.list()
+
+    def peers(self, agent: Agent) -> PeersView:
+        """Who this agent can talk to — ranked, trimmed and rendered hub-side (D14)."""
+        with self._storage.transaction() as uow:
+            return peers_view(uow.agents.list(), agent)
 
     def authenticate(self, token: str) -> Agent:
         with self._storage.transaction() as uow:

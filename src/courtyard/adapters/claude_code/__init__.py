@@ -1,1 +1,1 @@
-"""Claude Code adapter (design §7.2, D-spike): MCP server, stop hook, invite."""
+"""Claude Code adapter (design §7.2, D-spike, D14): the MCP stdio server; install (6d)."""

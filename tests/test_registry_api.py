@@ -1,6 +1,7 @@
-"""Registry API: invite, resolve, tokens, removal, operator bootstrap."""
+"""Registry API: invite, resolve, tokens, removal, operator bootstrap, peer discovery."""
 
 from conftest import auth
+from courtyard.hub.core.peers import PEER_LIMIT, render
 
 
 def test_operator_autocreated_on_startup(client):
@@ -97,3 +98,63 @@ def test_sme_domain_is_registered_and_listed(client):
     # ownership is optional: an agent may be described without owning anything
     plain = client.post("/api/agents", json={"name": "scout", "type": "puppet"})
     assert plain.json()["agent"]["sme_domain"] is None
+
+
+# -- peers: discovery ranked, trimmed and worded by the hub (design §7.1, D14) ----------
+
+DEAD_ENDPOINT = "http://127.0.0.1:9/"  # discard port: attach wants a local URL, not a listener
+
+
+def peers_of(client, name, token):
+    return client.get(f"/api/agents/{name}/peers", headers=auth(token))
+
+
+def test_peers_requires_the_agents_own_token(client, make_agent):
+    _, alice = make_agent("alice")
+    _, bob = make_agent("bob")
+    assert client.get("/api/agents/alice/peers").status_code == 401
+    assert peers_of(client, "alice", bob).status_code == 403
+    assert peers_of(client, "alice", alice).status_code == 200
+
+
+def test_peers_excludes_self_and_removed_and_ranks_reachable_first(client, make_agent):
+    _, alice = make_agent("alice")
+    make_agent("bob", description="deploys things")
+    _, carol = make_agent("carol")
+    make_agent("dave")
+    client.delete("/api/agents/dave")
+    client.post(
+        "/api/agents/carol/attach",
+        json={"endpoint": DEAD_ENDPOINT, "channel_token": "ct"},
+        headers=auth(carol),
+    )
+    client.post(
+        "/api/agents", json={"name": "infra", "type": "puppet", "sme_domain": "the AWS estate"}
+    )
+
+    view = peers_of(client, "alice", alice).json()
+    names = [p["name"] for p in view["peers"]]
+    assert names == ["carol", "bob", "infra", "operator"]  # connected first, then by name
+    assert view["total"] == 4
+    lines = view["rendered"].splitlines()
+    assert lines[0].startswith("Agents on the courtyard board")
+    assert lines[1].startswith("carol — puppet, connected")
+    assert "bob — puppet, invited — deploys things" in lines
+    assert "infra — puppet, invited — owns: the AWS estate" in lines
+    assert "more registrations" not in view["rendered"]
+
+
+def test_peers_trims_the_long_tail_and_says_so(client, make_agent):
+    _, alice = make_agent("alice")
+    for i in range(PEER_LIMIT + 4):
+        make_agent(f"old-{i:02d}")
+    view = peers_of(client, "alice", alice).json()
+    assert len(view["peers"]) == PEER_LIMIT
+    assert view["total"] == PEER_LIMIT + 5  # the tail plus the operator
+    assert view["rendered"].splitlines()[-1] == (
+        "(and 5 more registrations that have not been active)"
+    )
+
+
+def test_peers_wording_when_alone():
+    assert render([], 0) == "You are the only agent on this courtyard board."

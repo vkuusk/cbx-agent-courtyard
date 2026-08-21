@@ -54,9 +54,14 @@ def test_approved_message_is_pushed_to_the_recipient(hub, operator):
     operator.decide(sent.id, "approve")
     (got,) = bob.wait_for(1)
     assert got.id == sent.id and got.body == "can you deploy?"
-    # the pushed payload is the pre-push snapshot; the stored row flips to delivered
+    # the push carries the hub-rendered authority envelope (§7.5, D14) beside the body
+    assert got.rendered.startswith('<courtyard-message from="alice" authority="agent"')
+    assert "can you deploy?" in got.rendered
+    # the pushed payload is the pre-push snapshot; the stored row flips to delivered —
+    # and the operator-facing read shows the raw body, no envelope
     stored = operator.line_messages(sent.line_id)
-    assert next(m for m in stored if m.id == sent.id).status == "delivered"
+    record = next(m for m in stored if m.id == sent.id)
+    assert record.status == "delivered" and record.rendered is None
 
 
 def test_auto_pass_send_reports_delivered_synchronously(hub, operator):
@@ -92,6 +97,8 @@ def test_push_failure_leaves_queued_marks_stale_and_pull_recovers(hub, operator)
     pulled = bob.client.inbox()  # the pull path picks it up
     assert [m.id for m in pulled] == [sent.id]
     assert pulled[0].status == "delivered"
+    # pull and push hand over the same thing: the envelope comes with it (D14)
+    assert pulled[0].rendered.startswith('<courtyard-message from="alice" authority="agent"')
 
 
 def test_wrong_channel_token_is_rejected_and_message_stays_queued(hub, operator):

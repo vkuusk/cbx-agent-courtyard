@@ -21,7 +21,7 @@ from uuid import UUID
 
 import httpx
 
-from courtyard.common.models import Agent, AttachSummary, Line, Message
+from courtyard.common.models import Agent, AttachSummary, Line, Message, PeersView
 
 CHANNEL_TOKEN_HEADER = "X-Courtyard-Channel-Token"
 DEFAULT_HUB_URL = "http://127.0.0.1:2626"
@@ -87,6 +87,9 @@ class HubClient:
     def inbox(self) -> list[Message]:
         data = self._call("GET", f"/api/agents/{self.name}/inbox")
         return [Message.model_validate(m) for m in data]
+
+    def peers(self) -> PeersView:
+        return PeersView.model_validate(self._call("GET", f"/api/agents/{self.name}/peers"))
 
     def heartbeat(self) -> dict:
         return self._call("POST", f"/api/agents/{self.name}/heartbeat")

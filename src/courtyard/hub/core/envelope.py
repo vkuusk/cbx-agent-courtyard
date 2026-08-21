@@ -1,4 +1,4 @@
-"""The authority-graded delivery envelope (design §7.5).
+"""The authority-graded delivery envelope (design §7.5) — rendered by the hub.
 
 Every message body handed to an agent is wrapped in an envelope that answers the one
 question the receiving model cannot answer for itself: *how much say does this text have
@@ -11,7 +11,10 @@ against prompt injection, and the delivery mechanism itself is never called that
 **Authority grading** varies: the hub derives the grade from its own record of who sent
 what, so no sender can promote its own message.
 
-Shared by every delivery path: channel notifications, inbox pulls, and the Stop hook.
+The hub renders it, once, for every agent-facing delivery — the channel push and the
+inbox pull both carry it as `Message.rendered` — and adapters present that text verbatim.
+Rendering here rather than in each adapter keeps the model-facing contract in one place:
+a new agent type forwards text, it does not re-implement grading (D14).
 """
 
 from __future__ import annotations
@@ -100,7 +103,7 @@ def _preamble(message: Message, authority: str) -> str:
     return f"{standing}\n{_DOMAIN_OWNER_PREAMBLE}"
 
 
-def wrap(message: Message) -> str:
+def render(message: Message) -> str:
     """Render one message as its delivery envelope.
 
     Attribute values are hub-authored (agent names match the registry's
@@ -119,5 +122,6 @@ def wrap(message: Message) -> str:
     )
 
 
-def wrap_all(messages: list[Message]) -> str:
-    return "\n".join(wrap(m) for m in messages)
+def with_rendering(message: Message) -> Message:
+    """The message as an agent receives it: the same record, plus `rendered`."""
+    return message.model_copy(update={"rendered": render(message)})

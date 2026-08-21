@@ -1,5 +1,5 @@
 """Agent registry endpoints. Admin routes are unauthenticated in v1 (localhost trust, D3);
-the inbox is agent-scoped and requires the agent's own bearer token."""
+the inbox and peers routes are agent-scoped and require the agent's own bearer token."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from courtyard.common.models import Agent, AgentType, Message
+from courtyard.common.models import Agent, AgentType, Message, PeersView
 from courtyard.hub.api.deps import get_board, get_registry, require_agent
 from courtyard.hub.core.board import Board
 from courtyard.hub.core.errors import NotAllowed
@@ -69,3 +69,16 @@ def inbox(
     if agent.id != caller.id:
         raise NotAllowed("token does not belong to this agent")
     return board.inbox(agent)
+
+
+@router.get("/{name_or_id}/peers")
+def peers(
+    name_or_id: str,
+    caller: Annotated[Agent, Depends(require_agent)],
+    registry: Annotated[Registry, Depends(get_registry)],
+) -> PeersView:
+    """Who the agent can talk to: reachable first, trimmed, rendered for the model (D14)."""
+    agent = registry.get(name_or_id)
+    if agent.id != caller.id:
+        raise NotAllowed("token does not belong to this agent")
+    return registry.peers(agent)

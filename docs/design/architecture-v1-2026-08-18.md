@@ -111,7 +111,7 @@ commit:
                    │ ┌───────────────┐  │      └────────────────────┘
                    │ │ courtyard MCP │──┼── register/send/heartbeat ──► hub API
                    │ │ stdio server  │  │
-                   │ │ + Stop hook   │  │      (pi agent: same contract,
+                   │ │ (the channel) │  │      (pi agent: same contract,
                    │ └───────────────┘  │       TypeScript extension, v1.1)
                    └────────────────────┘
 ```
@@ -302,8 +302,9 @@ deliver(message):
   4. push to recipient's registered channel endpoint (HTTP POST + channel token)
        2xx     -> status: delivered
        failure -> stays queued; channel marked stale; the pull path picks it up
-                  (Claude Code: Stop-hook forces an inbox check; puppet: polls)
+                  (adapters pull when a heartbeat reply reports queued > 0)
                   and the backlog re-delivers on the next attach (§6.4)
+  every hand-over, push or pull, carries the hub-rendered envelope (§7.5) as `rendered`
 ```
 
 No routing, no resolution, no relay, no retry queues inside `deliver()`.
@@ -347,8 +348,9 @@ not an edge case.
 - **Catch-up.** The attach response carries a summary — the agent's active lines, whose turn
   each is on, and any unanswered in-flight message addressed to it — and the hub then
   re-delivers every `queued` message in line/seq order. The Claude adapter can surface the
-  summary as a small recap turn (config-toggleable); the Stop hook's seen-id dedup
-  guarantees re-deliveries are never double-processed.
+  summary as a small recap turn (config-toggleable). Push and pull can never both hand
+  over the same message: the inbox pull *takes* (queued → delivered in one transaction),
+  and a push that loses that race is simply not re-marked.
 - **Delivered-but-lost.** If a session crashed *after* a delivery was acknowledged, the
   message is `delivered` but the new session has no memory of it. The recap plus the
   `courtyard_inbox` pull tool cover this — history is always re-readable from the hub.
@@ -366,13 +368,16 @@ Anything that can do these five things can join the courtyard; this is the plugg
 |---|---|---|
 | `attach` | adapter → hub | `POST /api/agents/{id}/attach` (bearer token) with channel endpoint + channel token |
 | `send` | adapter → hub | `POST /api/lines/send` — returns delivered / pending-gate / turn-violation, which the adapter surfaces verbatim to its agent |
-| `receive` | hub → adapter | HTTP POST to the channel endpoint → adapter delivers it to its agent as a conversation turn |
-| `pull` (fallback) | adapter → hub | `GET /api/agents/{id}/inbox?after=<seq>` — undelivered messages |
+| `receive` | hub → adapter | HTTP POST to the channel endpoint → adapter presents the hub-rendered envelope (`rendered`, §7.5) to its agent as a conversation turn |
+| `pull` (fallback) | adapter → hub | `GET /api/agents/{id}/inbox` — takes undelivered messages, rendered the same way |
+| `peers` | adapter → hub | `GET /api/agents/{id}/peers` — who the agent can talk to, ranked, trimmed and worded by the hub; the adapter forwards the text |
 | `heartbeat` / `detach` | adapter → hub | periodic POST; clean detach at session end |
 
 A shared Python client library (`courtyard.common.client`) implements the hub side of this
 contract once; the Claude Code adapter and the puppet both use it. The pi extension
-re-implements it in TypeScript against the same HTTP API.
+re-implements it in TypeScript against the same HTTP API. Everything model-facing — the
+envelope, the peers wording — is rendered by the hub, so that re-implementation is
+transport, not judgement (D14).
 
 ### 7.2 Claude Code adapter (v1)
 
@@ -381,7 +386,7 @@ All through official extension points — Claude Code itself is untouched:
 - **One MCP stdio server** (`courtyard-claude-mcp`, Python, from our package), configured in
   the agent's project `.mcp.json`. It runs inside the agent's Claude Code session and:
   - exposes tools: `courtyard_send(to, message)`, `courtyard_inbox()`,
-    `courtyard_peers()` (who's on the board);
+    `courtyard_peers()` (who's on the board — ranked and worded by the hub, forwarded as-is);
   - attaches to the hub once the MCP handshake completes (env: `COURTYARD_HUB_URL`,
     `COURTYARD_AGENT_NAME` or `COURTYARD_AGENT_ID`, `COURTYARD_TOKEN` — placed by the invite
     installer). Attach waits for `notifications/initialized`: the hub pushes the queued
@@ -395,15 +400,9 @@ All through official extension points — Claude Code itself is untouched:
     `ping`), and the channel notification is a Claude-Code extension that the SDKs' typed
     notification unions do not model. Zero new dependencies (D11). stdout carries protocol
     only; diagnostics go to stderr, which Claude Code records per session.
-- **Stop hook** (`courtyard-claude-hook`, reads JSON on stdin, writes JSON on stdout): when the
-  agent is about to go idle with unread courtyard messages, return
-  `{"decision": "block", "systemMessage": "<the message(s)>"}` so the agent processes its
-  inbox. Loop-safe via `stop_hook_active`, and bounded anyway by Claude Code's override after
-  eight consecutive blocks. **Unread state is read from the hub API, never from a local file**
-  (architect's decision, 2026-08-20): spike 6a showed an agent reading its own mailbox file
-  while working the directory, and the hub's inbox is already the source of truth.
-- **The authority-graded envelope** (§7.5). Every delivered body is wrapped, on channel
-  deliveries, inbox pulls, and Stop-hook wake alike:
+- **The authority-graded envelope** (§7.5) is rendered by the hub and arrives as
+  `Message.rendered` on channel pushes and inbox pulls alike; the adapter presents it
+  verbatim:
 
   ```
   <courtyard-message from="infra" authority="domain-owner" kind="message" seq="12" id="…">
@@ -415,6 +414,13 @@ All through official extension points — Claude Code itself is untouched:
   </courtyard-message>
   ```
 
+- **No Stop hook (D14).** Spike 6a verified Claude Code's Stop hook as an end-of-turn
+  delivery backstop; it is deliberately not installed. Its only unique coverage — the
+  adapter crashed while the session lives, or the channel silently dropping events — is
+  visible from the hub (a stale channel, a line stuck in `awaiting_reply`) and is the
+  operator's to fix, which for one operator and a handful of agents is a cheaper contract
+  than a second agent-side mechanism per agent type. Reversible at zero hub cost: the hook
+  would only consume `GET /inbox`, which already takes-and-marks.
 - **Invite installer** (`courtyard-invite --type claude-code --name coding --workdir …`):
   creates the hub registration + token, writes `.mcp.json` (merge, with backup) and the Stop
   hook into the *project-level* `.claude/settings.json` of the agent's workdir, prints the
@@ -524,6 +530,10 @@ Two properties hold regardless of grade:
    the delivery mechanism itself "injection" (§3).
 2. **The grade is never sender-claimed.** It is derived from the hub's own record of who
    sent what, so an agent cannot promote its own message.
+3. **The hub renders it.** The envelope is built once, hub-side, and shipped as
+   `Message.rendered` on every agent-facing delivery; adapters present it verbatim. The hub
+   is the only party that knows the sender's role and both declared domains, and one
+   rendering means one contract for every agent type (D14).
 
 **v1 limit, stated plainly.** `operator` is exactly as strong as the hub's integrity plus
 the localhost trust model (D3): the operator endpoints are unauthenticated, so anything that
@@ -689,8 +699,7 @@ cbx-agent-courtyard/
 ├── Makefile                        # make run / test / demo / lint
 ├── pyproject.toml                  # one project; entry points:
 │                                   #   courtyard-hub, courtyard-puppet,
-│                                   #   courtyard-claude-mcp, courtyard-claude-hook,
-│                                   #   courtyard-invite
+│                                   #   courtyard-claude-mcp, courtyard-invite
 ├── .gitignore                      # .venv/, __pycache__/ …
 ├── docker-compose.yml              # postgres (always) + hub (profile: live) — §9.4
 ├── Dockerfile                      # hub image for live mode
@@ -702,11 +711,11 @@ cbx-agent-courtyard/
 │   ├── hub/
 │   │   ├── main.py                 # app assembly, config, 127.0.0.1 binding
 │   │   ├── api/                    # REST routes + SSE endpoint (thin; no logic)
-│   │   ├── core/                   # registry, lines, turn machine, gate/Approver, deliver()
+│   │   ├── core/                   # registry, lines, turns, gate/Approver, deliver(), envelope, peers
 │   │   ├── storage/                # repository interfaces, postgres backend, migrations/
 │   │   └── launch/                 # launch profiles, L1 terminal spawn (macOS)
 │   ├── adapters/
-│   │   └── claude_code/            # MCP stdio server, stop hook, invite installer
+│   │   └── claude_code/            # MCP stdio server (thin, D14), install
 │   └── puppet/                     # fake agent (echo / script / manual)
 ├── webui/                          # static: index.html, css/, js/ (ES modules, no build)
 ├── adapters-js/
@@ -732,7 +741,8 @@ cbx-agent-courtyard/
 | D11 | One Python package, multiple entry points; adapters installed by config, zero-fork | **Accepted** (architect, 2026-08-18) | §12, §7.2 |
 | D12 | Deployment = docker compose: dev_mode (postgres container + app from disk), live_mode (hub + postgres containers) | **Accepted** (architect, 2026-08-18) | §9.4 |
 | D13 | Migrations: forward-only numbered plain-SQL files + the ~40-line custom runner (startup-applied, one tx per file); no migration tool, no down-migrations in v1. Recovery = new forward migration; dev data is disposable (`make db-nuke`), precious data gets `pg_dump` first | **Accepted** (architect, 2026-08-19) | Reviewed Flyway/Liquibase/Prisma/Alembic/yoyo/pgroll — all re-buy what we have at this scale. Revisit triggers: a second deployed environment; parallel dev colliding on numbers (→ yoyo); zero-downtime v2 service (→ pgroll). Format imports into Flyway/yoyo nearly as-is, so no lock-in |
-| D-spike | Claude adapter delivery stack (spike 6a, verified on Claude Code 2.1.237): **(1) channels** — MCP stdio server with the `claude/channel` experimental capability pushes `notifications/claude/channel` events that arrive as live turns; primary mechanism for open sessions (events queue while busy per docs). **(2) Stop hook** — backstop at end-of-turn; emits both `systemMessage` and `reason`; loop-guarded by `stop_hook_active` + Claude Code's 8-consecutive-block override; unread state queried from the **hub API only**, no local mailbox/state files. **(3) `claude -p --resume <name>`** — context-preserving delivery/wake for **closed** sessions only: delivering into an open session forks the transcript tree and orphans the delivered branch (verified empirically). Adapter = one stdio MCP server per agent (channels are stdio-only), exposing the courtyard tools on the same server | **Verified by spike** (architect ran all three experiments, 2026-08-20) | Spike code + full results: `spikes/6a-delivery/`. Operational note: while channels are in research preview, launch commands need `--dangerously-load-development-channels server:courtyard` and a per-start consent screen; the preview contract may change — pin the Claude Code version in the launch profile if it drifts. Bonus finding: the delivered-content-is-data framing (now graded, §7.5) held at the `instructions` level (agent refused a redirect attempt) |
+| D-spike | Claude adapter delivery stack (spike 6a, verified on Claude Code 2.1.237): **(1) channels** — MCP stdio server with the `claude/channel` experimental capability pushes `notifications/claude/channel` events that arrive as live turns; primary mechanism for open sessions (events queue while busy per docs). **(2) Stop hook** — backstop at end-of-turn; emits both `systemMessage` and `reason`; loop-guarded by `stop_hook_active` + Claude Code's 8-consecutive-block override; unread state queried from the **hub API only**, no local mailbox/state files. **(3) `claude -p --resume <name>`** — context-preserving delivery/wake for **closed** sessions only: delivering into an open session forks the transcript tree and orphans the delivered branch (verified empirically). Adapter = one stdio MCP server per agent (channels are stdio-only), exposing the courtyard tools on the same server | **Verified by spike** (architect ran all three experiments, 2026-08-20) | Spike code + full results: `spikes/6a-delivery/`. Operational note: while channels are in research preview, launch commands need `--dangerously-load-development-channels server:courtyard` and a per-start consent screen; the preview contract may change — pin the Claude Code version in the launch profile if it drifts. Bonus finding: the delivered-content-is-data framing (now graded, §7.5) held at the `instructions` level (agent refused a redirect attempt). **Adoption (D14):** (1) primary; (3) reserved as an operator action; (2) verified but not installed in v1 |
+| D14 | **Minimal agent-side footprint — one MCP server + the launch flag, nothing else; no Stop hook in v1.** Whatever can live in the hub does: the authority envelope is rendered hub-side (`Message.rendered`), peer discovery is ranked/trimmed/worded hub-side (`GET /peers`), and blue-moon delivery failures are shown to the operator on the board instead of being patched agent-side. Hub→agent delivery = channel push to open sessions + backlog on attach + heartbeat-driven pull; a closed session's mail waits (durably `queued`) until the operator reopens its terminal — resume-wake is an operator action, never a hub reflex | **Accepted** (architect, 2026-08-20) | Every agent-side mechanism is one more thing to port per agent type. The Stop hook's unique coverage (adapter crashed while the session lives; channel silently broken) is hub-detectable — stale channel, line stuck in `awaiting_reply` — and operator-fixable; it cannot confirm model-read any better than the channel; and it is reversible at zero hub cost (`GET /inbox` already takes-and-marks). **Open fact, on the v1 acceptance checklist:** a channel event queued while the agent is busy must start a turn by itself when the turn ends (docs say so; spike A never exercised it). Turn-taking is per line, so busy-arrival is routine — fan-in from other lines, the operator's own terminal tasks — and if the fact fails, the hook is the only fix. Automatic `-p --resume` rejected for now: without a clean detach the hub cannot tell "closed" from "adapter crashed, session open" (and the latter forks — spike C); headless turns cannot be prompted for tool permissions; it is a host-side spawn that 6f's container cannot do |
 
 ## 14. Risks and required spikes
 
@@ -744,10 +754,14 @@ cbx-agent-courtyard/
    follow-up thoughts). The synchronous turn-violation error is designed to be
    LLM-legible; if it still fights the models, the relief valve is a per-line
    "batch" convention (one message, multiple sections), not loosening the invariant.
-3. **Delivery UX** — a message delivered mid-task interrupts the receiving agent's work. The
-   Stop-hook path (deliver when idle) may in practice be the *better default*, with channel
-   push reserved for operator-urgent messages. Evaluate during step 6; the design supports
-   either as policy without structural change.
+3. **Busy-agent delivery** — turn-taking is per line, so messages routinely arrive while an
+   agent is busy on another line or on a task typed into its own terminal. Channels queue
+   such events and, per the docs, start a turn when the current one ends; nothing
+   interrupts mid-turn (stopping a rogue agent is the terminal's job). That queued event
+   starting a turn *by itself* is the one unverified fact behind D14 and is on the v1
+   acceptance checklist: give an agent a 60-second task, message it from the board, watch
+   whether it answers unprompted. If it does not, the Stop hook is the fix — verified in
+   6a, adoptable with no hub change.
 4. **macOS-only L1** — acceptable (target machine is a Mac); Linux terminal spawn is a small
    additive later.
 

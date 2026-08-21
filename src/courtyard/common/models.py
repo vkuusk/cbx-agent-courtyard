@@ -73,6 +73,10 @@ class Message(BaseModel):
     sender_type: AgentType | None = None
     sender_sme_domain: str | None = None
     recipient_sme_domain: str | None = None
+    # filled by the hub on every agent-facing delivery (channel push, inbox pull): the
+    # authority-graded envelope (design §7.5), ready for the model verbatim. Absent on
+    # operator-facing reads (board, line history), which show the raw body.
+    rendered: str | None = None
 
 
 class Channel(BaseModel):
@@ -95,6 +99,15 @@ class PeerInfo(BaseModel):
     description: str | None = None
     sme_domain: str | None = None
     status: AgentStatus
+
+
+class PeersView(BaseModel):
+    """`GET /agents/{me}/peers`: who an agent can talk to, reachable first and trimmed, with
+    the model-facing rendering done hub-side so adapters only forward it (D14)."""
+
+    peers: list[PeerInfo]
+    total: int  # live registrations before trimming
+    rendered: str
 
 
 class LineSummary(BaseModel):

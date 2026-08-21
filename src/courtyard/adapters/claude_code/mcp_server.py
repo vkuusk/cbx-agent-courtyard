@@ -11,6 +11,10 @@ One stdio MCP server per agent, spawned by Claude Code from the agent's project
 * **a hub adapter** — attaches with a channel endpoint + channel token, heartbeats, and
   detaches at session end, exactly like the puppet has done since step 2.
 
+It is deliberately thin (D14): the authority-graded envelope and the peers listing are
+rendered by the hub and arrive as text; this process forwards them and never re-derives
+them. A new agent type ports the forwarding, not the judgement.
+
 The MCP wire protocol is JSON-RPC 2.0 over newline-delimited stdio. It is implemented
 here directly rather than through an SDK: the surface we need is five methods, and the
 channel notification is a Claude-Code-specific extension that the typed SDK unions do
@@ -31,7 +35,6 @@ from typing import Any
 
 import httpx
 
-from courtyard.adapters.claude_code.wrapping import wrap, wrap_all
 from courtyard.common.client import DEFAULT_HUB_URL, ChannelReceiver, HubClient, HubError
 from courtyard.common.models import Message
 
@@ -39,8 +42,6 @@ logger = logging.getLogger("courtyard.adapter")
 
 SERVER_NAME = "courtyard"
 SERVER_VERSION = "0.1.0"
-PEER_LIMIT = 25  # a real courtyard holds a handful of agents; this only trims dev clutter
-_LIVENESS_ORDER = {"connected": 0, "stale": 1, "invited": 2, "gone": 3}
 FALLBACK_PROTOCOL_VERSION = "2025-06-18"
 CHANNEL_NOTIFICATION = "notifications/claude/channel"
 
@@ -277,7 +278,7 @@ class CourtyardAdapter:
                 "jsonrpc": "2.0",
                 "method": CHANNEL_NOTIFICATION,
                 "params": {
-                    "content": wrap(message),
+                    "content": _present(message),
                     # meta keys become <channel> attributes; identifiers only
                     "meta": {
                         "from": message.sender_name or "hub",
@@ -388,32 +389,23 @@ class CourtyardAdapter:
         messages = self._client.inbox()
         if not messages:
             return _tool_result("No unread courtyard messages.")
-        return _tool_result(wrap_all(messages))
+        return _tool_result("\n".join(_present(m) for m in messages))
 
     def _tool_peers(self, _arguments: dict) -> dict:
-        me = self._config.agent
-        peers = [
-            a
-            for a in self._client.agents()
-            if a.removed_at is None and me not in (a.name, str(a.id))
-        ]
-        if not peers:
-            return _tool_result("You are the only agent on this courtyard board.")
-        # Reachable agents first: this is a tool the model reads to decide whom to ask,
-        # so a long tail of long-dead registrations is noise it pays context for.
-        peers.sort(key=lambda a: (_LIVENESS_ORDER.get(a.status, 9), a.name))
-        shown, hidden = peers[:PEER_LIMIT], peers[PEER_LIMIT:]
-        lines = [
-            f"{a.name} — {a.type}, {a.status}"
-            + (f" — owns: {a.sme_domain}" if a.sme_domain else "")
-            + (f" — {a.description}" if a.description else "")
-            for a in shown
-        ]
-        if hidden:
-            lines.append(f"(and {len(hidden)} more registrations that have not been active)")
-        return _tool_result(
-            "Agents on the courtyard board (send with courtyard_send):\n" + "\n".join(lines)
-        )
+        # Ranked, trimmed and worded by the hub (D14); shown to the model as-is.
+        return _tool_result(self._client.peers().rendered)
+
+
+def _present(message: Message) -> str:
+    """What the model sees: the hub-rendered authority envelope (§7.5), verbatim.
+
+    A message without one can only come from a hub older than this adapter; the bare body
+    is then the lesser evil — a delivery is never dropped over framing.
+    """
+    if message.rendered is None:
+        logger.warning("message %s arrived without a rendered envelope", message.id)
+        return message.body
+    return message.rendered
 
 
 def _tool_result(text: str, is_error: bool = False) -> dict:

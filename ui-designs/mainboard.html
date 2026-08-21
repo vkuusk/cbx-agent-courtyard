@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MainBoard — courtyard UI prototype (7a)</title>
+<style>
+/* Tokens copied from webui/style.css so an approved layout ports over mechanically. */
+:root {
+  --bg: #f5f6f8; --surface: #ffffff; --text: #1d2531; --muted: #677181;
+  --border: #e2e6ec; --green: #2e9e6b; --amber: #c07f14; --amber-bg: #fdf4e2;
+  --blue: #3b6fd4; --blue-bg: #eef3fd; --red: #c04545; --grey-bg: #eef0f3;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+       font: 15px/1.45 system-ui, -apple-system, sans-serif; }
+
+/* ---- prototype scaffolding (NOT part of the design) ---- */
+.proto-bar {
+  display: flex; align-items: center; gap: .6rem; flex-wrap: wrap;
+  background: #20262e; color: #d6e2f0; padding: .5rem 1.4rem; font-size: .82rem;
+}
+.proto-bar strong { color: #ffd479; font-weight: 600; letter-spacing: .02em; }
+.proto-bar button {
+  font: inherit; padding: .2rem .7rem; border-radius: 6px; cursor: pointer;
+  border: 1px solid #3a444f; background: #2b333d; color: #d6e2f0;
+}
+.proto-bar button[aria-pressed="true"] { background: #d6e2f0; color: #20262e; border-color: #d6e2f0; }
+
+/* ---- top bar ---- */
+.topbar {
+  display: flex; align-items: center; gap: 1.5rem; padding: .7rem 1.4rem;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+}
+.brand { font-weight: 650; }
+.topbar nav { display: flex; gap: .25rem; }
+.topbar nav a {
+  color: var(--muted); text-decoration: none; padding: .3rem .75rem;
+  border-radius: 6px; font-weight: 500;
+}
+.topbar nav a.active { color: var(--text); background: var(--grey-bg); }
+.conn { margin-left: auto; display: flex; align-items: center; gap: .45rem;
+        color: var(--muted); font-size: .85rem; }
+
+main { max-width: 62rem; margin: 1.4rem auto; padding: 0 1.25rem; }
+
+/* ---- shared ---- */
+.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block;
+       background: #b9c1cb; flex: none; }
+.dot.connected, .dot.live { background: var(--green); }
+.dot.stale { background: var(--amber); }
+.dot.gone { background: #b9c1cb; }
+.pill { display: inline-block; padding: .05rem .55rem; border-radius: 999px;
+        font-size: .75rem; font-weight: 600; white-space: nowrap; }
+.pill.supervised { background: var(--amber-bg); color: var(--amber); }
+.pill.auto_pass { background: #e6f5ee; color: var(--green); }
+.pill.unread { background: var(--blue-bg); color: var(--blue); }
+.muted { color: var(--muted); }
+.small { font-size: .85rem; }
+button {
+  font: inherit; padding: .35rem .9rem; border-radius: 7px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); cursor: pointer;
+}
+button:hover { background: var(--grey-bg); }
+button.primary { background: var(--text); color: #fff; border-color: var(--text); }
+button.approve { background: var(--green); border-color: var(--green); color: #fff; }
+button.danger { color: var(--red); }
+input, select, textarea {
+  font: inherit; padding: .35rem .6rem; border: 1px solid var(--border);
+  border-radius: 7px; background: var(--surface); color: var(--text);
+}
+
+/* ---- team strip ---- */
+.team {
+  display: flex; align-items: center; gap: .6rem; flex-wrap: wrap;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  padding: .55rem .8rem; margin-bottom: 1.3rem;
+}
+.team-label { font-size: .72rem; text-transform: uppercase; letter-spacing: .05em;
+              color: var(--muted); font-weight: 600; margin-right: .2rem; }
+.chip { display: flex; align-items: center; gap: .45rem; padding: .25rem .7rem;
+        border-radius: 999px; background: var(--grey-bg); font-size: .88rem; }
+.chip .name { font-weight: 600; }
+.chip .owns { color: var(--muted); font-size: .82rem; }
+.team .spacer { margin-left: auto; }
+
+.composer-panel {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  padding: .8rem 1rem; margin: -0.7rem 0 1.3rem;
+}
+.composer-panel .row { display: flex; gap: .5rem; align-items: flex-start; }
+.composer-panel textarea { flex: 1; resize: vertical; }
+
+/* ---- groups ---- */
+.group { margin-bottom: 1.6rem; }
+.group-head {
+  display: flex; align-items: center; gap: .5rem; margin: 0 0 .7rem;
+  font-size: .74rem; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); font-weight: 700;
+}
+.group-head .rule { flex: 1; height: 1px; background: var(--border); }
+
+/* ---- line cards ---- */
+.card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  padding: .8rem 1.05rem; margin-bottom: .6rem; cursor: pointer;
+}
+.card:hover { border-color: #c8d0da; }
+.card.attention { border-left: 3px solid var(--amber); }
+.card.attention.unread-line { border-left-color: var(--blue); }
+.card.attention.health-line { border-left-color: var(--red); }
+.card-head { display: flex; align-items: center; gap: .8rem; }
+.pair { font-weight: 600; display: flex; align-items: center; gap: .45rem; }
+.pair .vs { color: var(--muted); font-weight: 400; }
+.card-meta { margin-left: auto; display: flex; align-items: center; gap: .6rem; }
+.reason { font-size: .88rem; margin-top: .35rem; }
+.reason.gate { color: var(--amber); font-weight: 600; }
+.reason.unread { color: var(--blue); font-weight: 600; }
+.reason.idle { color: var(--muted); }
+
+.quote {
+  margin: .5rem 0 0; padding: .55rem .8rem; border-radius: 8px;
+  background: var(--amber-bg); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.quote.plain { background: var(--grey-bg); }
+.quote .who { font-weight: 650; margin-right: .4rem; }
+
+.controls { display: flex; gap: .5rem; margin-top: .6rem; flex-wrap: wrap; }
+.controls input { flex: 1; min-width: 12rem; font-size: .85rem; }
+.controls button { font-size: .85rem; white-space: nowrap; }
+
+.health {
+  display: flex; align-items: center; gap: .45rem; margin-top: .45rem;
+  font-size: .85rem; color: var(--red);
+}
+.health .icon { font-size: .9rem; }
+.health .fix { margin-left: .3rem; }
+
+/* compact rows for quiet + inactive */
+.card.quiet { display: flex; align-items: center; gap: 1rem; padding: .65rem 1.05rem; }
+.card.quiet .card-meta { margin-left: auto; }
+.inactive-toggle {
+  background: none; border: none; color: var(--muted); font-size: .85rem;
+  padding: .3rem 0; cursor: pointer;
+}
+.inactive-toggle:hover { background: none; color: var(--text); }
+.inactive-list .card { opacity: .55; }
+
+.empty {
+  color: var(--muted); background: var(--surface); border: 1px dashed var(--border);
+  border-radius: 10px; padding: 2.2rem; text-align: center;
+}
+.empty h3 { margin: 0 0 .5rem; color: var(--text); font-size: 1rem; }
+.empty ol { display: inline-block; text-align: left; margin: .8rem 0 0; padding-left: 1.2rem; }
+.empty li { margin: .25rem 0; }
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<div class="proto-bar">
+  <strong>PROTOTYPE</strong> 7a MainBoard · layout only, no hub attached · state:
+  <button data-state="first" aria-pressed="false">first run</button>
+  <button data-state="running" aria-pressed="true">quickstart running</button>
+  <button data-state="trouble" aria-pressed="false">trouble</button>
+</div>
+
+<header class="topbar">
+  <div class="brand">Agent Courtyard</div>
+  <nav>
+    <a href="#" class="active">MainBoard</a>
+    <a href="#">Agents</a>
+    <a href="#">Admin</a>
+  </nav>
+  <div class="conn"><span class="dot live"></span>live</div>
+</header>
+
+<main>
+
+  <!-- ============ FIRST RUN ============ -->
+  <div data-view="first" class="hidden">
+    <div class="team">
+      <span class="team-label">team</span>
+      <span class="muted small">no agents registered yet</span>
+    </div>
+    <div class="empty">
+      <h3>Your courtyard is empty</h3>
+      <div>Register the agents you want to talk to each other, then start them in their own terminals.</div>
+      <ol>
+        <li>Add an agent on the <strong>Agents</strong> page — name it, say what it owns.</li>
+        <li>Let the hub write its <code>.mcp.json</code>, or copy the config yourself.</li>
+        <li>Start it in its project directory; its dot turns green here.</li>
+      </ol>
+      <div style="margin-top:1.2rem"><button class="primary">Add your first agent →</button></div>
+    </div>
+  </div>
+
+  <!-- ============ QUICKSTART RUNNING ============ -->
+  <div data-view="running">
+    <div class="team">
+      <span class="team-label">team</span>
+      <span class="chip"><span class="dot connected"></span><span class="name">main-admin</span>
+        <span class="owns">the admin workbench</span></span>
+      <span class="chip"><span class="dot connected"></span><span class="name">infra-claude</span>
+        <span class="owns">infrastructure &amp; terraform</span></span>
+      <span class="spacer"></span>
+      <button class="js-compose">message an agent…</button>
+    </div>
+
+    <div class="composer-panel hidden js-composer">
+      <div class="row">
+        <select><option>main-admin</option><option>infra-claude</option></select>
+        <textarea rows="2" placeholder="your message… (Ctrl/Cmd+Enter to send)"></textarea>
+        <button class="primary">send</button>
+      </div>
+    </div>
+
+    <section class="group">
+      <h2 class="group-head">Needs you <span>2</span><span class="rule"></span></h2>
+
+      <article class="card attention">
+        <div class="card-head">
+          <div class="pair"><span class="dot connected"></span>main-admin
+            <span class="vs">↔</span><span class="dot connected"></span>infra-claude</div>
+          <div class="card-meta">
+            <span class="pill supervised">supervised</span>
+            <span class="muted small">2m ago</span>
+          </div>
+        </div>
+        <div class="reason gate">held at the gate</div>
+        <blockquote class="quote"><span class="who">main-admin</span>Could you list the files in your working directory? The operator wants to know what's in infra-claude's project.</blockquote>
+        <div class="controls">
+          <input placeholder="optional note (approve: sent as an operator note; return/reject: the reason)">
+          <button class="approve">approve</button>
+          <button>return to sender</button>
+          <button class="danger">reject</button>
+        </div>
+      </article>
+
+      <article class="card attention unread-line">
+        <div class="card-head">
+          <div class="pair"><span class="dot connected"></span>operator
+            <span class="vs">↔</span><span class="dot connected"></span>main-admin</div>
+          <div class="card-meta">
+            <span class="pill unread">1 unread</span>
+            <span class="muted small">just now</span>
+          </div>
+        </div>
+        <blockquote class="quote plain"><span class="who">main-admin</span>Done — infra-claude reports 3 files: main.tf, variables.tf, README.md</blockquote>
+      </article>
+    </section>
+
+    <section class="group">
+      <h2 class="group-head">Quiet <span>1</span><span class="rule"></span></h2>
+      <article class="card quiet">
+        <div class="pair"><span class="dot connected"></span>operator
+          <span class="vs">↔</span><span class="dot connected"></span>infra-claude</div>
+        <span class="reason idle">idle</span>
+        <div class="card-meta">
+          <span class="pill auto_pass">no gate</span>
+          <span class="muted small">1h ago</span>
+        </div>
+      </article>
+    </section>
+
+    <button class="inactive-toggle js-inactive">▸ show inactive lines (5)</button>
+    <div class="inactive-list hidden js-inactive-list" style="margin-top:.6rem">
+      <article class="card quiet"><div class="pair"><span class="dot gone"></span>coding-86875
+        <span class="vs">↔</span><span class="dot gone"></span>infra-86875</div>
+        <span class="reason idle">both agents removed</span>
+        <div class="card-meta"><span class="muted small">48m ago</span></div></article>
+      <article class="card quiet"><div class="pair"><span class="dot gone"></span>coding-86537
+        <span class="vs">↔</span><span class="dot gone"></span>infra-86537</div>
+        <span class="reason idle">both agents removed</span>
+        <div class="card-meta"><span class="muted small">54m ago</span></div></article>
+      <div class="muted small" style="padding:.4rem .2rem">…and 3 more · clear these on the
+        <strong>Admin</strong> page</div>
+    </div>
+  </div>
+
+  <!-- ============ TROUBLE ============ -->
+  <div data-view="trouble" class="hidden">
+    <div class="team">
+      <span class="team-label">team</span>
+      <span class="chip"><span class="dot connected"></span><span class="name">main-admin</span>
+        <span class="owns">the admin workbench</span></span>
+      <span class="chip"><span class="dot gone"></span><span class="name">infra-claude</span>
+        <span class="owns">infrastructure &amp; terraform</span></span>
+      <span class="spacer"></span>
+      <button class="js-compose">message an agent…</button>
+    </div>
+
+    <section class="group">
+      <h2 class="group-head">Needs you <span>2</span><span class="rule"></span></h2>
+
+      <article class="card attention health-line">
+        <div class="card-head">
+          <div class="pair"><span class="dot connected"></span>main-admin
+            <span class="vs">↔</span><span class="dot gone"></span>infra-claude</div>
+          <div class="card-meta">
+            <span class="pill supervised">supervised</span>
+            <span class="muted small">12m ago</span>
+          </div>
+        </div>
+        <div class="health">
+          <span class="icon">▲</span> infra-claude is offline · 2 messages waiting
+          <span class="fix muted small">— restart it in ~/admins-workbench/infra-claude</span>
+        </div>
+      </article>
+
+      <article class="card attention health-line">
+        <div class="card-head">
+          <div class="pair"><span class="dot connected"></span>operator
+            <span class="vs">↔</span><span class="dot connected"></span>main-admin</div>
+          <div class="card-meta">
+            <span class="muted small">25m ago</span>
+          </div>
+        </div>
+        <div class="health">
+          <span class="icon">▲</span> no reply from main-admin for 25m
+          <span class="fix"><button style="padding:.15rem .6rem;font-size:.8rem">release the line</button></span>
+        </div>
+      </article>
+    </section>
+
+    <section class="group">
+      <h2 class="group-head">Quiet <span>1</span><span class="rule"></span></h2>
+      <article class="card quiet">
+        <div class="pair"><span class="dot connected"></span>operator
+          <span class="vs">↔</span><span class="dot gone"></span>infra-claude</div>
+        <span class="reason idle">idle</span>
+        <div class="card-meta">
+          <span class="pill auto_pass">no gate</span>
+          <span class="muted small">3h ago</span>
+        </div>
+      </article>
+    </section>
+  </div>
+
+</main>
+
+<script>
+// Prototype-only wiring: state switching and the two disclosure toggles.
+const show = (state) => {
+  document.querySelectorAll("[data-view]").forEach((v) =>
+    v.classList.toggle("hidden", v.dataset.view !== state));
+  document.querySelectorAll(".proto-bar button").forEach((b) =>
+    b.setAttribute("aria-pressed", String(b.dataset.state === state)));
+};
+document.querySelectorAll(".proto-bar button").forEach((b) =>
+  b.addEventListener("click", () => show(b.dataset.state)));
+
+document.querySelectorAll(".js-compose").forEach((b) =>
+  b.addEventListener("click", () => {
+    const panel = b.closest("[data-view]").querySelector(".js-composer");
+    panel?.classList.toggle("hidden");
+  }));
+
+document.querySelectorAll(".js-inactive").forEach((b) =>
+  b.addEventListener("click", () => {
+    const list = b.closest("[data-view]").querySelector(".js-inactive-list");
+    const open = list.classList.toggle("hidden") === false;
+    b.textContent = (open ? "▾ hide" : "▸ show") + " inactive lines (5)";
+  }));
+</script>
+</body>
+</html>

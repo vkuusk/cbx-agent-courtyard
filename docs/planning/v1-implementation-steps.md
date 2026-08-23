@@ -266,37 +266,6 @@ wherever this step's design puts it.
 
 ---
 
-## Post-v1 parking lot (explicitly not now)
-
-- Orchestrator-agent approver behind the `Approver` interface (design D10).
-- **Automated policy reviewer** (design §7.5, the `policy` authority grade): a pluggable
-  filter in the delivery path — scripted, LLM, or small local model — that reads every
-  message and blocks security-policy violations or regulated content (PHI and the like).
-  Ranks *above* the operator on purpose: a compliance rule the human can wave away is not
-  one. Board-wide rather than per-line, and a toggle, because reviewing every message costs
-  latency on every exchange. The grade and its envelope wording already exist; the reviewer
-  does not.
-- **Stop hook as an end-of-turn delivery backstop** (verified in spike 6a, not adopted —
-  design D14). Adapter-side only; needs no hub change because `GET /inbox` already
-  takes-and-marks. The trigger to revisit: the v1-acceptance check that a channel event
-  queued while an agent is busy starts a turn by itself — if it does not, this is the fix.
-- **Headless resume-wake button** (`claude -p --resume <name>` from the board, for a
-  *closed* agent with mail waiting). Operator-triggered, never automatic (D14). Needs a
-  mini-spike first: does `-p` load the project's `.mcp.json` server so the woken agent can
-  `courtyard_send`, and what do tool permissions do without a human to prompt?
-- **pi-coding-agent adapter** (was step 7): TypeScript extension implementing the same
-  adapter contract (§7.1) against the unchanged hub API — the pluggability proof.
-  v1 is Claude Code only (architect, 2026-08-20, D16; the §7.3 sketch was removed with it).
-- **Launch L1** (was 6e): macOS `osascript` terminal spawn from the UI. (Where the resume
-  command is *shown* is step-7 design territory; the spawn itself is parked.)
-- **Live mode** (was 6f): hub `Dockerfile` + compose profile `live` (hub + postgres in
-  containers, hub on `127.0.0.1:2626`); `make live-up` / `make live-down`.
-- Ed25519 read-time verification if agents ever span machines (design D3).
-- Memory subsystem (jsonl indexing, local embeddings, extraction prompt with
-  dedup-and-reinforcement).
-- tmux launch option L2; Linux L1 spawn; Playwright UI test automation; body-edit at gate if
-  step 4 didn't already force it.
-
 ## Step → design traceability
 
 | Step | Proves out (design §) |

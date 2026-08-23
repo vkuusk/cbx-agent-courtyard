@@ -31,12 +31,6 @@ A **central message exchange board** ("hive-mind hub") running locally:
 Courtyard replaces the *relay mechanics* while keeping the *human judgment* — and makes the
 amount of judgment per line an explicit, adjustable dial.
 
-### What Courtyard is not
-
-- **Not cbx-agent-workbench** (`/Volumes/Crucial-P310/work/cbx-agent-workbench`): that project
-  is one orchestrator agent with subagents-as-tools, terminal-only. Courtyard is for **peer
-  agents of comparable capability** (comparable LLMs), each with its own full context, own
-  working directory, and its own relationship with the operator.
 
 ## 2. Goals and non-goals
 

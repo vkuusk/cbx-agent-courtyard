@@ -3,7 +3,7 @@
 
 import { html } from "../../vendor/htm-preact-standalone.module.js";
 import {
-  store, select, setUi, setPanelMax, teamAgents, isOperatorLine, isInactive, hasNewActivity, unreadWith, agentName,
+  store, select, setPanelMax, teamAgents, isOperatorLine, isInactive, hasNewActivity, unreadWith, agentName,
 } from "../store.js";
 import { useStore, fmtAgo, minutesSince } from "../ui.js";
 import { Conversation } from "../conversation.js";
@@ -48,14 +48,14 @@ function AgentCard({ agent }) {
   </button>`;
 }
 
-function Wire({ line, inactive }) {
+function Wire({ line }) {
   const sel = store.ui.selected;
   const selected = sel?.kind === "line" && sel.id === line.id;
-  const s = inactive ? { cls: "idle", label: "a participant was removed" } : wireStatus(line);
+  const s = wireStatus(line);
   const mode = line.mode === "supervised" ? "supervised" : "auto-pass";
   const node = (id, name) =>
     html`<span class="node" data-color=${store.agents.get(id)?.color}><span class="dot ${store.agents.get(id)?.status ?? ""}" />${name ?? agentName(id)}</span>`;
-  return html`<button class="line ${selected ? "selected" : ""} ${inactive ? "inactive" : ""}"
+  return html`<button class="line ${selected ? "selected" : ""}"
       onClick=${() => select({ kind: "line", id: line.id })}>
     ${node(line.agent_a, line.agent_a_name)}
     <span class="wire ${s.cls}"><span class="tag">${s.label}</span>
@@ -113,14 +113,12 @@ const panelStyle = (which) => (store.ui.panels[which] ? `max-height:${store.ui.p
 export function Board() {
   useStore();
   const team = teamAgents();
-  const between = [...store.lines.values()].filter((l) => !isOperatorLine(l));
-  const active = between
-    .filter((l) => !isInactive(l))
+  // Lines of removed agents are archived (design §5.7), so every line here is live.
+  const active = [...store.lines.values()]
+    .filter((l) => !isOperatorLine(l) && !isInactive(l))
     .map((l) => ({ l, rank: wireStatus(l).rank }))
     .sort((x, y) => x.rank - y.rank || recency(y.l).localeCompare(recency(x.l)))
     .map((x) => x.l);
-  const inactive = between.filter(isInactive).sort((x, y) => recency(y).localeCompare(recency(x)));
-  const show = store.ui.showInactive;
 
   return html`
     <div class="board-panel panel-team" style=${panelStyle("team")}>
@@ -131,17 +129,10 @@ export function Board() {
       </div>
     </div>
     <${Resizer} which="team" />
-    ${active.length || inactive.length
+    ${active.length
       ? html`<div class="board-panel panel-lines" style=${panelStyle("lines")}>
           <div class="eyebrow">Lines</div>
-          ${active.length
-            ? html`<div class="lines">${active.map((l) => html`<${Wire} key=${l.id} line=${l} />`)}</div>`
-            : html`<div class="small muted">No active lines — a line appears when two agents first talk.</div>`}
-          ${inactive.length
-            ? html`<button class="inactive-toggle" onClick=${() => setUi({ showInactive: !show })}>
-                  ${show ? "▾ hide" : "▸ show"} inactive lines (${inactive.length})</button>
-                ${show ? html`<div class="lines">${inactive.map((l) => html`<${Wire} key=${l.id} line=${l} inactive />`)}</div>` : null}`
-            : null}
+          <div class="lines">${active.map((l) => html`<${Wire} key=${l.id} line=${l} />`)}</div>
         </div>
         <${Resizer} which="lines" />`
       : null}

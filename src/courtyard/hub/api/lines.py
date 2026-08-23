@@ -8,8 +8,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from courtyard.common.models import Agent, Line, LineMode, Message
-from courtyard.hub.api.deps import get_board, require_agent
+from courtyard.common.models import Agent, Archive, Line, LineMode, Message
+from courtyard.hub.api.deps import get_archiver, get_board, require_agent
+from courtyard.hub.core.archive import Archiver
 from courtyard.hub.core.board import Board
 
 router = APIRouter(prefix="/lines", tags=["lines"])
@@ -72,3 +73,9 @@ def add_note(
 @router.post("/{line_id}/release")
 def release(line_id: UUID, board: Annotated[Board, Depends(get_board)]) -> Line:
     return board.release(line_id)
+
+
+@router.post("/{line_id}/archive")
+def archive(line_id: UUID, archiver: Annotated[Archiver, Depends(get_archiver)]) -> Archive:
+    """Archive the history so far (design §5.7); the line continues, empty and idle."""
+    return archiver.archive_line(line_id)

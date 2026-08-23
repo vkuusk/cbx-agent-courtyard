@@ -128,6 +128,9 @@ it is — agents wait rather than flood.
   affecting whose turn it is.
 - **Release.** If an agent died mid-reply and its line is stuck waiting, **release** in the
   pane header resets it.
+- **Archive.** When a conversation is done, **archive** in the pane header moves its history
+  to the **Archive** page (read it again, export it as JSON) and the line starts empty.
+  Removing an agent archives its lines by itself, so the board only ever shows the team.
 - **Closing a terminal is fine.** Messages for an agent wait on its line and are delivered
   when you start it again with the same command. Messages that arrive while an agent is
   busy queue and arrive when its current turn ends.

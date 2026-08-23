@@ -45,7 +45,7 @@ def config():
 @pytest.fixture()
 def client(config):
     with psycopg.connect(config.database_url, autocommit=True) as conn:
-        conn.execute("TRUNCATE agents, lines, messages, channels CASCADE")
+        conn.execute("TRUNCATE agents, lines, messages, channels, lines_archive CASCADE")
     # TestClient as a context manager runs the lifespan (migrations + operator bootstrap).
     with TestClient(create_app(config)) as c:
         yield c
@@ -56,7 +56,7 @@ def live_hub(config):
     """Factory for a real uvicorn hub on an ephemeral port (step-2 integration tests
     exercise actual HTTP end-to-end: hub pushes to real puppet listeners)."""
     with psycopg.connect(config.database_url, autocommit=True) as conn:
-        conn.execute("TRUNCATE agents, lines, messages, channels CASCADE")
+        conn.execute("TRUNCATE agents, lines, messages, channels, lines_archive CASCADE")
     running: list[tuple[uvicorn.Server, threading.Thread]] = []
 
     def _start(**overrides) -> str:

@@ -11,6 +11,7 @@ import { useStore, Icon } from "./ui.js";
 const off = (chip, placeholder) => ({ chip: { text: chip }, placeholder, disabled: true, hint: "" });
 
 function plan() {
+  if (store.ui.page === "archive") return off("archive", "Archived conversations are read-only");
   if (!teamAgents().length) return off("nobody yet", "Add an agent first…");
   const sel = store.ui.selected;
   if (!sel) return off("pick an agent", "Click an agent to start…");

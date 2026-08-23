@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Request
 
-from courtyard.hub.api import agents, channels, events, gate, lines, operator
+from courtyard.hub.api import agents, archive, channels, events, gate, lines, operator
 from courtyard.hub.core.install import adapter_command
 
 router = APIRouter(prefix="/api")
@@ -30,3 +30,4 @@ router.include_router(lines.router)
 router.include_router(gate.router)
 router.include_router(operator.router)
 router.include_router(events.router)
+router.include_router(archive.router)

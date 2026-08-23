@@ -15,7 +15,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Json
 from psycopg_pool import ConnectionPool
 
-from courtyard.common.models import Agent, Channel, Line, Message
+from courtyard.common.models import Agent, Archive, Channel, Line, Message
 
 _MESSAGE_SELECT = """
 SELECT m.*, sa.name AS sender_name, ra.name AS recipient_name,
@@ -163,6 +163,9 @@ class PgLineRepo:
             (state, awaiting_from, in_flight_msg, line_id),
         )
 
+    def delete(self, line_id: UUID) -> None:
+        self._conn.execute("DELETE FROM lines WHERE id = %s", (line_id,))
+
 
 class PgMessageRepo:
     def __init__(self, conn: Connection):
@@ -260,6 +263,72 @@ class PgMessageRepo:
         )
         return self.get(message_id)
 
+    def delete_line(self, line_id: UUID) -> int:
+        cur = self._conn.execute("DELETE FROM messages WHERE line_id = %s", (line_id,))
+        return cur.rowcount
+
+
+_ARCHIVE_SUMMARY = (
+    "SELECT id, line_id, agent_a, agent_b, agent_a_name, agent_b_name, mode, reason,"
+    " archived_at, first_at, last_at, message_count FROM lines_archive"
+)
+
+
+class PgArchiveRepo:
+    def __init__(self, conn: Connection):
+        self._conn = conn
+
+    def insert(
+        self,
+        *,
+        archive_id,
+        line_id,
+        agent_a,
+        agent_b,
+        agent_a_name,
+        agent_b_name,
+        mode,
+        reason,
+        first_at,
+        last_at,
+        transcript,
+    ) -> Archive:
+        row = self._conn.execute(
+            "INSERT INTO lines_archive (id, line_id, agent_a, agent_b, agent_a_name, agent_b_name,"
+            " mode, reason, first_at, last_at, message_count, transcript)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+            " RETURNING id, line_id, agent_a, agent_b, agent_a_name, agent_b_name, mode, reason,"
+            " archived_at, first_at, last_at, message_count",
+            (
+                archive_id,
+                line_id,
+                agent_a,
+                agent_b,
+                agent_a_name,
+                agent_b_name,
+                mode,
+                reason,
+                first_at,
+                last_at,
+                len(transcript),
+                Json(transcript),
+            ),
+        ).fetchone()
+        return Archive.model_validate(row)
+
+    def list(self) -> list[Archive]:
+        rows = self._conn.execute(_ARCHIVE_SUMMARY + " ORDER BY archived_at DESC").fetchall()
+        return [Archive.model_validate(r) for r in rows]
+
+    def get(self, archive_id: UUID) -> Archive | None:
+        row = self._conn.execute(
+            "SELECT * FROM lines_archive WHERE id = %s", (archive_id,)
+        ).fetchone()
+        return Archive.model_validate(row) if row else None
+
+    def delete(self, archive_id: UUID) -> None:
+        self._conn.execute("DELETE FROM lines_archive WHERE id = %s", (archive_id,))
+
 
 class PgChannelRepo:
     def __init__(self, conn: Connection):
@@ -307,6 +376,7 @@ class PgUnitOfWork:
         self.lines = PgLineRepo(conn)
         self.messages = PgMessageRepo(conn)
         self.channels = PgChannelRepo(conn)
+        self.archives = PgArchiveRepo(conn)
 
 
 class PostgresStorage:

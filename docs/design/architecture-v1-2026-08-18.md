@@ -287,6 +287,37 @@ Two interaction modes, both first-class:
    **a**, **b**, or **both** (operator's choice, default both). Logged in that line's history,
    delivered immediately, no turn effect. This is the "correct/clarify in transit" tool.
 
+### 5.7 Archive — a line's history moved out of the way (D20)
+
+A line's history is the queue (§2) while the line is alive; once it is over, it is a record
+the operator may want to re-read, back up, or discard — and should not dilute the board.
+
+- **An archive is one immutable document**: a row in `lines_archive` holding the line's
+  identity (both participant names and ids, mode), `reason` (`agent_removed` |
+  `operator`), `archived_at`, the time span and message count, and the **transcript as
+  JSON** — every message with its gate verdict and note, exactly as the board showed it.
+  One row per archive keeps backup and cleanup trivial (`pg_dump --table=lines_archive`;
+  `DELETE … WHERE archived_at < …`) and makes offline audit a JSON export, not a join.
+- **Archiving is one transaction**: lock the line, copy its messages into the document,
+  delete them, reset the line to `idle` (an in-flight or held message is archived as it
+  stands — the confirm dialog says so, and says how many undelivered messages go with it),
+  and log a `system` entry on the fresh line ("history archived by the operator, N
+  messages") so an empty pane explains itself.
+- **Automatic on removal.** Removing an agent archives every line it is on (reason
+  `agent_removed`) and **deletes those line rows** — a removed agent's lines can never be
+  used again (its name is permanent, its token revoked), so nothing is lost and the board
+  stops showing "inactive" lines altogether. On startup the hub does the same for lines
+  whose participant was removed before this existed, so the invariant holds everywhere.
+- **On request.** An **Archive** button in the conversation pane header, for inter-agent
+  and operator lines alike: confirm → the history so far is archived, the line continues
+  empty and idle.
+- **Archive page** in the side bar (box icon): the list of archives newest first —
+  participants, reason, when, how many messages, time span — and a read-only transcript in
+  the same conversation style; an **export** action downloads the document as JSON. The
+  input box stays where it always is, disabled: "archived — read only".
+- **Not in v1:** scheduled backup or retention inside the hub (a cron in the operator's
+  hands plus the export is enough for one person), search inside archives.
+
 ## 6. Delivery model
 
 ### 6.1 `deliver()` — one convergent function
@@ -684,7 +715,8 @@ becomes depends on what is selected.
      never hide the lines. Both panels have a grip underneath: drag to set the height
      (remembered per browser; double-click resets), with floors — one row of cards, two
      lines, and a third of the page for the conversation. Each agent-to-agent line drawn as
-     **two name nodes joined by one wire** (nodes in the agents' colours),
+     **two name nodes joined by one wire** (nodes in the agents' colours); lines of removed
+     agents are not here — they are archived (§5.7),
      the wire coloured by status — amber *held at the gate* (needs you), blue *new since
      you looked*, green *waiting for X* (in flight on auto-pass), red *problem* (a
      participant offline with messages waiting; no reply for a long time), grey dashed
@@ -694,8 +726,9 @@ becomes depends on what is selected.
    - **Conversation pane**: the scrollable history of whatever is selected. For an
      agent-to-agent line a **held message shows its approve / return-to-sender / reject
      buttons right there**; the pane header carries a two-state **supervised | auto-pass**
-     switch (the current mode filled in its colour) and the release button, and the input
-     box becomes a note into that line ("note → both"; click to address one side).
+     switch (the current mode filled in its colour), the release button and the **archive**
+     button (§5.7), and the input box becomes a note into that line ("note → both"; click
+     to address one side).
    - **The input box**: a message to the selected agent, or a note into the selected
      line — and, when a held message is on screen, the text that rides along with the
      verdict. Enter sends; while the agent owes a reply the box says so instead of
@@ -703,7 +736,9 @@ becomes depends on what is selected.
 2. **Agents** — the registry: list with liveness, add (→ launch config with the once-only
    token, the 6d install button), remove. Clicking a row selects that agent for the input
    box. (L1 "start" is post-v1, D16.)
-3. **Admin** — the courtyard itself: hub health and configuration, counts; housekeeping
+3. **Archive** — archived line histories (§5.7), newest first; pick one to read it in the
+   conversation style, export it as JSON, or delete it. The input box is disabled here.
+4. **Admin** — the courtyard itself: hub health and configuration, counts; housekeeping
    actions (clearing removed agents and their lines, defaults) are the 7c page.
 
 **Light and dark themes.** Every colour is a token; the dark set applies when the operating
@@ -798,6 +833,7 @@ cbx-agent-courtyard/
 | D17 | **The quickstart is a permanent product feature, and the architect is the acceptance gate.** The quickstart — easy install/start plus one worked example, written up in `docs/quickstart.md` — is the convenience path a new operator follows to start using the courtyard for day-to-day work. It is not a demo and not merely the v1 acceptance scenario. v1 acceptance = the architect running the quickstart as a new operator would and approving; each step-7 page is likewise approved by him after trying it in the browser (agile: proposal → review → implement → approve) | **Accepted** (architect, 2026-08-22) | Corrects the D16-era framing in which the quickstart existed for acceptance. Consequences: `docs/quickstart.md` is a v1 deliverable maintained alongside the pages rather than written once at the end (goal 8, §2), and the WebUI is judged by whether a new operator gets through it unaided (§10) |
 | D18 | **WebUI rendered with Preact + htm, vendored, still no build step; and the approved layout** — collapsible side bar, agent rectangles, lines as two nodes + one colour-coded wire, a conversation pane showing whatever is selected, one input box at the bottom of every page (§10) | **Accepted** (architect, 2026-08-22) | The pain in the vanilla UI was keeping the screen in sync by hand (re-render races, preserved-input hacks), not styling; Preact + htm removes that at the cost of one 13 KB file and no toolchain, keeping D4's spirit. Alternatives weighed: Vue ESM (same benefit, HTML-looking templates, 10× the file), React/Svelte + Vite + Tailwind + shadcn (ready-made blocks, but node + npm + a build step and code the architect cannot read — the sprawl D4 fenced off). Layout choices confirmed by the architect: the pane shows what you clicked; the input box is always in the same place, gate comments included; operator lines are not wires |
 | D19 | **The hub keeps every agent's token; the operator can read an agent's launch config again and rotate its token.** Migration 0006 adds `agents.token` (plaintext) beside the hash; `GET /api/agents/{id}/token`, `POST /api/agents/{id}/token` (rotate: old token refused at once, channel dropped, agent reads as offline until restarted), install and `courtyard-invite` no longer need a token passed in; Agents page gains **launch config** and **rotate token** per agent | **Accepted** (architect, 2026-08-22) | "Personal-use app, definitely not a public SaaS" — the once-only token was a SaaS reflex that cost the operator the ability to re-open a config. Within the D3 threat model (one operator, one machine) a plaintext token in the local database adds nothing an attacker on the machine did not already have. Registrations from before 0006 have no stored token until rotated; the UI says so |
+| D20 | **Archive: a line's history becomes one immutable JSON document in `lines_archive`; automatic when a participant is removed (and the line row goes), on request via an Archive button; an Archive page to re-read and export** (§5.7) | **Accepted** (architect, 2026-08-22; all three points confirmed) | Architect's ask: inactive lines dilute the board; keep history as a reminder and for offline audit in a dedicated table that can be backed up and cleaned up. Decisions to confirm: (1) one JSON document per archive rather than mirrored line/message tables; (2) removal deletes the archived line rows, and lines of already-removed agents are archived at the next hub start; (3) archiving a non-idle line releases it and archives the in-flight message as it stands, after a confirm that says so |
 
 ## 14. Risks and required spikes
 

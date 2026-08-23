@@ -40,3 +40,14 @@ alongside green `make test` and clean `make lint` — not a follow-up.
 
 **Automated tests remain the proof of logic; the runbook is for seeing it work.** Both, not
 either. The runbook also doubles as living documentation of how each feature behaves.
+
+## The WebUI is served with `Cache-Control: no-cache`
+
+`webui/` is plain files that change with every edit, and the browser loads them as ES
+modules that import each other. Without a cache header a normal reload can take some
+modules from the browser cache and others fresh — the page then runs a mix of old and new
+code and fails in confusing ways ("Loading…" forever, a control that does not react).
+The hub therefore sends `Cache-Control: no-cache` for everything outside `/api/`: the
+browser always revalidates, the `ETag` makes that a cheap 304, and a normal reload is
+enough after any change. If a browser tab was open *before* this header existed, one
+hard reload (Cmd+Shift+R) clears what it cached.

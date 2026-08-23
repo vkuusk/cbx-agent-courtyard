@@ -93,6 +93,38 @@ uv run python scripts/runbook/token_rotation.py
    read OK -> []`, `read back` shows the new one.
 4. **Re-install** — `replaced the courtyard entry: True`, `… equals the new token: True`.
 
+---
+
+## Archive: on request, on removal, read back, export
+
+**Feature under test:** a line's history becomes one immutable document (design §5.7,
+D20): archived from the pane header (line continues empty and idle), archived by itself
+when an agent is removed (its lines leave the board), readable and exportable on the
+Archive page.
+
+**Run:**
+
+```
+uv run python scripts/runbook/archive_line.py
+```
+
+**Expected:** three blocks, then `(cleaned up …)`, exit 0.
+
+1. **Archive on request** — `reason : operator   messages: 3`; `line now : 1 entry ->
+   [system] history archived by the operator (3 messages)`; `line state : idle`.
+2. **Read it back + export** — the transcript lists the three bodies, `gate note kept:
+   'fine by me'`, `export : HTTP 200, attachment; filename="courtyard-…json"`, `same
+   document: True`.
+3. **Removal archives by itself** — `line still on the board: False`; two archives for
+   the removed agent, newest first: `[('agent_removed', 2), ('operator', 3)]`.
+
+**In the browser:** with a line selected, **archive** in the pane header asks first (and
+says so if the line is released or messages go undelivered); afterwards the pane shows
+one system entry and the **Archive** page (side bar) lists the conversation — click it to
+read it, **export JSON** downloads it, **delete** removes it after a confirm. The input
+box reads *Archived conversations are read-only* on that page. Removing an agent on the
+Agents page makes its lines vanish from the Courtyard page and appear in the Archive.
+
 **In the browser (Agents page):** every agent row has **launch config**, **rotate token**,
 **remove**. *launch config* opens the `.mcp.json` (or puppet command) with the token and
 the install button — close and open it again, same content. *rotate token* asks first,

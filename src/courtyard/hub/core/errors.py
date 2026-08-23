@@ -62,6 +62,11 @@ class MessageNotFound(DomainError):
     http_status = 404
 
 
+class ArchiveNotFound(DomainError):
+    code = "archive_not_found"
+    http_status = 404
+
+
 class NotAllowed(DomainError):
     code = "not_allowed"
     http_status = 403

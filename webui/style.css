@@ -184,7 +184,6 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
   text-align: left; width: 100%; }
 .line:hover { background: var(--surface); }
 .line.selected { border-color: var(--ring); box-shadow: 0 0 0 1px var(--ring); background: var(--surface); }
-.line.inactive { opacity: .55; }
 .node { display: flex; align-items: center; gap: .4rem; padding: .3rem .6rem; border: 1px solid var(--tint-line, var(--border)); border-radius: 9px;
   background: var(--tint, var(--surface)); font-family: var(--mono); font-size: .85rem; font-weight: 600; white-space: nowrap; height: 31px; }
 .wire { flex: 1; position: relative; display: flex; flex-direction: column; align-items: center; margin: 0 -1px; padding-top: 4px; min-width: 8rem; }
@@ -195,8 +194,16 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .wire.idle .tag { color: var(--muted); font-weight: 500; }
 .wire .sub { font-size: .72rem; color: var(--muted); margin-top: .1rem; white-space: nowrap; }
 .wire.held { --c: var(--amber); } .wire.fresh { --c: var(--blue); } .wire.flowing { --c: var(--green); } .wire.trouble { --c: var(--red); }
-.inactive-toggle { color: var(--muted); font-size: .85rem; padding: .4rem .2rem; align-self: flex-start; }
-.inactive-toggle:hover { color: var(--text); }
+/* ---- archive page ---- */
+.page.archive { overflow: hidden; }
+.panel-archive { max-height: 40vh; }
+.archive-list { display: flex; flex-direction: column; gap: .25rem; }
+.arch { display: flex; flex-direction: column; gap: .1rem; text-align: left; padding: .5rem .7rem; border-radius: 10px;
+  border: 1px solid transparent; width: 100%; }
+.arch:hover { background: var(--surface); }
+.arch.selected { border-color: var(--ring); box-shadow: 0 0 0 1px var(--ring); background: var(--surface); }
+.arch .names { font-weight: 600; }
+.conv.archived { margin-top: .8rem; }
 
 /* ---- conversation pane ---- */
 .conv { flex: 1; min-height: 0; display: flex; flex-direction: column; }

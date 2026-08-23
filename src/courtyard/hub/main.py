@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from courtyard.hub.api import router
 from courtyard.hub.config import Config, load_config
+from courtyard.hub.core.archive import Archiver
 from courtyard.hub.core.board import Board
 from courtyard.hub.core.channels import ChannelService
 from courtyard.hub.core.deliver import Deliverer
@@ -33,6 +34,17 @@ def domain_error_handler(_request: Request, exc: DomainError) -> JSONResponse:
     )
 
 
+class RevalidatingStaticFiles(StaticFiles):
+    """WebUI files change with every edit, and the browser loads them as modules that import
+    each other. Without a cache header a normal reload can mix cached old modules with new
+    ones. `no-cache` = always revalidate; the ETag makes that a cheap 304."""
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 def create_app(config: Config | None = None) -> FastAPI:
     cfg = config or load_config()
 
@@ -49,6 +61,8 @@ def create_app(config: Config | None = None) -> FastAPI:
         events.bind(asyncio.get_running_loop())
         registry = Registry(storage, events)
         registry.ensure_operator()
+        archiver = Archiver(storage, events)
+        archiver.reconcile()  # lines of agents removed before archiving existed
         deliverer = Deliverer(storage, events, cfg.push_timeout)
         channels = ChannelService(
             storage, events, deliverer, cfg.heartbeat_seconds, cfg.gone_seconds
@@ -57,6 +71,7 @@ def create_app(config: Config | None = None) -> FastAPI:
         app.state.events = events
         app.state.registry = registry
         app.state.channels = channels
+        app.state.archiver = archiver
         app.state.board = Board(
             storage, registry, EventApprover(events), cfg.max_body_bytes, events, deliverer
         )
@@ -87,7 +102,8 @@ def create_app(config: Config | None = None) -> FastAPI:
 
     app.state.db_ping = db_ping
     app.include_router(router)
-    app.mount("/", StaticFiles(directory=cfg.webui_dir, html=True), name="webui")
+
+    app.mount("/", RevalidatingStaticFiles(directory=cfg.webui_dir, html=True), name="webui")
     return app
 
 

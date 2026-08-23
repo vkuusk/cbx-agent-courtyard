@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import Request
 
 from courtyard.common.models import Agent
+from courtyard.hub.core.archive import Archiver
 from courtyard.hub.core.board import Board
 from courtyard.hub.core.errors import InvalidToken
 from courtyard.hub.core.registry import Registry
@@ -16,6 +17,10 @@ def get_registry(request: Request) -> Registry:
 
 def get_board(request: Request) -> Board:
     return request.app.state.board
+
+
+def get_archiver(request: Request) -> Archiver:
+    return request.app.state.archiver
 
 
 def require_agent(request: Request) -> Agent:

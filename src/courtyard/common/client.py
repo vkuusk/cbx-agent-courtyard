@@ -21,7 +21,7 @@ from uuid import UUID
 
 import httpx
 
-from courtyard.common.models import Agent, AttachSummary, Line, Message, PeersView
+from courtyard.common.models import Agent, Archive, AttachSummary, Line, Message, PeersView
 
 CHANNEL_TOKEN_HEADER = "X-Courtyard-Channel-Token"
 DEFAULT_HUB_URL = "http://127.0.0.1:2626"
@@ -60,7 +60,7 @@ class HubClient:
     def _call(self, method: str, path: str, json_body: dict | None = None) -> Any:
         resp = self._http.request(method, path, json=json_body)
         if resp.is_success:
-            return resp.json()
+            return resp.json() if resp.content else None  # 204: no body
         try:
             error = resp.json()["error"]
         except (json.JSONDecodeError, KeyError):
@@ -165,6 +165,19 @@ class HubClient:
 
     def set_mode(self, line_id: UUID | str, mode: str) -> Line:
         return Line.model_validate(self._call("POST", f"/api/lines/{line_id}/mode", {"mode": mode}))
+
+    def archive_line(self, line_id: UUID | str) -> Archive:
+        """Archive the line's history so far; the line continues empty (design §5.7)."""
+        return Archive.model_validate(self._call("POST", f"/api/lines/{line_id}/archive"))
+
+    def archives(self) -> list[Archive]:
+        return [Archive.model_validate(a) for a in self._call("GET", "/api/archive")]
+
+    def archive(self, archive_id: UUID | str) -> Archive:
+        return Archive.model_validate(self._call("GET", f"/api/archive/{archive_id}"))
+
+    def delete_archive(self, archive_id: UUID | str) -> None:
+        self._call("DELETE", f"/api/archive/{archive_id}")
 
     def release(self, line_id: UUID | str) -> Line:
         return Line.model_validate(self._call("POST", f"/api/lines/{line_id}/release"))

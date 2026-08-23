@@ -8,10 +8,12 @@ import { Composer } from "./composer.js";
 import { Board } from "./views/board.js";
 import { Agents } from "./views/agents.js";
 import { Admin } from "./views/admin.js";
+import { ArchivePage } from "./views/archive.js";
 
 const PAGES = {
   board: { title: "Courtyard", view: Board, icon: "board" },
   agents: { title: "Agents", view: Agents, icon: "agents" },
+  archive: { title: "Archive", view: ArchivePage, icon: "archive" },
   admin: { title: "Admin", view: Admin, icon: "admin" },
 };
 
@@ -48,7 +50,8 @@ function Rail({ current }) {
         <${Icon} name="panel" /></button>
     </div>
     <${Conn} />
-    <nav><${NavLink} page="board" current=${current} /><${NavLink} page="agents" current=${current} /></nav>
+    <nav><${NavLink} page="board" current=${current} /><${NavLink} page="agents" current=${current} />
+      <${NavLink} page="archive" current=${current} /></nav>
     <nav class="bottom"><${ThemeButton} /><${NavLink} page="admin" current=${current} /></nav>
   </aside>`;
 }
@@ -68,6 +71,9 @@ function App() {
   useEffect(() => {
     document.title = attention ? `(${attention}) Agent Courtyard` : "Agent Courtyard";
   }, [attention]);
+  useEffect(() => {
+    if (store.ui.page !== current) setUi({ page: current });
+  }, [current]);
   return html`<div class="app ${store.ui.collapsed ? "collapsed" : ""}">
     <${Rail} current=${current} />
     <div class="main">

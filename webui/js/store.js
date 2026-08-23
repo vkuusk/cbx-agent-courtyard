@@ -18,7 +18,9 @@ export const store = {
   inbox: new Map(), // messageId -> message addressed to the operator
   sse: "connecting", // connecting | live | lost
   version: 0, // bumped on every change; lets a component catch up if it subscribed late
+  archiveVersion: 0, // bumped when an archive is created (the Archive page refetches)
   ui: {
+    page: "board", // which page is on screen (the input box adapts)
     selected: null, // {kind: "agent", id} = your line with it · {kind: "line", id} = a line
     draft: "", // the one input box at the bottom
     noteTarget: "both", // when a line is selected: both | <participant id>
@@ -253,6 +255,13 @@ export function dropMessages(lineId) {
 function onEvent(kind, data) {
   if (kind === "agent") store.agents.set(data.id, data);
   else if (kind === "line") store.lines.set(data.id, data);
+  else if (kind === "archive") {
+    // A history moved out: lines, counters and open transcripts all change at once —
+    // the snapshot is the simplest truth.
+    store.archiveVersion += 1;
+    refreshSnapshot();
+    return;
+  }
   else if (kind === "message" || kind === "gate") {
     const perLine = store.messages.get(data.line_id);
     if (perLine) perLine.set(data.id, data);
@@ -266,7 +275,7 @@ function onEvent(kind, data) {
 
 export function connectEvents() {
   const es = new EventSource("/api/events");
-  for (const kind of ["agent", "line", "message", "gate"]) {
+  for (const kind of ["agent", "line", "message", "gate", "archive"]) {
     es.addEventListener(kind, (e) => onEvent(kind, JSON.parse(e.data)));
   }
   es.onopen = () => {

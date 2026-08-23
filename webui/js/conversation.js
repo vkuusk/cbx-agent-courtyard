@@ -32,7 +32,7 @@ function Decide({ message }) {
 
 const VERDICT = { approve: "approved", return: "returned to sender", reject: "rejected" };
 
-function Bubble({ m }) {
+export function Bubble({ m, readOnly }) {
   if (m.kind === "system") return html`<div class="msg sys">${m.body}</div>`;
   const mine = m.sender === operatorId();
   const cls = [
@@ -54,15 +54,27 @@ function Bubble({ m }) {
     <div class="who">${mine ? "you" : (m.sender_name ?? "hub")}${target} · ${fmtClock(m.created_at)}${state}</div>
     <div class="body">${m.body}</div>
     ${showVerdict ? html`<div class="verdict">${VERDICT[m.gate_verdict]}${m.gate_note ? `: ${m.gate_note}` : ""}</div>` : null}
-    ${m.status === "pending_gate" ? html`<${Decide} message=${m} />` : null}
+    ${m.status === "pending_gate" && !readOnly ? html`<${Decide} message=${m} />` : null}
   </div>`;
+}
+
+// Archive the history so far (design §5.7): a confirm that says exactly what goes with it.
+function archiveAction(line) {
+  return () => {
+    let text = "Archive this conversation?\n\nIts history moves to the Archive page and the line starts empty.";
+    if (line.state === "pending_gate") text += "\n\nThe line is released: the message held at the gate is archived as it stands.";
+    else if (line.state === "awaiting_reply") text += "\n\nThe line is released: the message awaiting a reply is archived as it stands.";
+    if (line.queued_count) text += `\n${line.queued_count} undelivered message${line.queued_count === 1 ? " is" : "s are"} archived undelivered.`;
+    if (confirm(text)) api.archiveLine(line.id).catch((err) => alert(err.message));
+  };
 }
 
 function Header({ line }) {
   const agent = selectedAgent();
   if (agent) {
     return html`<div class="conv-head"><h2 class="mono">${agent.name}</h2>
-      <span class="meta">${line ? "your line · never gated" : "no messages yet"}</span></div>`;
+      <span class="meta">${line ? "your line · never gated" : "no messages yet"}</span>
+      ${line ? html`<span class="act"><button class="btn" onClick=${archiveAction(line)}>archive</button></span>` : null}</div>`;
   }
   if (!line) return null;
   const supervised = line.mode === "supervised";
@@ -83,6 +95,7 @@ function Header({ line }) {
         <button class="auto ${supervised ? "" : "on"}" aria-pressed=${!supervised} onClick=${setMode("auto_pass")}>auto-pass</button>
       </span>
       ${line.state === "awaiting_reply" ? html`<button class="btn" onClick=${release}>release</button>` : null}
+      <button class="btn" onClick=${archiveAction(line)}>archive</button>
     </span></div>`;
 }
 

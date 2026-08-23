@@ -15,6 +15,7 @@ LineState = Literal["idle", "pending_gate", "awaiting_reply"]
 MessageKind = Literal["message", "operator_note", "system"]
 MessageStatus = Literal["pending_gate", "queued", "delivered", "rejected", "returned"]
 GateVerdict = Literal["approve", "return", "reject"]
+ArchiveReason = Literal["agent_removed", "operator"]
 
 # The WebUI identity palette: a name, not a hex value — the UI renders a theme-appropriate tint.
 AGENT_COLORS = ("red", "orange", "yellow", "green", "teal", "blue", "purple", "pink")
@@ -82,6 +83,25 @@ class Message(BaseModel):
     # authority-graded envelope (design §7.5), ready for the model verbatim. Absent on
     # operator-facing reads (board, line history), which show the raw body.
     rendered: str | None = None
+
+
+class Archive(BaseModel):
+    """One archived line history (design §5.7): the line's identity at the time, why and
+    when, and — on single reads and exports — the transcript as the board showed it."""
+
+    id: UUID
+    line_id: UUID  # the line it came from; gone if the archive came from a removal
+    agent_a: UUID
+    agent_b: UUID
+    agent_a_name: str
+    agent_b_name: str
+    mode: LineMode
+    reason: ArchiveReason
+    archived_at: datetime
+    first_at: datetime | None = None
+    last_at: datetime | None = None
+    message_count: int
+    transcript: list[Message] | None = None  # omitted in listings and events
 
 
 class Channel(BaseModel):

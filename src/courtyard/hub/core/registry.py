@@ -10,6 +10,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from courtyard.common.models import AGENT_COLORS, Agent, PeersView
+from courtyard.hub.core.archive import archive_line_in
 from courtyard.hub.core.errors import (
     AgentGone,
     CannotRemoveOperator,
@@ -145,15 +146,25 @@ class Registry:
         return agent
 
     def remove(self, name_or_id: str) -> Agent:
-        """Mark an agent removed (history is retained, so rows are never deleted)."""
+        """Mark an agent removed. Its lines can never be used again, so each one's history
+        is archived (design §5.7, D20) and the line rows go; the registration stays
+        (names are permanent identities)."""
         with self._storage.transaction() as uow:
             agent = self.resolve(uow, name_or_id)
             if agent.name == OPERATOR_NAME:
                 raise CannotRemoveOperator("the operator registration cannot be removed")
             uow.agents.mark_removed(agent.id)
             uow.channels.delete(agent.id)
+            archives = [
+                archive_line_in(
+                    uow, uow.lines.get_locked(line.id), "agent_removed", keep_line=False
+                )[0]
+                for line in uow.lines.list_for_agent(agent.id)
+            ]
             agent = uow.agents.get(agent.id)
         self._events.publish("agent", agent)
+        for archive in archives:
+            self._events.publish("archive", archive)
         return agent
 
     def ensure_operator(self) -> Agent:

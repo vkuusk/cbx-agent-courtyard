@@ -7,7 +7,7 @@ from contextlib import AbstractContextManager
 from typing import Any, Protocol
 from uuid import UUID
 
-from courtyard.common.models import Agent, Channel, Line, Message
+from courtyard.common.models import Agent, Archive, Channel, Line, Message
 
 
 class AgentRepo(Protocol):
@@ -70,6 +70,10 @@ class LineRepo(Protocol):
         self, line_id: UUID, state: str, awaiting_from: UUID | None, in_flight_msg: UUID | None
     ) -> None: ...
 
+    def delete(self, line_id: UUID) -> None:
+        """Remove the line row (its messages must already be gone — archive first)."""
+        ...
+
 
 class MessageRepo(Protocol):
     def insert(
@@ -115,6 +119,40 @@ class MessageRepo(Protocol):
         self, message_id: UUID, status: str, verdict: str, note: str | None, decided_by: UUID
     ) -> Message: ...
 
+    def delete_line(self, line_id: UUID) -> int:
+        """Delete every message of a line (after it was archived). Returns the count."""
+        ...
+
+
+class ArchiveRepo(Protocol):
+    def insert(
+        self,
+        *,
+        archive_id: UUID,
+        line_id: UUID,
+        agent_a: UUID,
+        agent_b: UUID,
+        agent_a_name: str,
+        agent_b_name: str,
+        mode: str,
+        reason: str,
+        first_at: Any,
+        last_at: Any,
+        transcript: list[dict],
+    ) -> Archive:
+        """Store one archive document; returns the summary (no transcript)."""
+        ...
+
+    def list(self) -> list[Archive]:
+        """Newest first, without transcripts."""
+        ...
+
+    def get(self, archive_id: UUID) -> Archive | None:
+        """One archive with its transcript."""
+        ...
+
+    def delete(self, archive_id: UUID) -> None: ...
+
 
 class ChannelRepo(Protocol):
     def upsert(self, agent_id: UUID, endpoint: str, channel_token: str) -> Channel: ...
@@ -135,6 +173,7 @@ class UnitOfWork(Protocol):
     lines: LineRepo
     messages: MessageRepo
     channels: ChannelRepo
+    archives: ArchiveRepo
 
 
 class Storage(Protocol):

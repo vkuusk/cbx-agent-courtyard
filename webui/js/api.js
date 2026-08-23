@@ -44,4 +44,9 @@ export const api = {
     call("POST", `/api/gate/${messageId}`, { verdict, note: note || null }),
   setMode: (lineId, mode) => call("POST", `/api/lines/${lineId}/mode`, { mode }),
   release: (lineId) => call("POST", `/api/lines/${lineId}/release`),
+  archiveLine: (lineId) => call("POST", `/api/lines/${lineId}/archive`),
+  archives: () => call("GET", "/api/archive"),
+  archive: (id) => call("GET", `/api/archive/${id}`),
+  deleteArchive: (id) => call("DELETE", `/api/archive/${id}`),
+  archiveExportUrl: (id) => `/api/archive/${id}/export`,
 };

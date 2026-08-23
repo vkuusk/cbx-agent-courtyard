@@ -48,6 +48,10 @@ amount of judgment per line an explicit, adjustable dial.
 6. Operator registered as an agent: can initiate conversations and insert into lines.
 7. **Fake (puppet) agents** so hub + UI + UX can be built, tested, and *felt* before any real
    agent is wired in.
+8. **Quickstart** — a permanent part of the product, not a demo: a new operator installs and
+   starts the courtyard in minutes and runs one small worked example (operator → one agent →
+   a second agent) that shows what it does. [`docs/quickstart.md`](../quickstart.md) is that
+   path, and the WebUI is shaped around it (§10, D16, D17).
 
 ### Non-goals (v1) — the sprawl fence
 
@@ -548,14 +552,15 @@ therefore explicitly rejected for primary agents.
 | Option | Mechanism | Pros | Cons | v1? |
 |---|---|---|---|---|
 | **L0 — manual + copy-paste** | "Add agent" in UI shows the exact launch command (env vars + `claude` invocation); operator runs it in any terminal | Zero moving parts; works everywhere; always the fallback | One manual step | **Yes — baseline** |
-| **L1 — spawn a terminal window** | Hub runs `osascript` to open Terminal.app / iTerm2 with the launch command (fire-and-forget; the terminal owns the process) | One-click "start"; agent lands in a normal window the operator can use | macOS-specific (Linux later via `gnome-terminal`/`x-terminal-emulator`); fire-and-forget = no stop/restart from hub | **Yes — convenience on macOS** |
+| **L1 — spawn a terminal window** | Hub runs `osascript` to open Terminal.app / iTerm2 with the launch command (fire-and-forget; the terminal owns the process) | One-click "start"; agent lands in a normal window the operator can use | macOS-specific (Linux later via `gnome-terminal`/`x-terminal-emulator`); fire-and-forget = no stop/restart from hub | Post-v1 (D16); was a v1 convenience under D8 |
 | **L2 — tmux detached session** | `tmux new-session -d -s courtyard-<name> '<cmd>'`; operator attaches on demand | Start *and* stop/restart from hub; survives UI; works over ssh | tmux dependency; drags toward terminal management; operator must attach to interact | Deferred — revisit if L1's fire-and-forget hurts |
 | **L3 — headless subprocess / SDK** | No terminal at all | Fully automatable | Contradicts the working model (operator works *with* each agent in its terminal) | Rejected for primary agents (fine for puppets) |
 
-**Recommendation (Decision D8): implement L0 + L1 in v1.** "Start" in the UI = spawn via the
-launch profile and wait for the attach handshake; status turns `connected` when it arrives.
-"Stop" in v1 = ask the agent to exit via a message, or the operator closes the window —
-the hub only observes liveness.
+**Recommendation (Decision D8, amended by D16): v1 ships L0 only** — the copy-paste launch
+command plus the 6d install button that writes `.mcp.json` for the operator. L1 is designed
+but post-v1: "Start" in the UI = spawn via the launch profile and wait for the attach
+handshake; status turns `connected` when it arrives. "Stop" = ask the agent to exit via a
+message, or the operator closes the window — the hub only observes liveness.
 
 ## 9. Storage
 
@@ -646,7 +651,11 @@ The operator is a beginner in web development and the UI must stay maintainable 
 Inbox / Agents. Step 7 reshapes them around the quickstart configuration: **MainBoard**
 absorbs the Gate and Inbox pages, **Agent Admin** stays, **Courtyard Admin** is added
 (housekeeping, defaults, health). This section is updated page by page as each design is
-approved — agile, per D16 — rather than re-specified up front.
+approved — agile, per D16 — rather than re-specified up front. The quickstart the pages are
+shaped around is the product's permanent onboarding path (goal 8, D17), so every page is
+judged by one question: can a new operator register, start and talk to two agents and run
+the worked example in `docs/quickstart.md` unaided, leaving the browser only to launch the
+terminals?
 
 ### Views (v1)
 
@@ -659,8 +668,8 @@ approved — agile, per D16 — rather than re-specified up front.
 3. **Gate queue** — all `pending_gate` messages across lines; approve (+ optional note) /
    **return to sender** (+ comment) / reject (+ note). Also reachable inline from a line
    view.
-4. **Agents** — registry list; add (→ invite parameters + launch command), start (L1),
-   remove; status.
+4. **Agents** — registry list; add (→ invite parameters + launch command + the 6d install
+   button), remove; status. (L1 "start" is post-v1, D16.)
 
 ## 11. Security model (v1, deliberate and explicit)
 
@@ -711,7 +720,7 @@ cbx-agent-courtyard/
 │   │   ├── api/                    # REST routes + SSE endpoint (thin; no logic)
 │   │   ├── core/                   # registry, lines, turns, gate/Approver, deliver(), envelope, peers
 │   │   ├── storage/                # repository interfaces, postgres backend, migrations/
-│   │   └── launch/                 # launch profiles, L1 terminal spawn (macOS)
+│   │   └── launch/                 # post-v1 (D16): launch profiles, L1 terminal spawn
 │   ├── adapters/
 │   │   └── claude_code/            # MCP stdio server (thin, D14), courtyard-invite (6d)
 │   └── puppet/                     # fake agent (echo / script / manual)
@@ -740,9 +749,10 @@ cbx-agent-courtyard/
 | D12 | Deployment = docker compose: dev_mode (postgres container + app from disk), live_mode (hub + postgres containers) | **Accepted** (architect, 2026-08-18) | §9.4 |
 | D13 | Migrations: forward-only numbered plain-SQL files + the ~40-line custom runner (startup-applied, one tx per file); no migration tool, no down-migrations in v1. Recovery = new forward migration; dev data is disposable (`make db-nuke`), precious data gets `pg_dump` first | **Accepted** (architect, 2026-08-19) | Reviewed Flyway/Liquibase/Prisma/Alembic/yoyo/pgroll — all re-buy what we have at this scale. Revisit triggers: a second deployed environment; parallel dev colliding on numbers (→ yoyo); zero-downtime v2 service (→ pgroll). Format imports into Flyway/yoyo nearly as-is, so no lock-in |
 | D-spike | Claude adapter delivery stack (spike 6a, verified on Claude Code 2.1.237): **(1) channels** — MCP stdio server with the `claude/channel` experimental capability pushes `notifications/claude/channel` events that arrive as live turns; primary mechanism for open sessions (events queue while busy per docs). **(2) Stop hook** — backstop at end-of-turn; emits both `systemMessage` and `reason`; loop-guarded by `stop_hook_active` + Claude Code's 8-consecutive-block override; unread state queried from the **hub API only**, no local mailbox/state files. **(3) `claude -p --resume <name>`** — context-preserving delivery/wake for **closed** sessions only: delivering into an open session forks the transcript tree and orphans the delivered branch (verified empirically). Adapter = one stdio MCP server per agent (channels are stdio-only), exposing the courtyard tools on the same server | **Verified by spike** (architect ran all three experiments, 2026-08-20) | Spike code + full results: `spikes/6a-delivery/`. Operational note: while channels are in research preview, launch commands need `--dangerously-load-development-channels server:courtyard` and a per-start consent screen; the preview contract may change — pin the Claude Code version in the launch profile if it drifts. Bonus finding: the delivered-content-is-data framing (now graded, §7.5) held at the `instructions` level (agent refused a redirect attempt). **Adoption (D14):** (1) primary; (3) reserved as an operator action; (2) verified but not installed in v1 |
-| D16 | **v1 scope cut around the quickstart** — launch L1, live mode (6e/6f) and the pi adapter leave v1 for the parking lot; v1 is Claude Code only, hub on the host. The freed room becomes step 7: the WebUI consolidated for the quickstart configuration (operator + two claude-code agents) — MainBoard absorbs the Gate and Inbox pages, Agent Admin stays, **Courtyard Admin** is added (housekeeping: dead registrations/lines; defaults: supervision mode; health). v1 acceptance = the quickstart scenario run through this UI. Step 7 is worked **agile, per page** (design proposal → review → implement → approve), not waterfall | **Accepted** (architect, 2026-08-20) | Functional, minimalistic, intuitive is the bar. §10 is updated per page as each is approved rather than re-specified up front |
+| D16 | **v1 scope cut around the quickstart** — launch L1, live mode (6e/6f) and the pi adapter leave v1; v1 is Claude Code only, hub on the host. The freed room becomes step 7: the WebUI consolidated for the quickstart configuration (operator + two claude-code agents) — MainBoard absorbs the Gate and Inbox pages, Agent Admin stays, **Courtyard Admin** is added (housekeeping: dead registrations/lines; defaults: supervision mode; health). v1 acceptance = the quickstart scenario run through this UI. Step 7 is worked **agile, per page** (design proposal → review → implement → approve), not waterfall | **Accepted** (architect, 2026-08-20) | Functional, minimalistic, intuitive is the bar. §10 is updated per page as each is approved rather than re-specified up front |
 | D15 | **Agent token placement: inline in `.mcp.json` + `chmod 600`.** The install writes the bearer token straight into the file's `env` block and locks the file 0600 | **Accepted** (architect, 2026-08-20) | Chosen over (b) `${COURTYARD_TOKEN}` expansion and (c) a separate 600 token file. Decider: the hub reveals the plaintext token only once at registration and never stores it, so (b) — the only option that keeps the secret out of a project file entirely — would force the operator to re-supply the token on every launch. Inline is self-contained across restarts; the accepted cost is that `.mcp.json` (designed to be committable) now carries a secret, mitigated by 0600 + a "do not commit" warning in the install result rather than by editing the operator's `.gitignore` (which could un-track other MCP servers). Revisit if the hub ever persists reusable tokens, or agents span machines (→ token file or short-lived tokens) |
 | D14 | **Minimal agent-side footprint — one MCP server + the launch flag, nothing else; no Stop hook in v1.** Whatever can live in the hub does: the authority envelope is rendered hub-side (`Message.rendered`), peer discovery is ranked/trimmed/worded hub-side (`GET /peers`), and blue-moon delivery failures are shown to the operator on the board instead of being patched agent-side. Hub→agent delivery = channel push to open sessions + backlog on attach + heartbeat-driven pull; a closed session's mail waits (durably `queued`) until the operator reopens its terminal — resume-wake is an operator action, never a hub reflex | **Accepted** (architect, 2026-08-20) | Every agent-side mechanism is one more thing to port per agent type. The Stop hook's unique coverage (adapter crashed while the session lives; channel silently broken) is hub-detectable — stale channel, line stuck in `awaiting_reply` — and operator-fixable; it cannot confirm model-read any better than the channel; and it is reversible at zero hub cost (`GET /inbox` already takes-and-marks). **Open fact, on the v1 acceptance checklist:** a channel event queued while the agent is busy must start a turn by itself when the turn ends (docs say so; spike A never exercised it). Turn-taking is per line, so busy-arrival is routine — fan-in from other lines, the operator's own terminal tasks — and if the fact fails, the hook is the only fix. Automatic `-p --resume` rejected for now: without a clean detach the hub cannot tell "closed" from "adapter crashed, session open" (and the latter forks — spike C); headless turns cannot be prompted for tool permissions; it is a host-side spawn that 6f's container cannot do |
+| D17 | **The quickstart is a permanent product feature, and the architect is the acceptance gate.** The quickstart — easy install/start plus one worked example, written up in `docs/quickstart.md` — is the convenience path a new operator follows to start using the courtyard for day-to-day work. It is not a demo and not merely the v1 acceptance scenario. v1 acceptance = the architect running the quickstart as a new operator would and approving; each step-7 page is likewise approved by him after trying it in the browser (agile: proposal → review → implement → approve) | **Accepted** (architect, 2026-08-22) | Corrects the D16-era framing in which the quickstart existed for acceptance. Consequences: `docs/quickstart.md` is a v1 deliverable maintained alongside the pages rather than written once at the end (goal 8, §2), and the WebUI is judged by whether a new operator gets through it unaided (§10) |
 
 ## 14. Risks and required spikes
 
@@ -768,8 +778,6 @@ cbx-agent-courtyard/
 ## 15. References
 
 - Design-intent explainers for developers: [`use-cases-explained.md`](use-cases-explained.md)
-- Related-but-different project: `/Volumes/Crucial-P310/work/cbx-agent-workbench`
-  (orchestrator + subagents-as-tools, terminal-only; courtyard = peer agents)
 - Prior art (same architect): Postgres-backed queue / "one transaction domain" design in
   `homeward-health/hwh-agentic-pipeline-jira-to-pr` → `docs/design/architecture.md`
   (private GitHub repo, readable via `gh`)

@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Layout — courtyard UI prototype (7-layout)</title>
+<style>
+/* ---- tokens (the real app's style.css will adopt these) ---- */
+:root {
+  --bg: #ffffff; --rail: #f4f4f6; --surface: #ffffff; --text: #1d2531; --muted: #6b7280;
+  --border: #e3e5e8; --border-strong: #c9ced6; --ring: #1d2531;
+  --green: #2e9e6b; --amber: #c07f14; --amber-bg: #fdf4e2; --blue: #3b6fd4; --blue-bg: #eef3fd;
+  --red: #c04545; --grey: #c2c8d0; --bubble: #f1f2f4;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --radius: 14px;
+  --rail-w: 232px; --rail-collapsed: 56px;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text);
+       font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; display: flex; flex-direction: column; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visible {
+  outline: 2px solid var(--blue); outline-offset: 2px; }
+.mono { font-family: var(--mono); font-size: .92em; }
+.hidden { display: none !important; }
+
+/* ---- prototype scaffolding (NOT part of the design) ---- */
+.proto-bar { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; flex: none;
+  background: #20262e; color: #d6e2f0; padding: .45rem 1.2rem; font-size: .8rem; }
+.proto-bar strong { color: #ffd479; letter-spacing: .02em; }
+.proto-bar button { padding: .15rem .6rem; border-radius: 6px; border: 1px solid #3a444f; background: #2b333d; color: #d6e2f0; }
+.proto-bar button[aria-pressed="true"] { background: #d6e2f0; color: #20262e; }
+.proto-bar .legend { margin-left: auto; display: flex; gap: .9rem; color: #aab6c4; }
+.proto-bar .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: .3rem; }
+
+/* ---- app frame: rail + main ---- */
+.app { flex: 1; display: flex; min-height: 0; }
+
+.rail { width: var(--rail-w); flex: none; background: var(--rail); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; padding: .6rem .5rem; transition: width .18s ease; overflow: hidden; }
+.rail .brand { display: flex; align-items: center; gap: .55rem; padding: .35rem .45rem; margin-bottom: .6rem; }
+.rail .brand .mark { width: 26px; height: 26px; border-radius: 8px; background: var(--text); color: #fff;
+  display: grid; place-items: center; flex: none; }
+.rail .brand .name { font-weight: 650; white-space: nowrap; }
+.rail .toggle { margin-left: auto; width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: var(--muted); }
+.rail .toggle:hover { background: #e6e7ea; color: var(--text); }
+.rail nav { display: flex; flex-direction: column; gap: .15rem; }
+.rail nav.bottom { margin-top: auto; }
+.rail a { display: flex; align-items: center; gap: .65rem; padding: .5rem .55rem; border-radius: 9px;
+  color: var(--text); text-decoration: none; white-space: nowrap; }
+.rail a:hover { background: #e9eaed; }
+.rail a.active { background: #e4e5e9; font-weight: 600; }
+.rail svg { width: 20px; height: 20px; flex: none; }
+.rail .label { overflow: hidden; }
+
+body.collapsed .rail { width: var(--rail-collapsed); padding-left: .45rem; padding-right: .45rem; }
+body.collapsed .rail .name, body.collapsed .rail .label { display: none; }
+body.collapsed .rail .brand { flex-direction: column; gap: .45rem; padding: .2rem 0; }
+body.collapsed .rail .toggle { margin-left: 0; }
+body.collapsed .rail a { justify-content: center; padding: .5rem 0; }
+
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.topbar { flex: none; display: flex; align-items: center; gap: 1rem; padding: .75rem 1.5rem; }
+.topbar h1 { font-size: 1rem; margin: 0; font-weight: 650; }
+.topbar .conn { margin-left: auto; display: flex; align-items: center; gap: .4rem; color: var(--muted); font-size: .85rem; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--grey); display: inline-block; flex: none; }
+.dot.on { background: var(--green); }
+.dot.stale { background: var(--amber); }
+
+.content { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0 1.5rem; max-width: 60rem; width: 100%; margin: 0 auto; }
+
+/* ---- section labels ---- */
+.eyebrow { font-size: .72rem; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 650; margin: .6rem 0 .5rem; }
+
+/* ---- team: agent rectangles ---- */
+.team { display: flex; gap: .7rem; flex-wrap: wrap; align-items: stretch; }
+.agent { position: relative; min-width: 13rem; padding: .7rem .9rem .65rem; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); text-align: left; display: flex; flex-direction: column; gap: .15rem; transition: border-color .12s, box-shadow .12s; }
+.agent:hover { border-color: var(--border-strong); }
+.agent.selected { border-color: var(--ring); box-shadow: 0 0 0 1px var(--ring); }
+.agent .head { display: flex; align-items: center; gap: .5rem; }
+.agent .name { font-family: var(--mono); font-weight: 600; font-size: .95rem; }
+.agent .owns { color: var(--muted); font-size: .85rem; }
+.agent .badge { margin-left: auto; font-size: .72rem; font-weight: 700; padding: .05rem .5rem; border-radius: 999px; background: var(--blue-bg); color: var(--blue); }
+.agent .foot { color: var(--muted); font-size: .78rem; margin-top: .2rem; }
+.agent.add { border-style: dashed; color: var(--muted); justify-content: center; align-items: center; min-width: 9rem; gap: .3rem; }
+.agent.add:hover { color: var(--text); }
+
+/* ---- lines: two nodes, one wire ---- */
+.lines { display: flex; flex-direction: column; gap: .45rem; }
+.line { display: flex; align-items: flex-start; gap: 0; padding: .4rem .5rem .3rem; border-radius: 12px; border: 1px solid transparent; text-align: left; width: 100%; }
+.line:hover { background: #f7f7f8; }
+.line.selected { border-color: var(--ring); box-shadow: 0 0 0 1px var(--ring); background: var(--surface); }
+.node { display: flex; align-items: center; gap: .4rem; padding: .3rem .6rem; border: 1px solid var(--border); border-radius: 9px;
+  background: var(--surface); font-family: var(--mono); font-size: .85rem; font-weight: 600; white-space: nowrap; height: 31px; }
+.wire { flex: 1; position: relative; display: flex; flex-direction: column; align-items: center; margin: 0 -1px; padding-top: 4px; }
+.wire::before { content: ""; position: absolute; left: 0; right: 0; top: 15px; border-top: 2px solid var(--c, var(--grey)); }
+.wire.idle::before { border-top-style: dashed; }
+.wire .tag { position: relative; background: var(--surface); padding: .05rem .6rem; border-radius: 999px; font-size: .78rem; font-weight: 600;
+  color: var(--c, var(--muted)); border: 1.5px solid var(--c, var(--grey)); white-space: nowrap; }
+.wire.idle .tag { color: var(--muted); font-weight: 500; }
+.wire .sub { font-size: .72rem; color: var(--muted); margin-top: .1rem; white-space: nowrap; }
+.held { --c: var(--amber); } .fresh { --c: var(--blue); } .flowing { --c: var(--green); } .trouble { --c: var(--red); }
+
+/* ---- conversation ---- */
+.conv { flex: 1; min-height: 0; display: flex; flex-direction: column; margin-top: .9rem; border-top: 1px solid var(--border); }
+.conv-head { display: flex; align-items: baseline; gap: .6rem; padding: .75rem 0 .4rem; }
+.conv-head h2 { margin: 0; font-size: .95rem; font-weight: 650; }
+.conv-head .meta { color: var(--muted); font-size: .82rem; }
+.conv-head .act { margin-left: auto; font-size: .8rem; color: var(--muted); }
+.conv-head .act button { color: var(--muted); text-decoration: underline dotted; }
+.history { flex: 1; overflow-y: auto; padding: .25rem 0 .75rem; display: flex; flex-direction: column; gap: .7rem; }
+.msg { max-width: 46rem; }
+.msg .who { font-family: var(--mono); font-size: .78rem; font-weight: 600; color: var(--muted); margin-bottom: .15rem; }
+.msg .body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg.you { align-self: flex-end; }
+.msg.you .body { background: var(--bubble); padding: .55rem .85rem; border-radius: 16px 16px 4px 16px; }
+.msg.you .who { text-align: right; }
+.msg.sys { align-self: center; color: var(--muted); font-size: .82rem; }
+.msg.note .body { border-left: 3px solid var(--amber); padding-left: .7rem; color: #5a4a25; }
+.msg.pending .body { background: var(--amber-bg); padding: .6rem .85rem; border-radius: 12px; }
+.msg.pending .who::after { content: " · held at the gate"; color: var(--amber); }
+.gate { display: flex; gap: .45rem; margin-top: .5rem; flex-wrap: wrap; }
+.gate input { flex: 1; min-width: 12rem; font: inherit; font-size: .85rem; padding: .35rem .6rem; border: 1px solid var(--border); border-radius: 8px; }
+.gate button { font-size: .85rem; padding: .35rem .8rem; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); }
+.gate button.approve { background: var(--green); border-color: var(--green); color: #fff; }
+.gate button.danger { color: var(--red); }
+.empty-conv { margin: auto; color: var(--muted); text-align: center; max-width: 30rem; }
+
+/* ---- composer (always at the bottom) ---- */
+.composer { flex: none; padding: .5rem 0 1rem; }
+.composer .box { display: flex; align-items: flex-end; gap: .5rem; padding: .45rem .5rem .45rem .6rem; border: 1px solid var(--border);
+  border-radius: 22px; background: var(--surface); box-shadow: 0 2px 12px rgba(29,37,49,.06); }
+.composer .box:focus-within { border-color: var(--border-strong); }
+.composer .to { flex: none; display: flex; align-items: center; gap: .35rem; font-family: var(--mono); font-size: .8rem; font-weight: 600;
+  padding: .3rem .6rem; border-radius: 999px; background: #f1f2f4; color: var(--text); margin-bottom: .1rem; }
+.composer .to .dot { width: 7px; height: 7px; }
+.composer textarea { flex: 1; resize: none; border: 0; outline: 0; font: inherit; padding: .4rem .2rem; min-height: 1.5rem; max-height: 10rem; background: transparent; }
+.composer .send { flex: none; width: 34px; height: 34px; border-radius: 50%; background: var(--text); color: #fff; display: grid; place-items: center; }
+.composer .send:hover { background: #000; }
+.composer .hint { font-size: .75rem; color: var(--muted); text-align: center; margin-top: .4rem; }
+
+/* ---- first run ---- */
+.empty { margin: 2rem 0; display: flex; flex-direction: column; align-items: center; text-align: center; color: var(--muted); gap: .4rem; }
+.empty h3 { margin: 0; color: var(--text); font-size: 1.05rem; font-weight: 650; }
+
+@media (prefers-reduced-motion: reduce) { .rail, .agent { transition: none; } }
+@media (max-width: 720px) { .team .agent { min-width: 100%; } .content { padding: 0 1rem; } }
+</style>
+</head>
+<body>
+
+<div class="proto-bar">
+  <strong>PROTOTYPE</strong> overall layout · nothing wired · state:
+  <button data-state="first" aria-pressed="false">first run</button>
+  <button data-state="running" aria-pressed="true">quickstart running</button>
+  <span class="legend">wire colours:
+    <span><i style="background:#c07f14"></i>held — needs you</span>
+    <span><i style="background:#3b6fd4"></i>new since you looked</span>
+    <span><i style="background:#2e9e6b"></i>in flight (auto-pass)</span>
+    <span><i style="background:#c04545"></i>problem</span>
+    <span><i style="background:#c2c8d0"></i>idle</span>
+  </span>
+</div>
+
+<div class="app">
+
+  <!-- ============ RAIL (collapsible) ============ -->
+  <aside class="rail">
+    <div class="brand">
+      <span class="mark" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/><rect x="8.5" y="8.5" width="7" height="7" rx="1.5"/></svg>
+      </span>
+      <span class="name">Agent Courtyard</span>
+      <button class="toggle js-toggle" title="Collapse the side bar" aria-label="Collapse the side bar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M9 3v18"/></svg>
+      </button>
+    </div>
+    <nav>
+      <a href="#" class="active" title="MainBoard">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+        <span class="label">MainBoard</span>
+      </a>
+      <a href="#" title="Agents">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7.5" r="3.5"/><path d="M2.5 20v-1.5a4.5 4.5 0 0 1 4.5-4.5h4a4.5 4.5 0 0 1 4.5 4.5V20"/><path d="M16 4.3a3.5 3.5 0 0 1 0 6.4"/><path d="M21.5 20v-1.5a4.5 4.5 0 0 0-3-4.2"/></svg>
+        <span class="label">Agents</span>
+      </a>
+    </nav>
+    <nav class="bottom">
+      <a href="#" title="Admin">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/><path d="M1.5 14h5M9.5 8h5M17.5 16h5"/></svg>
+        <span class="label">Admin</span>
+      </a>
+    </nav>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <div class="main">
+    <header class="topbar">
+      <h1>MainBoard</h1>
+      <div class="conn"><span class="dot on"></span>live</div>
+    </header>
+
+    <!-- ---- FIRST RUN ---- -->
+    <div class="content hidden" data-view="first">
+      <div class="eyebrow">Team</div>
+      <div class="team">
+        <button class="agent add"><span style="font-size:1.3rem;line-height:1">+</span><span>add your first agent</span></button>
+      </div>
+      <div class="conv">
+        <div class="empty">
+          <h3>Your courtyard is empty</h3>
+          <div>Add an agent, let the hub write its <span class="mono">.mcp.json</span>, start it in its own terminal — its dot turns green here.</div>
+        </div>
+      </div>
+      <div class="composer">
+        <div class="box" style="opacity:.5">
+          <span class="to"><span class="dot"></span>nobody yet</span>
+          <textarea rows="1" placeholder="Add an agent first…" disabled></textarea>
+          <button class="send" disabled aria-label="Send"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ---- QUICKSTART RUNNING ---- -->
+    <div class="content" data-view="running">
+      <div class="eyebrow">Team</div>
+      <div class="team">
+        <button class="agent selected js-pick" data-pick="main-admin">
+          <span class="head"><span class="dot on"></span><span class="name">main-admin</span><span class="badge">1 new</span></span>
+          <span class="owns">the admin workbench</span>
+        </button>
+        <button class="agent js-pick" data-pick="infra-claude">
+          <span class="head"><span class="dot on"></span><span class="name">infra-claude</span></span>
+          <span class="owns">infrastructure &amp; terraform</span>
+        </button>
+        <button class="agent add"><span style="font-size:1.3rem;line-height:1">+</span><span>add</span></button>
+      </div>
+
+      <div class="eyebrow" style="margin-top:1rem">Lines</div>
+      <div class="lines">
+        <button class="line has-sub js-pick" data-pick="line-1">
+          <span class="node"><span class="dot on"></span>main-admin</span>
+          <span class="wire held"><span class="tag">held at the gate</span><span class="sub">supervised · 2m ago</span></span>
+          <span class="node"><span class="dot on"></span>infra-claude</span>
+        </button>
+      </div>
+
+      <!-- conversation pane: one block per selectable thing; the click shows the matching one -->
+      <section class="conv" data-conv="main-admin">
+        <div class="conv-head"><h2>main-admin</h2><span class="meta">your line · never gated</span>
+          <span class="act"><button>open full history</button></span></div>
+        <div class="history">
+          <div class="msg sys">line opened today 10:12</div>
+          <div class="msg you"><div class="who">you · 10:12</div><div class="body">Ask infra-claude to list the files in its working directory, and tell me what it reports.</div></div>
+          <div class="msg"><div class="who">main-admin · 10:13</div><div class="body">On it — I've asked infra-claude. Its line is supervised, so the message is waiting for your approval.</div></div>
+          <div class="msg"><div class="who">main-admin · 10:16</div><div class="body">Done — infra-claude reports 3 files: main.tf, variables.tf, README.md.</div></div>
+        </div>
+      </section>
+
+      <section class="conv hidden" data-conv="infra-claude">
+        <div class="conv-head"><h2>infra-claude</h2><span class="meta">your line · never gated</span></div>
+        <div class="history">
+          <div class="empty-conv">No messages between you and infra-claude yet.<br><span class="muted">Write below to start the line.</span></div>
+        </div>
+      </section>
+
+      <section class="conv hidden" data-conv="line-1">
+        <div class="conv-head"><h2><span class="mono">main-admin ↔ infra-claude</span></h2><span class="meta">supervised — you approve each message</span>
+          <span class="act"><button>switch to auto-pass</button> · <button>release</button></span></div>
+        <div class="history">
+          <div class="msg sys">line opened today 10:13</div>
+          <div class="msg pending">
+            <div class="who">main-admin · 10:13</div>
+            <div class="body">Could you list the files in your working directory? The operator wants to know what's in your project.</div>
+            <div class="gate">
+              <input placeholder="optional note — approve: sent along as your note · return/reject: the reason">
+              <button class="approve">approve</button><button>return to sender</button><button class="danger">reject</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="composer">
+        <div class="box">
+          <span class="to js-to"><span class="dot on"></span>main-admin</span>
+          <textarea rows="1" class="js-input" placeholder="Message main-admin…"></textarea>
+          <button class="send" aria-label="Send"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+        </div>
+        <div class="hint js-hint">Enter to send · Shift+Enter for a new line · click an agent or a line to change who you're talking to</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Prototype-only wiring. Nothing here talks to a hub.
+const show = (state) => {
+  document.querySelectorAll("[data-view]").forEach((v) => v.classList.toggle("hidden", v.dataset.view !== state));
+  document.querySelectorAll(".proto-bar button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.state === state)));
+};
+document.querySelectorAll(".proto-bar button").forEach((b) => b.addEventListener("click", () => show(b.dataset.state)));
+
+document.querySelector(".js-toggle").addEventListener("click", (e) => {
+  const collapsed = document.body.classList.toggle("collapsed");
+  e.currentTarget.title = e.currentTarget.ariaLabel = collapsed ? "Expand the side bar" : "Collapse the side bar";
+});
+
+// Selecting who you talk to: an agent (your own line) or a line between two agents (a note).
+const targets = {
+  "main-admin":   { to: "main-admin",   ph: "Message main-admin…", dot: "on" },
+  "infra-claude": { to: "infra-claude", ph: "Message infra-claude…", dot: "on" },
+  "line-1":       { to: "note → both",  ph: "Add a note for main-admin and infra-claude…", dot: "" },
+};
+const pick = (id) => {
+  document.querySelectorAll(".js-pick").forEach((el) => el.classList.toggle("selected", el.dataset.pick === id));
+  document.querySelectorAll("[data-conv]").forEach((c) => c.classList.toggle("hidden", c.dataset.conv !== id));
+  const t = targets[id];
+  const to = document.querySelector(".js-to");
+  to.innerHTML = '<span class="dot ' + t.dot + '"></span>' + t.to;
+  document.querySelector(".js-input").placeholder = t.ph;
+};
+document.querySelectorAll(".js-pick").forEach((el) => el.addEventListener("click", () => pick(el.dataset.pick)));
+
+// grow the textarea with its content (up to the CSS max-height)
+const ta = document.querySelector(".js-input");
+ta.addEventListener("input", () => { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; });
+</script>
+</body>
+</html>

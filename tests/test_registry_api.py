@@ -34,6 +34,72 @@ def test_tokens_never_appear_in_listings(client, make_agent):
         assert "token" not in listed and "token_hash" not in listed
 
 
+# -- colours: every agent gets one; chosen or least-used ------------------------------
+
+
+def test_agent_colour_chosen_or_assigned(client, make_agent):
+    chosen = client.post("/api/agents", json={"name": "alice", "type": "puppet", "color": "teal"})
+    assert chosen.json()["agent"]["color"] == "teal"
+    first, _ = make_agent("bob")  # no colour given: the least-used one, palette order on ties
+    assert first["color"] == "red"
+    second, _ = make_agent("carol")
+    assert second["color"] == "orange"
+    assert client.get("/api/agents/operator").json()["color"] is None
+
+
+def test_invalid_colour_rejected(client):
+    resp = client.post("/api/agents", json={"name": "alice", "type": "puppet", "color": "beige"})
+    assert resp.status_code == 422
+
+
+# -- stored tokens: retrievable and rotatable (design D19) ---------------------------
+
+
+def test_token_is_retrievable_again(client, make_agent):
+    _, token = make_agent("alice")
+    assert client.get("/api/agents/alice/token").json() == {"token": token}
+
+
+def test_rotate_token_revokes_the_old_one_and_drops_the_session(client, make_agent):
+    _, old = make_agent("alice")
+    client.post(
+        "/api/agents/alice/attach",
+        json={"endpoint": DEAD_ENDPOINT, "channel_token": "ct"},
+        headers=auth(old),
+    )
+    assert client.get("/api/agents/alice").json()["status"] == "connected"
+
+    resp = client.post("/api/agents/alice/token")
+    assert resp.status_code == 201, resp.text
+    new = resp.json()["token"]
+    assert new != old
+    assert client.get("/api/agents/alice/inbox", headers=auth(old)).status_code == 401
+    assert client.get("/api/agents/alice/inbox", headers=auth(new)).status_code == 200
+    assert client.get("/api/agents/alice/token").json()["token"] == new
+    # its running session can no longer reach the hub: channel dropped, reads as offline
+    assert client.get("/api/agents/alice").json()["status"] == "gone"
+
+
+def test_removed_agent_has_no_token_to_read_or_rotate(client, make_agent):
+    make_agent("alice")
+    client.delete("/api/agents/alice")
+    assert client.get("/api/agents/alice/token").json()["error"]["code"] == "agent_gone"
+    assert client.post("/api/agents/alice/token").json()["error"]["code"] == "agent_gone"
+
+
+def test_registration_from_before_stored_tokens_says_rotate(client, make_agent, config):
+    import psycopg
+
+    agent, _ = make_agent("alice")
+    with psycopg.connect(config.database_url) as conn:  # what migration 0006 leaves behind
+        conn.execute("UPDATE agents SET token = NULL WHERE id = %s", (agent["id"],))
+    resp = client.get("/api/agents/alice/token")
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "no_stored_token"
+    assert client.post("/api/agents/alice/token").status_code == 201  # rotation gives it one
+    assert client.get("/api/agents/alice/token").status_code == 200
+
+
 def test_duplicate_name_refused(client, make_agent):
     make_agent("alice")
     resp = client.post("/api/agents", json={"name": "alice", "type": "puppet"})
@@ -182,6 +248,19 @@ def test_install_writes_mcp_json_into_the_workdir(client, tmp_path):
     env = _json.loads(target.read_text())["mcpServers"]["courtyard"]["env"]
     assert env["COURTYARD_AGENT_NAME"] == "coding"
     assert env["COURTYARD_TOKEN"] == token
+
+
+def test_install_uses_the_stored_token_when_none_is_given(client, tmp_path):
+    created = client.post(
+        "/api/agents",
+        json={"name": "coding", "type": "claude-code", "workdir": str(tmp_path)},
+    ).json()
+    resp = client.post("/api/agents/coding/install", json={})
+    assert resp.status_code == 200, resp.text
+    import json as _json
+
+    env = _json.loads((tmp_path / ".mcp.json").read_text())["mcpServers"]["courtyard"]["env"]
+    assert env["COURTYARD_TOKEN"] == created["token"]
 
 
 def test_install_rejects_a_token_that_is_not_this_agents(client, make_agent, tmp_path):

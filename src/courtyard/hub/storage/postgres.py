@@ -44,12 +44,23 @@ class PgAgentRepo:
         self._conn = conn
 
     def create(
-        self, *, agent_id, name, type, description, sme_domain, workdir, token_hash, launch
+        self,
+        *,
+        agent_id,
+        name,
+        type,
+        description,
+        sme_domain,
+        workdir,
+        token_hash,
+        token,
+        launch,
+        color,
     ) -> Agent:
         row = self._conn.execute(
             "INSERT INTO agents"
-            " (id, name, type, description, sme_domain, workdir, token_hash, launch)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
+            " (id, name, type, description, sme_domain, workdir, token_hash, token, launch, color)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
             (
                 agent_id,
                 name,
@@ -58,10 +69,22 @@ class PgAgentRepo:
                 sme_domain,
                 workdir,
                 token_hash,
+                token,
                 Json(launch) if launch else None,
+                color,
             ),
         ).fetchone()
         return Agent.model_validate(row)
+
+    def get_token(self, agent_id: UUID) -> str | None:
+        row = self._conn.execute("SELECT token FROM agents WHERE id = %s", (agent_id,)).fetchone()
+        return row["token"] if row else None
+
+    def set_token(self, agent_id: UUID, token_hash: str, token: str) -> None:
+        self._conn.execute(
+            "UPDATE agents SET token_hash = %s, token = %s WHERE id = %s",
+            (token_hash, token, agent_id),
+        )
 
     def get(self, agent_id: UUID) -> Agent | None:
         row = self._conn.execute("SELECT * FROM agents WHERE id = %s", (agent_id,)).fetchone()

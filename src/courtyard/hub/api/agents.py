@@ -8,7 +8,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
-from courtyard.common.models import Agent, AgentType, Message, PeersView
+from courtyard.common.models import Agent, AgentColor, AgentType, Message, PeersView
 from courtyard.hub.api.deps import get_board, get_registry, require_agent
 from courtyard.hub.core import install as install_core
 from courtyard.hub.core.board import Board
@@ -26,11 +26,12 @@ class AgentCreate(BaseModel):
     sme_domain: str | None = Field(default=None, max_length=120)
     workdir: str | None = None
     launch: dict[str, Any] | None = None
+    color: AgentColor | None = None  # omitted = the hub picks the least-used colour
 
 
 class AgentCreated(BaseModel):
     agent: Agent
-    token: str  # shown exactly once
+    token: str  # also kept by the hub (D19): readable again via GET …/token
 
 
 @router.post("", status_code=201)
@@ -38,7 +39,13 @@ def create_agent(
     body: AgentCreate, registry: Annotated[Registry, Depends(get_registry)]
 ) -> AgentCreated:
     agent, token = registry.create(
-        body.name, body.type, body.description, body.sme_domain, body.workdir, body.launch
+        body.name,
+        body.type,
+        body.description,
+        body.sme_domain,
+        body.workdir,
+        body.launch,
+        body.color,
     )
     return AgentCreated(agent=agent, token=token)
 
@@ -85,10 +92,29 @@ def peers(
     return registry.peers(agent)
 
 
-class InstallRequest(BaseModel):
-    # The token is passed in (the hub never stores the plaintext), and verified to belong to
-    # this agent before it is written into the file. workdir defaults to the agent's own.
+class TokenView(BaseModel):
     token: str
+
+
+@router.get("/{name_or_id}/token")
+def token(name_or_id: str, registry: Annotated[Registry, Depends(get_registry)]) -> TokenView:
+    """The agent's stored token, so the launch config can be opened again (D19)."""
+    return TokenView(token=registry.token_of(name_or_id))
+
+
+@router.post("/{name_or_id}/token", status_code=201)
+def rotate_token(
+    name_or_id: str, registry: Annotated[Registry, Depends(get_registry)]
+) -> AgentCreated:
+    """Replace the agent's token; the old one stops working immediately (D19)."""
+    agent, new = registry.rotate_token(name_or_id)
+    return AgentCreated(agent=agent, token=new)
+
+
+class InstallRequest(BaseModel):
+    # The hub keeps the token (D19), so none need be passed; one that is passed must belong
+    # to this agent before it is written into the file. workdir defaults to the agent's own.
+    token: str | None = None
     workdir: str | None = None
 
 
@@ -112,8 +138,12 @@ def install(
     it — a wrong token is refused rather than written into a file that would never authenticate.
     """
     agent = registry.get(name_or_id)
-    if registry.authenticate(body.token).id != agent.id:
+    if body.token is None:
+        token = registry.token_of(agent.name)
+    elif registry.authenticate(body.token).id != agent.id:
         raise InvalidToken("that token does not belong to this agent")
+    else:
+        token = body.token
     workdir = body.workdir or agent.workdir
     if not workdir:
         raise WorkdirNotFound(
@@ -121,7 +151,7 @@ def install(
         )
     hub_url = str(request.base_url).rstrip("/")
     result = install_core.install(
-        workdir, install_core.adapter_command(), hub_url, agent.name, body.token
+        workdir, install_core.adapter_command(), hub_url, agent.name, token
     )
     return InstallResponse(**result.__dict__)
 

@@ -4,8 +4,8 @@ A thin operator convenience over the hub's install API: it writes `<workdir>/.mc
 (merging with anything already there, keeping a backup) so the agent starts with the
 courtyard MCP server — the operator never hand-edits the file.
 
-    # existing agent (paste the token shown once at registration):
-    courtyard-invite --name coding --token cy_… --workdir ~/proj/payments
+    # existing agent (the hub keeps its token, D19):
+    courtyard-invite --name coding --workdir ~/proj/payments
 
     # register and install in one step:
     courtyard-invite --register --name coding --type claude-code \\
@@ -31,7 +31,7 @@ def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="courtyard-invite", description=__doc__)
     p.add_argument("--hub", default=DEFAULT_HUB_URL, help=f"hub URL (default {DEFAULT_HUB_URL})")
     p.add_argument("--name", required=True, help="the agent's courtyard name")
-    p.add_argument("--token", help="the agent's bearer token (from registration)")
+    p.add_argument("--token", help="the agent's token (optional — the hub keeps it)")
     p.add_argument("--workdir", help="the agent's project dir (default: its registered workdir)")
     p.add_argument("--remove", action="store_true", help="undo a previous install")
     p.add_argument("--register", action="store_true", help="register the agent first, then install")
@@ -40,6 +40,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--description", help="what the agent is for (when --register)")
     p.add_argument("--sme-domain", help="what the agent owns (when --register)")
+    p.add_argument("--color", help="board colour: red orange yellow green teal blue purple pink")
     return p
 
 
@@ -61,11 +62,9 @@ def cli(argv: list[str] | None = None) -> None:
         token = args.token
         if args.register:
             _agent, token = client.register_agent(
-                args.name, args.type, args.description, args.sme_domain, args.workdir
+                args.name, args.type, args.description, args.sme_domain, args.workdir, args.color
             )
-            print(f"registered {args.name}; token (shown once): {token}")
-        if not token:
-            _parser().error("provide --token, or use --register to create the agent")
+            print(f"registered {args.name}; token: {token}")
 
         result = client.install(args.name, token, args.workdir)
         print(f"courtyard-invite: wrote {result['path']}")

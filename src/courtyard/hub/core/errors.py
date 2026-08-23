@@ -76,6 +76,10 @@ class InvalidToken(DomainError):
     http_status = 401
 
 
+class NoStoredToken(DomainError):
+    code = "no_stored_token"
+
+
 class NotAttached(DomainError):
     code = "not_attached"
 

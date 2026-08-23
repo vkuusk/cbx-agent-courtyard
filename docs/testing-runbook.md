@@ -65,5 +65,89 @@ uv run python scripts/runbook/install_mcp_json.py
 2. **Uninstall** — `restored from backup: True`, `servers now : ['my-linter']`, backup gone.
 
 **Also (real terminal path, optional):** `courtyard-invite --register --name coding
---type claude-code --workdir <dir>` registers and installs in one command; add `--remove`
-to revert. Needs `uv sync` first so the `courtyard-invite` entry point exists.
+--type claude-code --workdir <dir>` registers and installs in one command; for an agent
+that already exists, `courtyard-invite --name coding --workdir <dir>` is enough (the hub
+keeps the token, D19); add `--remove` to revert. Needs `uv sync` first so the
+`courtyard-invite` entry point exists.
+
+---
+
+## Stored tokens: read back, rotate
+
+**Feature under test:** the hub keeps each agent's token (design D19): it can be read
+again, install needs none passed in, and rotation revokes the old token at once and drops
+the agent's session.
+
+**Run:**
+
+```
+uv run python scripts/runbook/token_rotation.py
+```
+
+**Expected:** four blocks, then `(cleaned up …)`, exit 0.
+
+1. **Read it back** — `same as at registration? True`.
+2. **Install without passing a token** — `equals the stored one? True`.
+3. **Rotate** — `status before: connected`, `different from the old one? True`,
+   `status after : gone`, `old token : refused (… invalid_token …)`, `new token : inbox
+   read OK -> []`, `read back` shows the new one.
+4. **Re-install** — `replaced the courtyard entry: True`, `… equals the new token: True`.
+
+**In the browser (Agents page):** every agent row has **launch config**, **rotate token**,
+**remove**. *launch config* opens the `.mcp.json` (or puppet command) with the token and
+the install button — close and open it again, same content. *rotate token* asks first,
+then opens the config with the new token and a "Token rotated" note; the agent's dot goes
+grey until it is restarted with the new file. An agent registered before migration 0006
+gets a "no stored token" panel with a rotate button instead.
+
+---
+
+## Courtyard page layout: rail, rectangles, wires, pane, one input box
+
+**Feature under test:** the step-7 layout (design §10, D18) on Preact + htm: collapsible
+side bar; the team as rectangles; agent-to-agent lines as two nodes + a colour-coded wire;
+the conversation pane showing whatever is selected; one input box at the bottom of every
+page that addresses the selection and carries the note for gate verdicts.
+
+**Run:**
+
+```
+make demo          # hub + scripted puppets; open http://127.0.0.1:2626/ when it says so
+make demo-stop     # afterwards
+```
+
+**Expected** (in the browser, the Courtyard page):
+
+1. **Team** — one rectangle per demo puppet, each on its own colour (the hub hands out
+   the least-used of eight; green dot = connected; `guest-…` hollow, "not started yet");
+   the first one is selected (dark outline) and the box at the bottom reads
+   `Message <name>…`. Team and Lines are two tinted panels that scroll independently; the
+   grip under each drags its height (no smaller than one row of cards / two lines; the
+   conversation keeps at least a third of the page), double-click resets, the height
+   survives a reload.
+2. **Lines** — `dev ↔ ops` with an **amber** wire, *held at the gate*, listed first;
+   `alice ↔ bob` **blue**, *new since you looked* (auto-pass, their 6-message exchange).
+   "▸ show inactive lines (N)" folds lines of agents removed by earlier runs.
+3. **Gate from the pane** — click the amber wire: the pane shows `dev ↔ ops` with the
+   **supervised | auto-pass** switch (supervised filled amber; clicking auto-pass flips the
+   line and fills green), the held message with **approve / return to sender / reject**,
+   and the box becomes
+   `note → both`. Type a note in the box, click **approve**: the box empties, your note
+   appears in the pane as `you → ops`, ops's scripted reply arrives *held at the gate*
+   (supervised replies pass the gate too). Click **return to sender** with a comment: the
+   message is struck through with `returned to sender: <comment>` and the hub's notice to
+   dev follows.
+4. **Your own line** — click the `concierge-…` rectangle, type, Enter: your bubble on the
+   right, the echo reply on the left within a second; the box stays enabled. Message
+   `alice-…` (scripted, no reply): the box greys out with *waiting for alice to reply — one
+   message at a time on a line*.
+5. **Unread** — with another agent selected, a reply to you shows `N new` on that agent's
+   rectangle and the tab title reads `(N) Agent Courtyard`; both clear when you open it.
+6. **Frame** — the icon at the top of the side bar collapses it to a strip (remembered
+   across reloads); Agents and Admin keep the same box at the bottom; on Agents, clicking a
+   row selects that agent for the box, names carry their colour, and the add form offers
+   eight colour swatches with the least-used one pre-selected. Zero errors in the browser
+   console.
+7. **Themes** — with macOS in dark mode the page opens dark; the sun/moon item at the
+   bottom of the side bar switches to the other theme and the choice survives a reload;
+   Admin → Appearance → "follow the system" returns to the system's theme.

@@ -21,10 +21,20 @@ class AgentRepo(Protocol):
         sme_domain: str | None,
         workdir: str | None,
         token_hash: str,
+        token: str,
         launch: dict[str, Any] | None,
+        color: str | None,
     ) -> Agent: ...
 
     def get(self, agent_id: UUID) -> Agent | None: ...
+
+    def get_token(self, agent_id: UUID) -> str | None:
+        """The stored plaintext token (D19); None for registrations that predate storing it."""
+        ...
+
+    def set_token(self, agent_id: UUID, token_hash: str, token: str) -> None:
+        """Rotate: replace both the lookup hash and the stored plaintext."""
+        ...
 
     def get_by_name(self, name: str) -> Agent | None: ...
 

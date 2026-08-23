@@ -1,140 +1,149 @@
-// Board view: every line at a glance — who talks to whom, mode, whose turn, counters —
-// plus the operator's "start a conversation" entry point.
+// The Courtyard page: the team (one rectangle per agent), the lines between agents (two nodes,
+// one colour-coded wire each), and the conversation pane for whatever is selected.
 
-import { api } from "../api.js";
-import { store, agentName } from "../store.js";
-import { el, statusDot, fmtAgo } from "../ui.js";
-import { modeControl } from "../controls.js";
+import { html } from "../../vendor/htm-preact-standalone.module.js";
+import {
+  store, select, setUi, setPanelMax, teamAgents, isOperatorLine, isInactive, hasNewActivity, unreadWith, agentName,
+} from "../store.js";
+import { useStore, fmtAgo, minutesSince } from "../ui.js";
+import { Conversation } from "../conversation.js";
 
-function stateLabel(line) {
-  if (line.state === "pending_gate") return "held at the gate";
-  if (line.state === "awaiting_reply")
-    return `awaiting reply from ${agentName(line.awaiting_from)}`;
-  return "idle";
-}
+const NO_REPLY_MINUTES = 15;
 
-function participant(line, id, name) {
-  const agent = store.agents.get(id);
-  return el("span", {}, statusDot(agent?.status ?? "invited"), " ", name ?? agentName(id));
-}
-
-function lineCard(line) {
-  const counters = [];
-  if (line.pending_count) {
-    counters.push(el("span", { class: "pill count" }, `${line.pending_count} at gate`));
+// What the wire says and which colour it takes; lower rank = needs you more.
+export function wireStatus(line) {
+  const offline = [line.agent_a, line.agent_b]
+    .map((id) => store.agents.get(id))
+    .find((a) => a && a.status !== "connected");
+  if (line.queued_count > 0 && offline) {
+    return { cls: "trouble", rank: 0, label: `${offline.name} offline · ${line.queued_count} waiting` };
   }
-  if (line.queued_count) {
-    counters.push(el("span", { class: "pill queued" }, `${line.queued_count} queued`));
+  const waited = minutesSince(line.last_activity_at);
+  if (line.state === "awaiting_reply" && waited > NO_REPLY_MINUTES) {
+    return { cls: "trouble", rank: 0, label: `no reply from ${agentName(line.awaiting_from)} for ${Math.floor(waited)}m` };
   }
-  return el(
-    "div",
-    { class: "line-card", onclick: () => (location.hash = `#/line/${line.id}`) },
-    el(
-      "div",
-      { class: "line-pair" },
-      participant(line, line.agent_a, line.agent_a_name),
-      el("span", { class: "vs" }, "↔"),
-      participant(line, line.agent_b, line.agent_b_name),
-    ),
-    el("div", { class: `line-state ${line.state}` }, stateLabel(line)),
-    el(
-      "div",
-      { class: "line-meta" },
-      ...counters,
-      modeControl(line),
-      el("span", { class: "muted small" }, fmtAgo(line.last_activity_at)),
-    ),
-  );
+  if (line.pending_count > 0) {
+    return { cls: "held", rank: 1, label: line.pending_count === 1 ? "held at the gate" : `${line.pending_count} held at the gate` };
+  }
+  if (hasNewActivity(line)) return { cls: "fresh", rank: 2, label: "new since you looked" };
+  if (line.state === "awaiting_reply") {
+    return { cls: "flowing", rank: 3, label: `waiting for ${agentName(line.awaiting_from)}` };
+  }
+  return { cls: "idle", rank: 4, label: "idle" };
 }
 
-function composePanel() {
-  const select = el("select", { "data-note-for": "compose-to" });
-  const input = el("textarea", {
-    class: "compose-input",
-    rows: "2",
-    placeholder: "your opening message… (Ctrl/Cmd+Enter to send)",
-    "data-note-for": "compose-new",
-  });
-  const panel = el(
-    "div",
-    { class: "panel", hidden: "" },
-    el(
-      "div",
-      { class: "form-row" },
-      el("span", { class: "small muted" }, "to:"),
-      select,
-    ),
-    el("div", { class: "composer" }, input, el(
-      "button",
-      {
-        class: "primary",
-        onclick: async () => {
-          const body = input.value.trim();
-          if (!body) return;
-          try {
-            const message = await api.operatorSend(select.value, body);
-            input.value = "";
-            location.hash = `#/line/${message.line_id}`;
-          } catch (err) {
-            alert(err.message);
-          }
-        },
-      },
-      "send",
-    )),
-  );
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) panel.querySelector("button").click();
-  });
-  const rank = { connected: 0, stale: 1, invited: 2, gone: 3 };
-  const refreshTargets = () => {
-    const current = select.value;
-    const agents = [...store.agents.values()]
-      .filter((a) => !a.removed_at && a.type !== "human")
-      .sort(
-        (a, b) => rank[a.status] - rank[b.status] || a.name.localeCompare(b.name),
-      );
-    select.replaceChildren(
-      ...agents.map((a) => el("option", { value: a.name }, `${a.name} — ${a.status}`)),
-    );
-    if (agents.some((a) => a.name === current)) select.value = current;
-  };
-  return { panel, refreshTargets };
+const FOOT = { invited: "not started yet", stale: "not responding", gone: "offline" };
+
+function AgentCard({ agent }) {
+  const sel = store.ui.selected;
+  const selected = sel?.kind === "agent" && sel.id === agent.id;
+  const unread = unreadWith(agent.id);
+  const foot = FOOT[agent.status];
+  return html`<button class="agent ${selected ? "selected" : ""}" data-color=${agent.color}
+      onClick=${() => select({ kind: "agent", id: agent.id })}>
+    <span class="head"><span class="dot ${agent.status}" /><span class="name">${agent.name}</span>
+      ${unread ? html`<span class="badge">${unread} new</span>` : null}</span>
+    <span class="owns">${agent.sme_domain ?? agent.description ?? agent.type}</span>
+    ${foot ? html`<span class="foot ${agent.status === "invited" ? "" : "warn"}">${foot}</span>` : null}
+  </button>`;
 }
 
-export function mount(root) {
-  const { panel, refreshTargets } = composePanel();
-  const list = el("div", {});
-  root.replaceChildren(
-    el(
-      "div",
-      { class: "view-head" },
-      el("h2", {}, "Lines"),
-      el(
-        "button",
-        { class: "small", onclick: () => (panel.hidden = !panel.hidden) },
-        "message an agent…",
-      ),
-    ),
-    panel,
-    list,
-  );
+function Wire({ line, inactive }) {
+  const sel = store.ui.selected;
+  const selected = sel?.kind === "line" && sel.id === line.id;
+  const s = inactive ? { cls: "idle", label: "a participant was removed" } : wireStatus(line);
+  const mode = line.mode === "supervised" ? "supervised" : "auto-pass";
+  const node = (id, name) =>
+    html`<span class="node" data-color=${store.agents.get(id)?.color}><span class="dot ${store.agents.get(id)?.status ?? ""}" />${name ?? agentName(id)}</span>`;
+  return html`<button class="line ${selected ? "selected" : ""} ${inactive ? "inactive" : ""}"
+      onClick=${() => select({ kind: "line", id: line.id })}>
+    ${node(line.agent_a, line.agent_a_name)}
+    <span class="wire ${s.cls}"><span class="tag">${s.label}</span>
+      <span class="sub">${mode} · ${fmtAgo(line.last_activity_at ?? line.created_at)}</span></span>
+    ${node(line.agent_b, line.agent_b_name)}
+  </button>`;
+}
 
-  const update = () => {
-    refreshTargets();
-    const lines = [...store.lines.values()].sort((a, b) =>
-      (b.last_activity_at ?? b.created_at).localeCompare(a.last_activity_at ?? a.created_at),
-    );
-    list.replaceChildren(
-      lines.length
-        ? el("div", {}, ...lines.map(lineCard))
-        : el(
-            "div",
-            { class: "empty" },
-            "No lines yet — a line appears when two agents first talk to each other.",
-          ),
-    );
+const recency = (l) => l.last_activity_at ?? l.created_at;
+
+// The smallest a panel may be dragged to: one row of cards for the team, two lines for
+// the lines — measured from the real rows, so card heights and fonts never need guessing.
+function minHeight(panel, which) {
+  const rows = which === "team" ? [panel.querySelector(".agent")] : [...panel.querySelectorAll(".lines .line")];
+  const ref = rows[Math.min(rows.length - 1, which === "team" ? 0 : 1)];
+  if (!ref) return 0;
+  const bottom = ref.getBoundingClientRect().bottom - panel.getBoundingClientRect().top;
+  return Math.ceil(bottom + parseFloat(getComputedStyle(panel).paddingBottom));
+}
+
+// A grip under a panel: drag to set its height, double-click to reset. The conversation
+// always keeps at least a third of the page.
+function Resizer({ which }) {
+  const onDown = (e) => {
+    const grip = e.currentTarget;
+    const panel = grip.previousElementSibling;
+    const page = grip.closest(".page");
+    const other = page.querySelector(`.board-panel.${which === "team" ? "panel-lines" : "panel-team"}`);
+    const startY = e.clientY;
+    const startH = panel.getBoundingClientRect().height;
+    const lo = minHeight(panel, which);
+    const grips = [...page.querySelectorAll(".resizer")].reduce((n, g) => n + g.offsetHeight, 0);
+    const pageStyle = getComputedStyle(page);
+    const avail = page.clientHeight - parseFloat(pageStyle.paddingTop) - parseFloat(pageStyle.paddingBottom);
+    const hi = Math.max(lo, (avail * 2) / 3 - (other?.getBoundingClientRect().height ?? 0) - grips);
+    grip.setPointerCapture(e.pointerId);
+    const onMove = (ev) => {
+      const h = Math.min(hi, Math.max(lo, startH + ev.clientY - startY));
+      panel.style.maxHeight = `${h}px`;
+    };
+    const onUp = () => {
+      grip.removeEventListener("pointermove", onMove);
+      grip.removeEventListener("pointerup", onUp);
+      setPanelMax(which, parseFloat(panel.style.maxHeight));
+    };
+    grip.addEventListener("pointermove", onMove);
+    grip.addEventListener("pointerup", onUp);
   };
-  update();
-  return update;
+  return html`<div class="resizer" title="drag to resize · double-click to reset"
+    onPointerDown=${onDown} onDblClick=${() => setPanelMax(which, null)}><span /></div>`;
+}
+
+const panelStyle = (which) => (store.ui.panels[which] ? `max-height:${store.ui.panels[which]}px` : "");
+
+export function Board() {
+  useStore();
+  const team = teamAgents();
+  const between = [...store.lines.values()].filter((l) => !isOperatorLine(l));
+  const active = between
+    .filter((l) => !isInactive(l))
+    .map((l) => ({ l, rank: wireStatus(l).rank }))
+    .sort((x, y) => x.rank - y.rank || recency(y.l).localeCompare(recency(x.l)))
+    .map((x) => x.l);
+  const inactive = between.filter(isInactive).sort((x, y) => recency(y).localeCompare(recency(x)));
+  const show = store.ui.showInactive;
+
+  return html`
+    <div class="board-panel panel-team" style=${panelStyle("team")}>
+      <div class="eyebrow">Team</div>
+      <div class="team">
+        ${team.map((a) => html`<${AgentCard} key=${a.id} agent=${a} />`)}
+        <a class="agent add" href="#/agents"><span class="plus">+</span><span>${team.length ? "add" : "add your first agent"}</span></a>
+      </div>
+    </div>
+    <${Resizer} which="team" />
+    ${active.length || inactive.length
+      ? html`<div class="board-panel panel-lines" style=${panelStyle("lines")}>
+          <div class="eyebrow">Lines</div>
+          ${active.length
+            ? html`<div class="lines">${active.map((l) => html`<${Wire} key=${l.id} line=${l} />`)}</div>`
+            : html`<div class="small muted">No active lines — a line appears when two agents first talk.</div>`}
+          ${inactive.length
+            ? html`<button class="inactive-toggle" onClick=${() => setUi({ showInactive: !show })}>
+                  ${show ? "▾ hide" : "▸ show"} inactive lines (${inactive.length})</button>
+                ${show ? html`<div class="lines">${inactive.map((l) => html`<${Wire} key=${l.id} line=${l} inactive />`)}</div>` : null}`
+            : null}
+        </div>
+        <${Resizer} which="lines" />`
+      : null}
+    <${Conversation} />`;
 }

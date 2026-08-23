@@ -16,6 +16,10 @@ MessageKind = Literal["message", "operator_note", "system"]
 MessageStatus = Literal["pending_gate", "queued", "delivered", "rejected", "returned"]
 GateVerdict = Literal["approve", "return", "reject"]
 
+# The WebUI identity palette: a name, not a hex value — the UI renders a theme-appropriate tint.
+AGENT_COLORS = ("red", "orange", "yellow", "green", "teal", "blue", "purple", "pink")
+AgentColor = Literal["red", "orange", "yellow", "green", "teal", "blue", "purple", "pink"]
+
 
 class Agent(BaseModel):
     id: UUID
@@ -24,6 +28,7 @@ class Agent(BaseModel):
     description: str | None = None  # operator-curated: what this agent is for
     sme_domain: str | None = None  # operator-curated: what this agent OWNS (§7.5 grading)
     workdir: str | None = None
+    color: AgentColor | None = None  # WebUI identity colour; None only for the operator
     status: AgentStatus  # liveness only; removal is removed_at
     launch: dict[str, Any] | None = None
     created_at: datetime

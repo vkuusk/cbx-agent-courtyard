@@ -27,8 +27,10 @@ export const api = {
   agents: () => call("GET", "/api/agents"),
   createAgent: (payload) => call("POST", "/api/agents", payload),
   removeAgent: (name) => call("DELETE", `/api/agents/${encodeURIComponent(name)}`),
-  installAgent: (name, token, workdir) =>
-    call("POST", `/api/agents/${encodeURIComponent(name)}/install`, { token, workdir }),
+  installAgent: (name, workdir) =>
+    call("POST", `/api/agents/${encodeURIComponent(name)}/install`, { workdir }),
+  agentToken: (name) => call("GET", `/api/agents/${encodeURIComponent(name)}/token`),
+  rotateToken: (name) => call("POST", `/api/agents/${encodeURIComponent(name)}/token`),
   lines: () => call("GET", "/api/lines"),
   line: (id) => call("GET", `/api/lines/${id}`),
   lineMessages: (id, after) =>

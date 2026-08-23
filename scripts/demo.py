@@ -239,17 +239,18 @@ def main() -> None:
 Phase 2 — the gate is yours. A second pair ({dev_name} ↔ {ops_name}) just started
 on a SUPERVISED line: every message now waits for you in the browser.
 
-  {HUB_URL}/#/gate
+  {HUB_URL}/  — their wire turns amber, "held at the gate": click it
 
-Things to try, in any order — the puppets react to your verdicts:
+Things to try, in any order — the puppets react to your verdicts (type a note in the
+box at the bottom first and it rides along with the verdict):
 
   · approve with a note      — your note is delivered to the recipient as an operator note
   · return with a comment    — {dev_name} is scripted to send a REVISED request
   · reject with a reason     — {dev_name} is scripted to back off politely
-  · click the mode pill      — flips the line to auto-pass mid-conversation (and back)
+  · "switch to auto-pass"    — in the pane header, flips the line mid-conversation (and back)
   · watch the tab title      — "(N) Agent Courtyard" whenever something awaits you
-  · open their line and use the note box at the bottom (default: to both) — then
-    `tail .demo/dev.log .demo/ops.log` to see both puppets receive your insertion
+  · with their line selected, the box at the bottom sends a note (click "note → both"
+    to pick one side) — then `tail .demo/dev.log .demo/ops.log` to see it arrive
 """)
 
     # -- phase 3: the architect plays an agent ---------------------------------------
@@ -266,9 +267,9 @@ Things to try, in any order — the puppets react to your verdicts:
     say(f"""{"─" * 72}
 Phase 3 — you as a participant, straight from the browser:
 
-  On the Board, click "message an agent…", pick {concierge_name}, and say hello.
+  On the Courtyard page, click the {concierge_name} rectangle and type in the box at the bottom.
   Your line with it is ungated (operator lines never pass the gate); the echo reply
-  lands in your Inbox tab — watch the badge and the tab title.
+  shows up in the pane and as "1 new" on the rectangle — watch the tab title too.
 
 Or play a full agent from a second terminal instead:
 

@@ -143,7 +143,8 @@ Agent {
                                  # drives authority grading (§7.5). Null = a peer with no
                                  # declared ownership.
   workdir:       path | null     # the directory the agent works in
-  token:         secret          # bearer token for this agent's hub API calls
+  token:         secret          # bearer token for this agent's hub API calls — kept by
+                                 # the hub, readable and rotatable by the operator (D19)
   launch:        LaunchProfile | null   # §8; null = always started manually
   status:        invited | connected | stale | gone   # liveness ONLY, §6.3
   removed_at:    timestamptz | null   # removal from the courtyard (permanent; revokes the
@@ -425,9 +426,9 @@ All through official extension points — Claude Code itself is untouched:
   (`hub/core/install.py`): the **WebUI** button (`POST /api/agents/{id}/install`, the hub
   writes it — dev mode, since the hub must share the workdir's disk) and the
   **`courtyard-invite`** CLI (`--register` to create-and-install, `--remove` to revert), a
-  thin client over the same endpoint for terminal-first launch. The hub never stores the
-  plaintext token, so install is handed the token (from registration) and verifies it belongs
-  to the agent before writing. **Token placement: inline in `.mcp.json` + `chmod 600`**
+  thin client over the same endpoint for terminal-first launch. The hub keeps each agent's
+  token (D19), so install needs none passed in; one that is passed must belong to the agent.
+  **Token placement: inline in `.mcp.json` + `chmod 600`**
   (architect, 2026-08-20, D15): the file carries the secret and must not be committed — the
   install result says so, and the WebUI surfaces the warning. In live/container mode the hub
   cannot see the workdir, so the copy-paste panel is the path there.
@@ -594,7 +595,8 @@ tests run against the real compose Postgres.
 
 ```sql
 agents   (id uuid PK, name text UNIQUE, type text, description text NULL,
-          workdir text, token_hash text, status text, launch jsonb,
+          workdir text, token_hash text, token text NULL,        -- 0006: plaintext kept (D19)
+          status text, launch jsonb,
           created_at, last_seen_at, removed_at timestamptz NULL)  -- 0004: removal ≠ liveness
 
 lines    (id uuid PK, agent_a uuid, agent_b uuid,      -- pair stored in normalized order
@@ -616,9 +618,11 @@ channels (agent_id uuid PK, endpoint text, channel_token text,
 ```
 
 Notes: the agent pair is normalized (a < b) before insert so line uniqueness is one plain
-constraint; agent bearer tokens are stored **hashed** (the hub only ever verifies them) while
-channel tokens are stored as-is (the hub must present them on pushes); `seq` is allocated
-inside the send transaction.
+constraint; agent bearer tokens are stored **in plain text beside their hash** — the hash
+is the authentication lookup, the plaintext is what the operator reads back and rotates
+(D19; null for registrations older than migration 0006 until rotated); channel tokens are
+stored as-is (the hub must present them on pushes); `seq` is allocated inside the send
+transaction.
 
 ### 9.4 Deployment modes (docker compose)
 
@@ -639,10 +643,12 @@ the published localhost port in both modes.
 
 The operator is a beginner in web development and the UI must stay maintainable by both of us:
 
-- **No build toolchain in v1.** Plain HTML + CSS + vanilla ES modules, served as static files
-  by the hub. No npm, no bundler, no framework runtime. (Decision D4; replaceable later —
-  the UI talks only to the documented REST/SSE API, so a rewrite in React/Svelte touches
-  nothing in the hub.)
+- **No build toolchain in v1.** Plain HTML + CSS + ES modules, served as static files by
+  the hub. No npm, no bundler. (Decision D4.) Rendering is done by **Preact + htm** — one
+  vendored file, `webui/vendor/htm-preact-standalone.module.js`, imported directly by the
+  modules (D18): the screen is described as a function of the store and redraws itself on
+  every change, instead of hand-patching the page. The UI still talks only to the
+  documented REST/SSE API, so a rewrite in anything else touches nothing in the hub.
 - **Live updates via SSE** (`GET /api/events`): one event stream carries board changes
   (message appended, gate pending, line state, agent liveness). Actions go through plain REST
   POSTs. No WebSockets — nothing here needs client→server streaming.
@@ -657,19 +663,54 @@ judged by one question: can a new operator register, start and talk to two agent
 the worked example in `docs/quickstart.md` unaided, leaving the browser only to launch the
 terminals?
 
-### Views (v1)
+### The layout (approved 2026-08-22, D18)
 
-1. **Board** — all lines with liveness badges, mode dial (auto/supervised), unread and
-   pending-gate counters.
-2. **Line view** — the chat history of one line (messages, operator notes, system notices,
-   rejected messages greyed out); the supervision toggle; the release action; for
-   operator-lines, the compose box; for inter-agent lines, the "insert note" box (target: a /
-   b / both).
-3. **Gate queue** — all `pending_gate` messages across lines; approve (+ optional note) /
-   **return to sender** (+ comment) / reject (+ note). Also reachable inline from a line
-   view.
-4. **Agents** — registry list; add (→ invite parameters + launch command + the 6d install
-   button), remove; status. (L1 "start" is post-v1, D16.)
+The frame is the one every chat product has converged on, because it works: a
+**collapsible side bar** on the left (Courtyard and Agents at the top, Admin at the
+bottom; collapses to an icon strip; the hub-connection dot sits under the brand), the page
+in the middle — no title strip — and **one input box pinned to the bottom of every page**. The operator always types in the same place; *what* the text
+becomes depends on what is selected.
+
+1. **Courtyard** (the main page; "MainBoard" in earlier notes) — the daily page, top to bottom:
+   - **Team**: on a tinted panel that sets it apart from the conversation below, scrolling on
+     its own when the team is large — one rounded rectangle per agent in the **agent's
+     colour** (a palette of eight names — red, orange, yellow, green, teal, blue, purple,
+     pink — chosen at registration or assigned least-used by the hub; migration 0007) —
+     liveness dot, name, what it owns, a blue
+     "N new" badge when it has answered you. Clicking a rectangle selects that agent: the
+     pane below shows your line with it and the input box addresses it. A dashed "+ add"
+     rectangle leads to the Agents page.
+   - **Lines**: a second tinted panel, scrolling independently of the team so many agents
+     never hide the lines. Both panels have a grip underneath: drag to set the height
+     (remembered per browser; double-click resets), with floors — one row of cards, two
+     lines, and a third of the page for the conversation. Each agent-to-agent line drawn as
+     **two name nodes joined by one wire** (nodes in the agents' colours),
+     the wire coloured by status — amber *held at the gate* (needs you), blue *new since
+     you looked*, green *waiting for X* (in flight on auto-pass), red *problem* (a
+     participant offline with messages waiting; no reply for a long time), grey dashed
+     *idle*. Ordered needs-you first. Lines whose participant was removed fold behind
+     "show inactive lines (N)". The operator's own lines are **not** drawn as wires — the
+     pane is that conversation, and the rectangles' badges say who answered.
+   - **Conversation pane**: the scrollable history of whatever is selected. For an
+     agent-to-agent line a **held message shows its approve / return-to-sender / reject
+     buttons right there**; the pane header carries a two-state **supervised | auto-pass**
+     switch (the current mode filled in its colour) and the release button, and the input
+     box becomes a note into that line ("note → both"; click to address one side).
+   - **The input box**: a message to the selected agent, or a note into the selected
+     line — and, when a held message is on screen, the text that rides along with the
+     verdict. Enter sends; while the agent owes a reply the box says so instead of
+     inviting a doomed send (turn rule, §5.4).
+2. **Agents** — the registry: list with liveness, add (→ launch config with the once-only
+   token, the 6d install button), remove. Clicking a row selects that agent for the input
+   box. (L1 "start" is post-v1, D16.)
+3. **Admin** — the courtyard itself: hub health and configuration, counts; housekeeping
+   actions (clearing removed agents and their lines, defaults) are the 7c page.
+
+**Light and dark themes.** Every colour is a token; the dark set applies when the operating
+system is in dark mode unless a theme was chosen — the sun/moon switch at the bottom of the
+side bar, or Admin → Appearance (follow the system / light / dark), remembered per browser.
+
+Static layout prototypes live in `ui-designs/` (`layout.html` is the one implemented).
 
 ## 11. Security model (v1, deliberate and explicit)
 
@@ -679,8 +720,10 @@ against are *accidents and prompt-level attacks*, not a hostile local user.
 1. Hub binds `127.0.0.1` only; refuses to start otherwise without an explicit
    `--i-know-binding-non-localhost` style override.
 2. Per-agent bearer tokens on every adapter→hub call; per-channel tokens on every hub→adapter
-   push. Bearer tokens are stored hashed in the hub database; the invited agent's copy lives
-   in its project config with `600` permissions.
+   push. Bearer tokens are kept in plain text in the hub database (D19 — the operator can
+   read an agent's launch config again and rotate its token; the database is on the
+   operator's own machine, D3); the invited agent's copy lives in its project config with
+   `600` permissions.
 3. All delivered content carries an authority grade and a tamper-proof envelope (§7.5). No
    signature system in v1
    (Decision D3): filesystem permissions are the trust boundary on one machine; Ed25519
@@ -724,7 +767,7 @@ cbx-agent-courtyard/
 │   ├── adapters/
 │   │   └── claude_code/            # MCP stdio server (thin, D14), courtyard-invite (6d)
 │   └── puppet/                     # fake agent (echo / script / manual)
-├── webui/                          # static: index.html, css/, js/ (ES modules, no build)
+├── webui/                          # static: index.html, style.css, js/ (Preact + htm ES modules), vendor/ (one file)
 ├── adapters-js/
 │   └── pi/                         # post-v1 (D16): pi TypeScript extension (own package.json)
 ├── scripts/                        # demo scenarios (e.g. two-puppets-conversation)
@@ -738,7 +781,7 @@ cbx-agent-courtyard/
 | D1 | Hub-and-spoke exchange board; agents never talk directly | **Accepted** (architect, 2026-08-18) | The core idea |
 | D2 | Strict turn-taking: one unanswered message in flight per line | **Accepted** (architect) | §5.4 formalization — confirm the "either side may initiate from IDLE" reading |
 | D3 | No signatures/auth in v1 — "on-my-laptop-only" deployment (trusted machine / home lab). Lightweight per-agent tokens kept as accident-prevention, not authentication | **Accepted** (architect, 2026-08-18) | v2 requirement: hub runnable as a remote service → WebUI login + transport security become mandatory (§11) |
-| D4 | WebUI: no-build vanilla JS + SSE, served by hub | **Accepted** (architect, 2026-08-18) | Replaceable; API is the contract |
+| D4 | WebUI: no-build vanilla JS + SSE, served by hub | **Accepted** (architect, 2026-08-18); rendering amended by D18 | Replaceable; API is the contract |
 | D5 | Storage: **PostgreSQL from day one** (plain SQL + migrations) behind the repository interface | **Accepted** (architect, 2026-08-18) | Replaced the earlier filesystem proposal — §9.2 |
 | D6 | New lines default to `supervised` | **Accepted** (architect, 2026-08-18) | Flip to `auto_pass` default if annoying |
 | D7 | Gate verdicts = approve(+note) / **return-to-sender**(+comment) / reject(+note); body-edit deferred | **Accepted** (architect added return, 2026-08-18) | §5.4 rule 4, §5.5; revisit body-edit after step 4 UX |
@@ -750,9 +793,11 @@ cbx-agent-courtyard/
 | D13 | Migrations: forward-only numbered plain-SQL files + the ~40-line custom runner (startup-applied, one tx per file); no migration tool, no down-migrations in v1. Recovery = new forward migration; dev data is disposable (`make db-nuke`), precious data gets `pg_dump` first | **Accepted** (architect, 2026-08-19) | Reviewed Flyway/Liquibase/Prisma/Alembic/yoyo/pgroll — all re-buy what we have at this scale. Revisit triggers: a second deployed environment; parallel dev colliding on numbers (→ yoyo); zero-downtime v2 service (→ pgroll). Format imports into Flyway/yoyo nearly as-is, so no lock-in |
 | D-spike | Claude adapter delivery stack (spike 6a, verified on Claude Code 2.1.237): **(1) channels** — MCP stdio server with the `claude/channel` experimental capability pushes `notifications/claude/channel` events that arrive as live turns; primary mechanism for open sessions (events queue while busy per docs). **(2) Stop hook** — backstop at end-of-turn; emits both `systemMessage` and `reason`; loop-guarded by `stop_hook_active` + Claude Code's 8-consecutive-block override; unread state queried from the **hub API only**, no local mailbox/state files. **(3) `claude -p --resume <name>`** — context-preserving delivery/wake for **closed** sessions only: delivering into an open session forks the transcript tree and orphans the delivered branch (verified empirically). Adapter = one stdio MCP server per agent (channels are stdio-only), exposing the courtyard tools on the same server | **Verified by spike** (architect ran all three experiments, 2026-08-20) | Spike code + full results: `spikes/6a-delivery/`. Operational note: while channels are in research preview, launch commands need `--dangerously-load-development-channels server:courtyard` and a per-start consent screen; the preview contract may change — pin the Claude Code version in the launch profile if it drifts. Bonus finding: the delivered-content-is-data framing (now graded, §7.5) held at the `instructions` level (agent refused a redirect attempt). **Adoption (D14):** (1) primary; (3) reserved as an operator action; (2) verified but not installed in v1 |
 | D16 | **v1 scope cut around the quickstart** — launch L1, live mode (6e/6f) and the pi adapter leave v1; v1 is Claude Code only, hub on the host. The freed room becomes step 7: the WebUI consolidated for the quickstart configuration (operator + two claude-code agents) — MainBoard absorbs the Gate and Inbox pages, Agent Admin stays, **Courtyard Admin** is added (housekeeping: dead registrations/lines; defaults: supervision mode; health). v1 acceptance = the quickstart scenario run through this UI. Step 7 is worked **agile, per page** (design proposal → review → implement → approve), not waterfall | **Accepted** (architect, 2026-08-20) | Functional, minimalistic, intuitive is the bar. §10 is updated per page as each is approved rather than re-specified up front |
-| D15 | **Agent token placement: inline in `.mcp.json` + `chmod 600`.** The install writes the bearer token straight into the file's `env` block and locks the file 0600 | **Accepted** (architect, 2026-08-20) | Chosen over (b) `${COURTYARD_TOKEN}` expansion and (c) a separate 600 token file. Decider: the hub reveals the plaintext token only once at registration and never stores it, so (b) — the only option that keeps the secret out of a project file entirely — would force the operator to re-supply the token on every launch. Inline is self-contained across restarts; the accepted cost is that `.mcp.json` (designed to be committable) now carries a secret, mitigated by 0600 + a "do not commit" warning in the install result rather than by editing the operator's `.gitignore` (which could un-track other MCP servers). Revisit if the hub ever persists reusable tokens, or agents span machines (→ token file or short-lived tokens) |
+| D15 | **Agent token placement: inline in `.mcp.json` + `chmod 600`.** The install writes the bearer token straight into the file's `env` block and locks the file 0600 | **Accepted** (architect, 2026-08-20) | Chosen over (b) `${COURTYARD_TOKEN}` expansion and (c) a separate 600 token file. Decider at the time: the hub revealed the plaintext token only once and never stored it, so (b) — the only option that keeps the secret out of a project file entirely — would force the operator to re-supply the token on every launch. D19 later made the hub keep tokens; inline placement stays, now for self-containedness across restarts alone. Inline is self-contained across restarts; the accepted cost is that `.mcp.json` (designed to be committable) now carries a secret, mitigated by 0600 + a "do not commit" warning in the install result rather than by editing the operator's `.gitignore` (which could un-track other MCP servers). Revisit if the hub ever persists reusable tokens, or agents span machines (→ token file or short-lived tokens) |
 | D14 | **Minimal agent-side footprint — one MCP server + the launch flag, nothing else; no Stop hook in v1.** Whatever can live in the hub does: the authority envelope is rendered hub-side (`Message.rendered`), peer discovery is ranked/trimmed/worded hub-side (`GET /peers`), and blue-moon delivery failures are shown to the operator on the board instead of being patched agent-side. Hub→agent delivery = channel push to open sessions + backlog on attach + heartbeat-driven pull; a closed session's mail waits (durably `queued`) until the operator reopens its terminal — resume-wake is an operator action, never a hub reflex | **Accepted** (architect, 2026-08-20) | Every agent-side mechanism is one more thing to port per agent type. The Stop hook's unique coverage (adapter crashed while the session lives; channel silently broken) is hub-detectable — stale channel, line stuck in `awaiting_reply` — and operator-fixable; it cannot confirm model-read any better than the channel; and it is reversible at zero hub cost (`GET /inbox` already takes-and-marks). **Open fact, on the v1 acceptance checklist:** a channel event queued while the agent is busy must start a turn by itself when the turn ends (docs say so; spike A never exercised it). Turn-taking is per line, so busy-arrival is routine — fan-in from other lines, the operator's own terminal tasks — and if the fact fails, the hook is the only fix. Automatic `-p --resume` rejected for now: without a clean detach the hub cannot tell "closed" from "adapter crashed, session open" (and the latter forks — spike C); headless turns cannot be prompted for tool permissions; it is a host-side spawn that 6f's container cannot do |
 | D17 | **The quickstart is a permanent product feature, and the architect is the acceptance gate.** The quickstart — easy install/start plus one worked example, written up in `docs/quickstart.md` — is the convenience path a new operator follows to start using the courtyard for day-to-day work. It is not a demo and not merely the v1 acceptance scenario. v1 acceptance = the architect running the quickstart as a new operator would and approving; each step-7 page is likewise approved by him after trying it in the browser (agile: proposal → review → implement → approve) | **Accepted** (architect, 2026-08-22) | Corrects the D16-era framing in which the quickstart existed for acceptance. Consequences: `docs/quickstart.md` is a v1 deliverable maintained alongside the pages rather than written once at the end (goal 8, §2), and the WebUI is judged by whether a new operator gets through it unaided (§10) |
+| D18 | **WebUI rendered with Preact + htm, vendored, still no build step; and the approved layout** — collapsible side bar, agent rectangles, lines as two nodes + one colour-coded wire, a conversation pane showing whatever is selected, one input box at the bottom of every page (§10) | **Accepted** (architect, 2026-08-22) | The pain in the vanilla UI was keeping the screen in sync by hand (re-render races, preserved-input hacks), not styling; Preact + htm removes that at the cost of one 13 KB file and no toolchain, keeping D4's spirit. Alternatives weighed: Vue ESM (same benefit, HTML-looking templates, 10× the file), React/Svelte + Vite + Tailwind + shadcn (ready-made blocks, but node + npm + a build step and code the architect cannot read — the sprawl D4 fenced off). Layout choices confirmed by the architect: the pane shows what you clicked; the input box is always in the same place, gate comments included; operator lines are not wires |
+| D19 | **The hub keeps every agent's token; the operator can read an agent's launch config again and rotate its token.** Migration 0006 adds `agents.token` (plaintext) beside the hash; `GET /api/agents/{id}/token`, `POST /api/agents/{id}/token` (rotate: old token refused at once, channel dropped, agent reads as offline until restarted), install and `courtyard-invite` no longer need a token passed in; Agents page gains **launch config** and **rotate token** per agent | **Accepted** (architect, 2026-08-22) | "Personal-use app, definitely not a public SaaS" — the once-only token was a SaaS reflex that cost the operator the ability to re-open a config. Within the D3 threat model (one operator, one machine) a plaintext token in the local database adds nothing an attacker on the machine did not already have. Registrations from before 0006 have no stored token until rotated; the UI says so |
 
 ## 14. Risks and required spikes
 

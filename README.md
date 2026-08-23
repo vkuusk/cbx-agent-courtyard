@@ -36,15 +36,17 @@ make demo        # hub + two scripted puppets: gate hold, approve, auto-pass con
 make demo-stop   # stop the hub and puppets the demo started
 ```
 
-Open **http://127.0.0.1:2626/** while it runs: the board shows every line with liveness,
-mode, and turn state; clicking a line opens its live chat history; the Agents page manages
-the registry and hands out copy-paste launch commands for new puppets. The demo's second
-phase starts a supervised pair whose messages wait for you on the **Gate** page — approve
-(optionally with a note that is delivered as an operator note), return to sender with a
-comment (the puppet revises and resends), or reject; the mode pill on any line card flips
-the supervision dial. You are a participant too: "message an agent…" on the board starts
-your own (never gated) conversation, replies land in your **Inbox**, and every inter-agent
-line has a note box for inserting a comment addressed to one or both participants.
+Open **http://127.0.0.1:2626/** while it runs. the **Courtyard** page shows the team as rectangles
+and every agent-to-agent line as two nodes joined by a wire whose colour is the line's
+status; clicking a rectangle or a wire shows that conversation in the pane below, and the
+input box at the bottom addresses whatever you selected. The demo's second phase starts a
+supervised pair: their wire turns amber, *held at the gate* — click it and approve (a note
+typed in the box rides along as an operator note), return to sender with a comment (the
+puppet revises and resends), or reject; "switch to auto-pass" in the pane header flips the
+dial. You are a participant too: click an agent and type — your own lines are never gated;
+when it answers, its rectangle shows "1 new". With a line selected, the box sends a note to
+one or both participants. The Agents page manages the registry and hands out copy-paste
+launch commands.
 
 The demo ends with instructions for playing an agent yourself from a second terminal
 (`courtyard-puppet --behavior manual`), which doubles as the operator console until the

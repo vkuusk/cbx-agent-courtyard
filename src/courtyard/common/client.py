@@ -106,6 +106,7 @@ class HubClient:
         description: str | None = None,
         sme_domain: str | None = None,
         workdir: str | None = None,
+        color: str | None = None,
     ) -> tuple[Agent, str]:
         data = self._call(
             "POST",
@@ -116,6 +117,7 @@ class HubClient:
                 "description": description,
                 "sme_domain": sme_domain,
                 "workdir": workdir,
+                "color": color,
             },
         )
         return Agent.model_validate(data["agent"]), data["token"]
@@ -123,11 +125,21 @@ class HubClient:
     def agents(self) -> list[Agent]:
         return [Agent.model_validate(a) for a in self._call("GET", "/api/agents")]
 
-    def install(self, name: str, token: str, workdir: str | None = None) -> dict:
-        """Write the agent's `.mcp.json` into its workdir (dev mode). Returns {path, ...}."""
+    def install(self, name: str, token: str | None = None, workdir: str | None = None) -> dict:
+        """Write the agent's `.mcp.json` into its workdir (dev mode). Returns {path, ...}.
+        The hub keeps the token (D19); pass one only to insist on a specific value."""
         return self._call(
             "POST", f"/api/agents/{name}/install", {"token": token, "workdir": workdir}
         )
+
+    def token_of(self, name: str) -> str:
+        """The agent's stored token (D19)."""
+        return self._call("GET", f"/api/agents/{name}/token")["token"]
+
+    def rotate_token(self, name: str) -> tuple[Agent, str]:
+        """Replace the agent's token; the old one stops working at once."""
+        data = self._call("POST", f"/api/agents/{name}/token")
+        return Agent.model_validate(data["agent"]), data["token"]
 
     def uninstall(self, name: str, workdir: str | None = None) -> dict:
         return self._call("POST", f"/api/agents/{name}/uninstall", {"workdir": workdir})

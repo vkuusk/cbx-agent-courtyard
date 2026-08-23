@@ -4,7 +4,7 @@ Static, throwaway layout prototypes for step 7 (WebUI quickstart UX). **Frontend
 no hub, no API, no build step. Open a file in a browser and click around:
 
 ```
-open ui-designs/mainboard.html
+open ui-designs/layout.html
 ```
 
 Each prototype is one self-contained HTML file (styles and fake data inline) so it renders
@@ -17,7 +17,8 @@ design and does not get implemented.
 
 | File | Step | Covers |
 |---|---|---|
-| `mainboard.html` | 7a | MainBoard: team strip, Needs you / Quiet grouping, inline gate decisions, delivery health, inactive fold |
+| `layout.html` | 7 (overall layout) — **implemented in `webui/` 2026-08-22** | The app frame the pages live in: collapsible side bar (MainBoard · Agents on top, Admin at the bottom), agent rectangles as the team, lines drawn as two nodes + one colour-coded wire, a scrollable conversation pane, and the one operator input pinned to the bottom (target chosen by clicking an agent or a line). Supersedes the *layout* of `mainboard.html`. |
+| `mainboard.html` | 7a | MainBoard, first pass (line cards): kept for its content ideas — inline gate decisions, delivery-health lines, inactive fold — which move into `layout.html`'s conversation pane and wires. |
 
 Nothing here is wired to `webui/`. When a layout is approved it is implemented there and the
 prototype stops being the source of truth.

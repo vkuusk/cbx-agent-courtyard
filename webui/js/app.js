@@ -1,57 +1,82 @@
-// App shell: hash router + store wiring. Views mount once per navigation and return an
-// update() the store calls on every change; update.unmount() runs on leaving the view.
+// App frame: the collapsible rail, the page, and the one input box at the bottom of every
+// page. Hash router: #/board (default) · #/agents · #/admin.
 
-import { store, subscribe, connectEvents, refreshSnapshot, unreadInbox } from "./store.js";
-import * as board from "./views/board.js";
-import * as line from "./views/line.js";
-import * as agents from "./views/agents.js";
-import * as gate from "./views/gate.js";
-import * as inbox from "./views/inbox.js";
+import { html, render, useEffect, useState } from "../vendor/htm-preact-standalone.module.js";
+import { store, connectEvents, refreshSnapshot, setUi, setTheme, effectiveTheme, totalUnread } from "./store.js";
+import { useStore, Icon } from "./ui.js";
+import { Composer } from "./composer.js";
+import { Board } from "./views/board.js";
+import { Agents } from "./views/agents.js";
+import { Admin } from "./views/admin.js";
 
-const view = document.getElementById("view");
-let currentUpdate = null;
+const PAGES = {
+  board: { title: "Courtyard", view: Board, icon: "board" },
+  agents: { title: "Agents", view: Agents, icon: "agents" },
+  admin: { title: "Admin", view: Admin, icon: "admin" },
+};
 
-function route() {
-  currentUpdate?.unmount?.();
-  const [, page, arg] = (location.hash || "#/board").split("/");
-  document
-    .querySelectorAll("[data-nav]")
-    .forEach((a) => a.classList.toggle("active", a.dataset.nav === (page || "board")));
-  if (page === "line" && arg) currentUpdate = line.mount(view, arg);
-  else if (page === "agents") currentUpdate = agents.mount(view);
-  else if (page === "gate") currentUpdate = gate.mount(view);
-  else if (page === "inbox") currentUpdate = inbox.mount(view);
-  else currentUpdate = board.mount(view);
+function useHash() {
+  const [hash, setHash] = useState(location.hash);
+  useEffect(() => {
+    const onChange = () => setHash(location.hash);
+    addEventListener("hashchange", onChange);
+    return () => removeEventListener("hashchange", onChange);
+  }, []);
+  return hash;
 }
 
-function renderBadges() {
-  const pending = store.pending.size;
-  const unread = unreadInbox();
-  const gateBadge = document.getElementById("gate-badge");
-  gateBadge.hidden = !pending;
-  gateBadge.textContent = pending;
-  const inboxBadge = document.getElementById("inbox-badge");
-  inboxBadge.hidden = !unread;
-  inboxBadge.textContent = unread;
-  const total = pending + unread;
-  document.title = total ? `(${total}) Agent Courtyard` : "Agent Courtyard";
+function NavLink({ page, current }) {
+  const { title, icon } = PAGES[page];
+  return html`<a href=${`#/${page}`} class=${page === current ? "active" : ""} title=${title}>
+    <${Icon} name=${icon} /><span class="label">${title}</span></a>`;
 }
 
-function renderConn() {
+function ThemeButton() {
+  const next = effectiveTheme() === "dark" ? "light" : "dark";
+  return html`<button class="navbtn" title=${`Switch to the ${next} theme`} onClick=${() => setTheme(next)}>
+    <${Icon} name=${next === "dark" ? "moon" : "sun"} /><span class="label">${next === "dark" ? "Dark theme" : "Light theme"}</span></button>`;
+}
+
+function Rail({ current }) {
+  const collapsed = store.ui.collapsed;
+  const label = collapsed ? "Expand the side bar" : "Collapse the side bar";
+  return html`<aside class="rail">
+    <div class="brand">
+      <span class="mark"><${Icon} name="mark" size=${16} width=${2.2} /></span>
+      <span class="name">Agent Courtyard</span>
+      <button class="toggle" title=${label} aria-label=${label} onClick=${() => setUi({ collapsed: !collapsed })}>
+        <${Icon} name="panel" /></button>
+    </div>
+    <${Conn} />
+    <nav><${NavLink} page="board" current=${current} /><${NavLink} page="agents" current=${current} /></nav>
+    <nav class="bottom"><${ThemeButton} /><${NavLink} page="admin" current=${current} /></nav>
+  </aside>`;
+}
+
+function Conn() {
   const state = store.sse;
-  document.getElementById("conn-dot").className =
-    `dot ${state === "live" ? "live" : state === "lost" ? "lost" : ""}`;
-  document.getElementById("conn-label").textContent =
-    state === "live" ? "live" : state === "lost" ? "reconnecting…" : "connecting…";
+  const text = state === "live" ? "live" : state === "lost" ? "reconnecting…" : "connecting…";
+  return html`<div class="conn" title=${`hub connection: ${text}`}><span class="dot ${state}" /><span class="label">${text}</span></div>`;
 }
 
-subscribe(() => {
-  renderConn();
-  renderBadges();
-  currentUpdate?.();
-});
-window.addEventListener("hashchange", route);
+function App() {
+  useStore();
+  const hash = useHash();
+  const current = PAGES[hash.split("/")[1]] ? hash.split("/")[1] : "board";
+  const { view: View } = PAGES[current];
+  const attention = store.pending.size + totalUnread();
+  useEffect(() => {
+    document.title = attention ? `(${attention}) Agent Courtyard` : "Agent Courtyard";
+  }, [attention]);
+  return html`<div class="app ${store.ui.collapsed ? "collapsed" : ""}">
+    <${Rail} current=${current} />
+    <div class="main">
+      <div class="page ${current}"><${View} /></div>
+      <${Composer} />
+    </div>
+  </div>`;
+}
 
-await refreshSnapshot();
+render(html`<${App} />`, document.getElementById("app"));
+refreshSnapshot().catch((err) => console.error("first snapshot failed; the event stream will retry", err));
 connectEvents();
-route();

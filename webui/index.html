@@ -5,21 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Agent Courtyard</title>
   <link rel="stylesheet" href="/style.css">
+  <script>(t => t && (document.documentElement.dataset.theme = t))(localStorage.getItem("courtyard-theme"));</script>
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">Agent Courtyard</div>
-    <nav>
-      <a href="#/board" data-nav="board">Board</a>
-      <a href="#/gate" data-nav="gate">Gate <span class="badge" id="gate-badge" hidden></span></a>
-      <a href="#/inbox" data-nav="inbox">Inbox <span class="badge blue" id="inbox-badge" hidden></span></a>
-      <a href="#/agents" data-nav="agents">Agents</a>
-    </nav>
-    <div class="conn" id="conn" title="event stream">
-      <span class="dot" id="conn-dot"></span><span id="conn-label">connecting…</span>
-    </div>
-  </header>
-  <main id="view"></main>
+  <div id="app"></div>
+  <noscript>Agent Courtyard needs JavaScript.</noscript>
   <script type="module" src="/js/app.js"></script>
 </body>
 </html>

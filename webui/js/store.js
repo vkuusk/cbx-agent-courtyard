@@ -1,38 +1,49 @@
-// Client state: snapshot fetched over REST, kept fresh by the SSE stream.
-// On every (re)connect the snapshot is refetched, so missed events never matter.
+// Client state: a snapshot fetched over REST, kept fresh by the SSE stream, plus the
+// little UI state the whole screen shares (what is selected, what is typed). Components
+// re-render from it through useStore() (ui.js). On every (re)connect the snapshot is
+// refetched, so missed events never matter.
 
 import { api } from "./api.js";
+
+const RAIL_KEY = "courtyard-rail";
+const SEEN_KEY = "courtyard-seen"; // { [lineId]: created_at of the newest entry seen }
+const THEME_KEY = "courtyard-theme"; // light | dark; absent = follow the system
+const PANELS_KEY = "courtyard-panels"; // { team: px, lines: px } — dragged panel heights
 
 export const store = {
   agents: new Map(), // id -> agent
   lines: new Map(), // id -> line
-  messages: new Map(), // lineId -> Map(messageId -> message)
+  messages: new Map(), // lineId -> Map(messageId -> message), only for lines on screen
   pending: new Map(), // messageId -> message held at the gate
   inbox: new Map(), // messageId -> message addressed to the operator
   sse: "connecting", // connecting | live | lost
+  version: 0, // bumped on every change; lets a component catch up if it subscribed late
+  ui: {
+    selected: null, // {kind: "agent", id} = your line with it · {kind: "line", id} = a line
+    draft: "", // the one input box at the bottom
+    noteTarget: "both", // when a line is selected: both | <participant id>
+    collapsed: localStorage.getItem(RAIL_KEY) === "collapsed",
+    showInactive: false,
+    theme: localStorage.getItem(THEME_KEY) || "system", // system | light | dark
+    panels: readPanels(),
+  },
 };
 
-const INBOX_SEEN_KEY = "courtyard-inbox-seen";
-
-export function isHuman(agentId) {
-  return store.agents.get(agentId)?.type === "human";
-}
-
-export function operatorId() {
-  for (const agent of store.agents.values()) {
-    if (agent.name === "operator") return agent.id;
+function readPanels() {
+  try {
+    return JSON.parse(localStorage.getItem(PANELS_KEY) || "{}");
+  } catch {
+    return {};
   }
-  return null;
 }
 
-export function unreadInbox() {
-  const seen = localStorage.getItem(INBOX_SEEN_KEY) ?? "";
-  return [...store.inbox.values()].filter((m) => m.created_at > seen).length;
-}
-
-export function markInboxSeen() {
-  const newest = [...store.inbox.values()].map((m) => m.created_at).sort().at(-1);
-  if (newest) localStorage.setItem(INBOX_SEEN_KEY, newest);
+// A dragged height for the Team or Lines panel (null = back to the default).
+export function setPanelMax(panel, px) {
+  const panels = { ...store.ui.panels };
+  if (px) panels[panel] = Math.round(px);
+  else delete panels[panel];
+  localStorage.setItem(PANELS_KEY, JSON.stringify(panels));
+  setUi({ panels });
 }
 
 const listeners = new Set();
@@ -43,12 +54,175 @@ export function subscribe(fn) {
 }
 
 function notify() {
+  store.version += 1;
   for (const fn of listeners) fn();
+}
+
+export function setUi(patch) {
+  Object.assign(store.ui, patch);
+  if ("collapsed" in patch) localStorage.setItem(RAIL_KEY, patch.collapsed ? "collapsed" : "open");
+  notify();
+}
+
+export function select(selected) {
+  // Switching what you talk to keeps the draft — it's yours — but resets the note target.
+  setUi({ selected, noteTarget: "both" });
+}
+
+export function setDraft(draft) {
+  setUi({ draft });
+}
+
+// ---- theme ------------------------------------------------------------------------
+
+const darkSystem = matchMedia("(prefers-color-scheme: dark)");
+darkSystem.addEventListener("change", () => notify());
+
+export function setTheme(theme) {
+  if (theme === "system") {
+    localStorage.removeItem(THEME_KEY);
+    delete document.documentElement.dataset.theme;
+  } else {
+    localStorage.setItem(THEME_KEY, theme);
+    document.documentElement.dataset.theme = theme;
+  }
+  setUi({ theme });
+}
+
+// What is on screen right now: the chosen theme, or the system's when following it.
+export function effectiveTheme() {
+  const t = store.ui.theme;
+  return t === "system" ? (darkSystem.matches ? "dark" : "light") : t;
+}
+
+// ---- agents & lines ------------------------------------------------------------
+
+export function isHuman(agentId) {
+  return store.agents.get(agentId)?.type === "human";
+}
+
+export function operatorId() {
+  for (const agent of store.agents.values()) {
+    if (agent.type === "human") return agent.id;
+  }
+  return null;
 }
 
 export function agentName(id) {
   return store.agents.get(id)?.name ?? "?";
 }
+
+const RANK = { connected: 0, stale: 1, invited: 2, gone: 3 };
+
+// The current team: every registered, non-removed agent except you — reachable first.
+export function teamAgents() {
+  return [...store.agents.values()]
+    .filter((a) => !a.removed_at && a.type !== "human")
+    .sort((a, b) => RANK[a.status] - RANK[b.status] || a.name.localeCompare(b.name));
+}
+
+export function isOperatorLine(line) {
+  return isHuman(line.agent_a) || isHuman(line.agent_b);
+}
+
+export function peerOf(line) {
+  return isHuman(line.agent_a) ? line.agent_b : line.agent_a;
+}
+
+export function operatorLineWith(agentId) {
+  for (const line of store.lines.values()) {
+    if (isOperatorLine(line) && (line.agent_a === agentId || line.agent_b === agentId)) return line;
+  }
+  return null;
+}
+
+// A line is inactive when a participant was removed from the courtyard (not merely
+// offline — a closed terminal is still part of the team).
+export function isInactive(line) {
+  return Boolean(store.agents.get(line.agent_a)?.removed_at || store.agents.get(line.agent_b)?.removed_at);
+}
+
+// Resolve the selection to a line: an agent selection means your line with it, which may
+// not exist yet (null until the first message).
+export function selectedLine() {
+  const s = store.ui.selected;
+  if (!s) return null;
+  if (s.kind === "line") return store.lines.get(s.id) ?? null;
+  return operatorLineWith(s.id);
+}
+
+export function selectedAgent() {
+  const s = store.ui.selected;
+  if (s?.kind !== "agent") return null;
+  const agent = store.agents.get(s.id);
+  return agent && !agent.removed_at ? agent : null;
+}
+
+function ensureSelection() {
+  const s = store.ui.selected;
+  const stillValid =
+    s && (s.kind === "line" ? store.lines.has(s.id) : Boolean(selectedAgent()));
+  if (stillValid) return;
+  const first = teamAgents()[0];
+  store.ui.selected = first ? { kind: "agent", id: first.id } : null;
+}
+
+// ---- seen / unread ---------------------------------------------------------------
+
+function seenMap() {
+  try {
+    return JSON.parse(localStorage.getItem(SEEN_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+export function lastSeen(lineId) {
+  return seenMap()[lineId] ?? "";
+}
+
+function newestOn(lineId) {
+  const loaded = [...(store.messages.get(lineId)?.values() ?? [])].map((m) => m.created_at);
+  const inbox = [...store.inbox.values()].filter((m) => m.line_id === lineId).map((m) => m.created_at);
+  return [...loaded, ...inbox, store.lines.get(lineId)?.last_activity_at ?? ""].sort().at(-1) || "";
+}
+
+// Called while a line is on screen: everything on it up to now counts as seen.
+export function markLineSeen(lineId) {
+  const newest = newestOn(lineId);
+  if (!newest) return;
+  const seen = seenMap();
+  if ((seen[lineId] ?? "") >= newest) return;
+  seen[lineId] = newest;
+  localStorage.setItem(SEEN_KEY, JSON.stringify(seen));
+  notify();
+}
+
+// Replies to you on a line that you have not looked at yet.
+export function unreadOnLine(lineId) {
+  const seen = lastSeen(lineId);
+  return [...store.inbox.values()].filter(
+    (m) => m.line_id === lineId && m.kind !== "system" && m.created_at > seen,
+  ).length;
+}
+
+export function unreadWith(agentId) {
+  const line = operatorLineWith(agentId);
+  return line ? unreadOnLine(line.id) : 0;
+}
+
+// Anything happened on this line since you last had it on screen?
+export function hasNewActivity(line) {
+  return (line.last_activity_at ?? "") > lastSeen(line.id);
+}
+
+export function totalUnread() {
+  let n = 0;
+  for (const line of store.lines.values()) if (isOperatorLine(line)) n += unreadOnLine(line.id);
+  return n;
+}
+
+// ---- data loading -----------------------------------------------------------------
 
 export async function refreshSnapshot() {
   const [agents, lines, pending, inbox] = await Promise.all([
@@ -62,6 +236,7 @@ export async function refreshSnapshot() {
   store.pending = new Map(pending.map((m) => [m.id, m]));
   store.inbox = new Map(inbox.map((m) => [m.id, m]));
   await Promise.all([...store.messages.keys()].map(loadMessages));
+  ensureSelection();
   notify();
 }
 
@@ -85,6 +260,7 @@ function onEvent(kind, data) {
     else store.pending.delete(data.id);
     if (data.recipient && data.recipient === operatorId()) store.inbox.set(data.id, data);
   }
+  ensureSelection();
   notify();
 }
 

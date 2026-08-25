@@ -10,3 +10,5 @@ dist/
 .demo/
 node_modules/
 spikes/6a-delivery/stop-hook/messages.txt
+
+temp/

@@ -27,6 +27,9 @@ class AgentCreate(BaseModel):
     workdir: str | None = None
     launch: dict[str, Any] | None = None
     color: AgentColor | None = None  # omitted = the hub picks the least-used colour
+    # the model its runtime should use (feedback item 1); install writes it into the
+    # agent's settings and the launch command shows it
+    model: str | None = Field(default=None, max_length=120)
 
 
 class AgentCreated(BaseModel):
@@ -46,6 +49,7 @@ def create_agent(
         body.workdir,
         body.launch,
         body.color,
+        body.model,
     )
     return AgentCreated(agent=agent, token=token)
 
@@ -122,6 +126,8 @@ class InstallResponse(BaseModel):
     path: str
     backed_up: str | None
     replaced_server: bool
+    settings_path: str  # .claude/settings.local.json: allow rule, model, status line (WP-A)
+    settings_backed_up: str | None
     warning: str
 
 
@@ -151,7 +157,7 @@ def install(
         )
     hub_url = str(request.base_url).rstrip("/")
     result = install_core.install(
-        workdir, install_core.adapter_command(), hub_url, agent.name, token
+        workdir, install_core.adapter_command(), hub_url, agent.name, token, agent.model
     )
     return InstallResponse(**result.__dict__)
 
@@ -164,6 +170,8 @@ class UninstallResponse(BaseModel):
     path: str
     restored_from_backup: bool
     removed_server: bool
+    settings_restored: bool
+    settings_cleaned: bool
 
 
 @router.post("/{name_or_id}/uninstall")

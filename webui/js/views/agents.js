@@ -7,7 +7,13 @@ import { api, ApiError } from "../api.js";
 import { store, select } from "../store.js";
 import { useStore, fmtAgo, CopyButton, COLORS, leastUsedColor } from "../ui.js";
 
-const CLAUDE_LAUNCH = "claude --dangerously-load-development-channels server:courtyard";
+// The launch command; the agent's declared model rides along so nobody forgets to set it.
+// The channels preview drifted twice in four days (feedback item 11): 2.1.241 stopped
+// honouring this flag, 2.1.245 restored it — and made the two-flag workaround fail. This
+// single-flag form is verified end-to-end by tests/communications/oper-agent1-oper.py.
+const claudeLaunch = (agent) =>
+  "claude --dangerously-load-development-channels server:courtyard" +
+  (agent.model ? ` --model ${agent.model}` : "");
 
 function puppetCommand(agent, token, behavior) {
   return [
@@ -37,6 +43,18 @@ function claudeConfig(agent, token, adapterCommand) {
   return JSON.stringify(config, null, 2);
 }
 
+// The agent-side profile (WP-A, D21): pre-approves the courtyard tools (no per-send
+// permission prompt in the agent's terminal), sets the declared model, and a status line
+// that names the agent so its terminal is recognisable.
+function claudeSettings(agent) {
+  const settings = {
+    permissions: { allow: ["mcp__courtyard"] },
+    ...(agent.model ? { model: agent.model } : {}),
+    statusLine: { type: "command", command: `echo '⏺ ${agent.name} · courtyard'`, padding: 0 },
+  };
+  return JSON.stringify(settings, null, 2);
+}
+
 // One-click install: ask the hub to write .mcp.json into the agent's workdir (dev mode,
 // design §8/D8, 6d). The hub keeps the token (D19), so nothing secret crosses the browser.
 function InstallButton({ agent }) {
@@ -51,12 +69,15 @@ function InstallButton({ agent }) {
     }
   };
   return html`<div style="margin-top:.8rem">
-    <button class="btn" disabled=${!workdir || state.busy || state.result} onClick=${run}>
-      ${workdir ? `write .mcp.json into ${workdir}` : "write .mcp.json (set a workdir first)"}</button>
+    <button class="btn install" data-color=${agent.color}
+      disabled=${!workdir || state.busy || state.result} onClick=${run}>
+      ${workdir ? `write both files into ${workdir}` : "write the files (set a workdir first)"}</button>
     ${state.busy ? html`<div class="small muted">writing…</div>` : null}
     ${state.result
       ? html`<div class="small" style="margin-top:.4rem"><div>Wrote ${state.result.path}</div>
           ${state.result.backed_up ? html`<div class="muted">backed up to ${state.result.backed_up}</div>` : null}
+          ${state.result.settings_path ? html`<div>Wrote ${state.result.settings_path}</div>` : null}
+          ${state.result.settings_backed_up ? html`<div class="muted">backed up to ${state.result.settings_backed_up}</div>` : null}
           <div class="warn" style="margin-top:.3rem">${state.result.warning}</div></div>`
       : null}
     ${state.error ? html`<div class="error" style="margin-top:.4rem">${state.error}</div>` : null}
@@ -78,12 +99,17 @@ function PuppetPanel({ agent, token }) {
 
 function ClaudePanel({ agent, token, adapterCommand }) {
   const config = claudeConfig(agent, token, adapterCommand);
+  const settings = claudeSettings(agent);
+  const launch = claudeLaunch(agent);
   return html`<div>
     <div class="small muted">1. Save as .mcp.json in ${agent.name}'s project directory:</div>
     <pre class="cmd">${config}</pre><${CopyButton} text=${config} />
-    <div class="small muted" style="margin-top:.8rem">2. Start the agent from that directory (the flag is needed while channels are in research preview):</div>
-    <pre class="cmd">${CLAUDE_LAUNCH}</pre><${CopyButton} text=${CLAUDE_LAUNCH} />
-    <div class="small muted" style="margin-top:.8rem">…or let the hub write it for you (dev mode — the hub must share this machine's disk):</div>
+    <div class="small muted" style="margin-top:.8rem">2. Save as .claude/settings.local.json there too — pre-approves the
+      courtyard tools (no permission prompt on every send), sets the model and a status line naming the agent:</div>
+    <pre class="cmd">${settings}</pre><${CopyButton} text=${settings} />
+    <div class="small muted" style="margin-top:.8rem">3. Start the agent from that directory (the flag is needed while channels are in research preview):</div>
+    <pre class="cmd">${launch}</pre><${CopyButton} text=${launch} />
+    <div class="small muted" style="margin-top:.8rem">…or let the hub write both files for you (dev mode — the hub must share this machine's disk):</div>
     <${InstallButton} agent=${agent} />
   </div>`;
 }
@@ -130,6 +156,7 @@ function AddForm({ onCreated, suggested }) {
         description: data.get("description") || null,
         sme_domain: data.get("sme_domain") || null,
         workdir: data.get("workdir") || null,
+        model: data.get("model") || null,
         color,
       });
       form.reset();
@@ -155,6 +182,8 @@ function AddForm({ onCreated, suggested }) {
       title="its domain of responsibility — raises its standing there when it messages peers" />
     <input name="workdir" placeholder="project dir (claude-code, optional)"
       title="the agent's project directory — lets the hub write .mcp.json there for you" />
+    <input name="model" placeholder="model (optional, e.g. sonnet)"
+      title="the model its runtime should use — written into .claude/settings.local.json by install, and the launch command adds --model" />
     <div class="swatches" role="radiogroup" aria-label="colour on the board">
       <span class="small muted">colour:</span>
       ${COLORS.map((c) => html`<button type="button" class="swatch ${c === color ? "selected" : ""}" data-color=${c}
@@ -254,7 +283,8 @@ export function Agents() {
     ${panel?.missing
       ? html`<${NoTokenPanel} agent=${panel.agent} onRotate=${rotate} onClose=${() => setPanel(null)} />`
       : panel
-        ? html`<${LaunchPanel} agent=${store.agents.get(panel.agent.id) ?? panel.agent} token=${panel.token}
+        ? html`<${LaunchPanel} key=${`${panel.agent.id}:${panel.token}`}
+            agent=${store.agents.get(panel.agent.id) ?? panel.agent} token=${panel.token}
             note=${panel.note} adapterCommand=${adapterCommand} onClose=${() => setPanel(null)} />`
         : null}
     <div class="panel"><h3>Add an agent</h3>

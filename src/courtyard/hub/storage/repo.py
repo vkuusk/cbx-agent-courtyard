@@ -24,6 +24,7 @@ class AgentRepo(Protocol):
         token: str,
         launch: dict[str, Any] | None,
         color: str | None,
+        model: str | None,
     ) -> Agent: ...
 
     def get(self, agent_id: UUID) -> Agent | None: ...

@@ -107,6 +107,7 @@ class HubClient:
         sme_domain: str | None = None,
         workdir: str | None = None,
         color: str | None = None,
+        model: str | None = None,
     ) -> tuple[Agent, str]:
         data = self._call(
             "POST",
@@ -118,6 +119,7 @@ class HubClient:
                 "sme_domain": sme_domain,
                 "workdir": workdir,
                 "color": color,
+                "model": model,
             },
         )
         return Agent.model_validate(data["agent"]), data["token"]

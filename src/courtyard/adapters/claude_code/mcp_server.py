@@ -208,15 +208,24 @@ class CourtyardAdapter:
 
     def _start_channel(self) -> None:
         """Attach after the MCP handshake completes: the hub pushes the queued backlog
-        during attach, and a notification sent before initialization would be dropped."""
+        during attach, and a notification sent before initialization would be dropped.
+
+        Retries forever, every 2s (feedback item 12): the operator's habit is agents
+        first, hub second — a session must not need relaunching just because it won the
+        race. The original five-attempts-then-give-up left agents permanently offline."""
         self._receiver = ChannelReceiver(self._on_delivery)
-        for attempt in range(5):
-            if self._stop.is_set():
-                return
+        attempt = 0
+        while not self._stop.is_set():
             try:
                 summary = self._client.attach(self._receiver.endpoint, self._receiver.channel_token)
             except (HubError, httpx.HTTPError) as exc:
-                logger.warning("attach attempt %d failed: %s", attempt + 1, exc)
+                attempt += 1
+                if attempt == 1 or attempt % 30 == 0:  # first miss, then about once a minute
+                    logger.warning(
+                        "attach attempt %d failed (hub not reachable yet? retrying every 2s): %s",
+                        attempt,
+                        exc,
+                    )
                 self._stop.wait(2.0)
                 continue
             self._attached.set()
@@ -229,11 +238,6 @@ class CourtyardAdapter:
             )
             threading.Thread(target=self._heartbeat_loop, daemon=True).start()
             return
-        logger.error(
-            "could not attach to the courtyard hub at %s — tools will report the error "
-            "until it is reachable",
-            self._config.hub_url,
-        )
 
     def _heartbeat_loop(self) -> None:
         while not self._stop.wait(self._config.heartbeat_seconds):

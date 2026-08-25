@@ -21,11 +21,15 @@ function Decide({ message }) {
     }
   };
   const note = store.ui.draft.trim();
+  const to = message.recipient_name ?? "the recipient";
+  const from = message.sender_name ?? "the sender";
   return html`<div class="gate">
     <button class="btn approve" onClick=${act("approve")}>approve</button>
     <button class="btn" onClick=${act("return")}>return to sender</button>
     <button class="btn danger" onClick=${act("reject")}>reject</button>
-    <span class="uses">${note ? "— with the note you typed below" : "— type a note below to send it along"}</span>
+    <span class="uses">${note
+      ? `— with your comment below: approve → ${to} · return / reject → ${from}`
+      : `— type below to add a comment: approve → ${to} · return / reject → ${from}`}</span>
     ${error ? html`<span class="error">${error}</span>` : null}
   </div>`;
 }
@@ -71,20 +75,26 @@ function archiveAction(line) {
 
 function Header({ line }) {
   const agent = selectedAgent();
+  // The release valve applies to ANY stuck line, the operator's own included (§5.4
+  // rule 6) — an agent that never answers you must not lock your line forever.
+  const release = () => {
+    if (confirm(`Release this line to idle? ${agentName(line.awaiting_from)} still owes a reply.`)) {
+      api.release(line.id).catch((err) => alert(err.message));
+    }
+  };
   if (agent) {
     return html`<div class="conv-head"><h2 class="mono">${agent.name}</h2>
       <span class="meta">${line ? "your line · never gated" : "no messages yet"}</span>
-      ${line ? html`<span class="act"><button class="btn" onClick=${archiveAction(line)}>archive</button></span>` : null}</div>`;
+      ${line
+        ? html`<span class="act">
+            ${line.state === "awaiting_reply" ? html`<button class="btn" onClick=${release}>release</button>` : null}
+            <button class="btn" onClick=${archiveAction(line)}>archive</button></span>`
+        : null}</div>`;
   }
   if (!line) return null;
   const supervised = line.mode === "supervised";
   const setMode = (mode) => () => {
     if (mode !== line.mode) api.setMode(line.id, mode).catch((err) => alert(err.message));
-  };
-  const release = () => {
-    if (confirm(`Release this line to idle? ${agentName(line.awaiting_from)} still owes a reply.`)) {
-      api.release(line.id).catch((err) => alert(err.message));
-    }
   };
   return html`<div class="conv-head">
     <h2 class="mono">${agentName(line.agent_a)} ↔ ${agentName(line.agent_b)}</h2>

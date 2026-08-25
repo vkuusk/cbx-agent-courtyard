@@ -1,8 +1,18 @@
-"""Writing an agent's launch config into its project (design §8/D8, step 6d).
+"""Writing an agent's launch config into its project (design §8/D8, step 6d; WP-A).
 
 The operator never hand-edits `.mcp.json`: the hub renders the courtyard MCP-server block
 and merges it into the agent's project file, backing up whatever was already there so the
 step is reversible. Other MCP servers and other top-level keys in the file are preserved.
+
+Install also writes `<workdir>/.claude/settings.local.json` (WP-A, decision D21) — still
+configuration, not behaviour (no hooks, D14): a permission rule pre-approving the
+courtyard MCP tools (without it Claude Code stops the agent's every `courtyard_send`
+with a terminal prompt, feedback 7.2), the agent's declared model (feedback 1), and a
+status line naming the agent (feedback 2) — the status line only when the agent has
+none, never clobbering an existing one. The file is per-machine and carries no secret;
+Claude Code adds it to git excludes when it writes it itself, and the merge here
+preserves whatever else it holds. The one-time trust dialog for a project's `.mcp.json`
+servers cannot be pre-approved — that stays.
 
 **Dev-mode only.** The writer must share a filesystem with the agent's workdir; when the hub
 runs in a container (live mode, 6f) the WebUI's copy-paste panel is the path instead.
@@ -27,6 +37,10 @@ from courtyard.hub.core.errors import MalformedMcpJson, NothingToUninstall, Work
 MCP_FILENAME = ".mcp.json"
 BACKUP_SUFFIX = ".courtyard-bak"
 SERVER_KEY = "courtyard"
+SETTINGS_DIR = ".claude"
+SETTINGS_FILENAME = "settings.local.json"
+ALLOW_RULE = f"mcp__{SERVER_KEY}"  # pre-approves every courtyard tool (docs-verified form)
+STATUS_MARK = "· courtyard'"  # a status-line command ending like this is ours (uninstall)
 
 WARNING = (
     "This file now contains the agent's token and is set to chmod 600. Do NOT commit it — "
@@ -68,11 +82,39 @@ def merge(existing: dict | None, block: dict) -> dict:
     return doc
 
 
+def status_line(agent_name: str) -> dict:
+    """A status line that answers "which agent is this terminal?" (feedback item 2)."""
+    return {"type": "command", "command": f"echo '⏺ {agent_name} · courtyard'", "padding": 0}
+
+
+def merge_settings(existing: dict | None, agent_name: str, model: str | None) -> dict:
+    """The agent-side profile merged over `.claude/settings.local.json` (WP-A, D21).
+
+    The allow rule is appended if missing; the model is the operator's declared intent and
+    wins when set (untouched when the agent has none); the status line is set only when
+    the file has none — an existing one is somebody's choice and is never clobbered.
+    """
+    doc = dict(existing) if existing else {}
+    permissions = dict(doc.get("permissions") or {})
+    allow = list(permissions.get("allow") or [])
+    if ALLOW_RULE not in allow:
+        allow.append(ALLOW_RULE)
+    permissions["allow"] = allow
+    doc["permissions"] = permissions
+    if model:
+        doc["model"] = model
+    if "statusLine" not in doc:
+        doc["statusLine"] = status_line(agent_name)
+    return doc
+
+
 @dataclass(frozen=True)
 class InstallResult:
     path: str
     backed_up: str | None  # backup path, if an existing file was overwritten
     replaced_server: bool  # a previous `courtyard` server entry was replaced
+    settings_path: str  # `.claude/settings.local.json` — allow rule, model, status line
+    settings_backed_up: str | None
     warning: str
 
 
@@ -95,8 +137,16 @@ def _read_existing(target: Path) -> tuple[dict | None, str | None]:
     return parsed, raw
 
 
-def install(workdir: str, command: str, hub_url: str, agent_name: str, token: str) -> InstallResult:
-    """Merge the courtyard server into `<workdir>/.mcp.json`, 0600, with a backup."""
+def install(
+    workdir: str,
+    command: str,
+    hub_url: str,
+    agent_name: str,
+    token: str,
+    model: str | None = None,
+) -> InstallResult:
+    """Merge the courtyard server into `<workdir>/.mcp.json` (0600, with a backup) and the
+    agent-side profile into `<workdir>/.claude/settings.local.json` (WP-A)."""
     directory = Path(workdir).expanduser()
     if not directory.is_dir():
         raise WorkdirNotFound(
@@ -116,7 +166,22 @@ def install(workdir: str, command: str, hub_url: str, agent_name: str, token: st
     doc = merge(existing, server_block(command, hub_url, agent_name, token))
     target.write_text(json.dumps(doc, indent=2) + "\n")
     os.chmod(target, 0o600)
-    return InstallResult(str(target), backed_up, replaced, WARNING)
+
+    settings_dir = directory / SETTINGS_DIR
+    settings_target = settings_dir / SETTINGS_FILENAME
+    s_existing, s_raw = _read_existing(settings_target)
+    settings_backed_up: str | None = None
+    if s_raw is not None:
+        s_backup = settings_dir / (SETTINGS_FILENAME + BACKUP_SUFFIX)
+        s_backup.write_text(s_raw)
+        settings_backed_up = str(s_backup)
+    settings_dir.mkdir(exist_ok=True)
+    settings_doc = merge_settings(s_existing, agent_name, model)
+    settings_target.write_text(json.dumps(settings_doc, indent=2) + "\n")
+
+    return InstallResult(
+        str(target), backed_up, replaced, str(settings_target), settings_backed_up, WARNING
+    )
 
 
 @dataclass(frozen=True)
@@ -124,23 +189,82 @@ class UninstallResult:
     path: str
     restored_from_backup: bool  # the pre-install file was put back verbatim
     removed_server: bool  # our server key was dropped from a file we did not back up
+    settings_restored: bool  # settings.local.json put back from its backup
+    settings_cleaned: bool  # our allow rule / status line removed from it
+
+
+def _uninstall_settings(directory: Path) -> tuple[bool, bool]:
+    """Reverse the settings side: restore the backup, else remove exactly what install
+    adds — the allow rule, and the status line only if it is ours (`STATUS_MARK`). The
+    model is left as-is: it may have been retuned by hand and carries no courtyard
+    marker to recognise. Returns (restored, cleaned)."""
+    settings_dir = directory / SETTINGS_DIR
+    target = settings_dir / SETTINGS_FILENAME
+    backup = settings_dir / (SETTINGS_FILENAME + BACKUP_SUFFIX)
+    if backup.exists():
+        target.write_text(backup.read_text())
+        backup.unlink()
+        return True, False
+    existing, _ = _read_existing(target)
+    if not existing:
+        return False, False
+    cleaned = False
+    permissions = existing.get("permissions") or {}
+    allow = permissions.get("allow") or []
+    if ALLOW_RULE in allow:
+        cleaned = True
+        allow = [rule for rule in allow if rule != ALLOW_RULE]
+        if allow:
+            permissions["allow"] = allow
+        else:
+            permissions.pop("allow", None)
+        if permissions:
+            existing["permissions"] = permissions
+        else:
+            existing.pop("permissions", None)
+    sl = existing.get("statusLine")
+    if isinstance(sl, dict) and str(sl.get("command", "")).endswith(STATUS_MARK):
+        existing.pop("statusLine")
+        cleaned = True
+    if cleaned:
+        if existing:
+            target.write_text(json.dumps(existing, indent=2) + "\n")
+        else:
+            # We created the file (it held only our profile). Remove it, not leave `{}`.
+            target.unlink()
+    return False, cleaned
 
 
 def uninstall(workdir: str) -> UninstallResult:
-    """Reverse an install: restore the backup if present, else drop just our server key."""
+    """Reverse an install: restore the backups if present, else drop just what we added."""
     directory = Path(workdir).expanduser()
     target = directory / MCP_FILENAME
     backup = directory / (MCP_FILENAME + BACKUP_SUFFIX)
+    settings_restored, settings_cleaned = _uninstall_settings(directory)
 
     if backup.exists():
         target.write_text(backup.read_text())
         os.chmod(target, 0o600)
         backup.unlink()
-        return UninstallResult(str(target), restored_from_backup=True, removed_server=False)
+        return UninstallResult(
+            str(target),
+            restored_from_backup=True,
+            removed_server=False,
+            settings_restored=settings_restored,
+            settings_cleaned=settings_cleaned,
+        )
 
     existing, _ = _read_existing(target)
     servers = (existing or {}).get("mcpServers") or {}
     if SERVER_KEY not in servers:
+        if settings_restored or settings_cleaned:
+            return UninstallResult(
+                str(target),
+                restored_from_backup=False,
+                removed_server=False,
+                settings_restored=settings_restored,
+                settings_cleaned=settings_cleaned,
+            )
         raise NothingToUninstall(f"no courtyard entry and no backup at {target} — nothing to undo.")
     del servers[SERVER_KEY]
     if servers:
@@ -149,4 +273,10 @@ def uninstall(workdir: str) -> UninstallResult:
     else:
         # We created the file (it held only our server). Remove it rather than leave `{}`.
         target.unlink()
-    return UninstallResult(str(target), restored_from_backup=False, removed_server=True)
+    return UninstallResult(
+        str(target),
+        restored_from_backup=False,
+        removed_server=True,
+        settings_restored=settings_restored,
+        settings_cleaned=settings_cleaned,
+    )

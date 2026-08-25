@@ -28,6 +28,16 @@ def test_description_round_trip(client):
     assert listed["operator"]["description"] == "the human operator of this courtyard"
 
 
+def test_model_round_trip(client):
+    """The declared model (feedback 1, WP-A) is stored and listed; omitted = null."""
+    resp = client.post("/api/agents", json={"name": "infra", "type": "puppet", "model": "sonnet"})
+    assert resp.status_code == 201
+    assert resp.json()["agent"]["model"] == "sonnet"
+    listed = {a["name"]: a for a in client.get("/api/agents").json()}
+    assert listed["infra"]["model"] == "sonnet"
+    assert listed["operator"]["model"] is None
+
+
 def test_tokens_never_appear_in_listings(client, make_agent):
     make_agent("alice")
     for listed in client.get("/api/agents").json():

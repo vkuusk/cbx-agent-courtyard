@@ -44,11 +44,13 @@ uv run python scripts/runbook/envelope_and_peers.py
 
 ---
 
-## Install `.mcp.json` into a workdir
+## Install `.mcp.json` + the agent-side profile into a workdir
 
 **Feature under test:** the hub writes a claude-code agent's `.mcp.json` into its project
 (design §8/D8, 6d) — merging with any existing file, keeping a backup, token inline +
-`chmod 600` — and reverses cleanly. Dev-mode only (the hub must share the workdir's disk).
+`chmod 600` — plus `.claude/settings.local.json` (WP-A, D21: the courtyard allow rule, the
+declared model, a status line naming the agent) — and reverses cleanly. Dev-mode only (the
+hub must share the workdir's disk).
 
 **Run:**
 
@@ -56,13 +58,16 @@ uv run python scripts/runbook/envelope_and_peers.py
 uv run python scripts/runbook/install_mcp_json.py
 ```
 
-**Expected:** two blocks, then `(cleaned up …)`, exit 0.
+**Expected:** three blocks, then `(cleaned up …)`, exit 0.
 
 1. **Install** — reports `wrote … .mcp.json` and `backed up … .courtyard-bak`, plus the "do
    NOT commit it" warning. `servers now: ['my-linter', 'courtyard']` (the pre-existing server
    is kept), the courtyard `env` shows `TOKEN=…` inline, `file mode : 0o600`, and the backup
    holds the original.
-2. **Uninstall** — `restored from backup: True`, `servers now : ['my-linter']`, backup gone.
+2. **Settings** — `allow : ['mcp__courtyard']`, `model : sonnet`, and a status line
+   `echo '⏺ <name> · courtyard'` in `.claude/settings.local.json`.
+3. **Uninstall** — `restored from backup: True`, `servers now : ['my-linter']`, backup gone;
+   the settings hold only `{'model': 'sonnet'}` (the model stays on purpose).
 
 **Also (real terminal path, optional):** `courtyard-invite --register --name coding
 --type claude-code --workdir <dir>` registers and installs in one command; for an agent
@@ -134,6 +139,39 @@ gets a "no stored token" panel with a rotate button instead.
 
 ---
 
+## Communications round trip: operator → agent1 → operator (live Claude Code)
+
+**Feature under test:** the whole production delivery path with a real Claude Code
+session — hub, install, attach, channel push into a live turn, `courtyard_send` reply.
+This is the first thing to run when "messages stop arriving" (feedback items 10/11):
+its failure output separates every class we have seen — hub-side (`queued`), adapter
+ACK with the session skipping events (`delivered` + "Channel notifications skipped"),
+or the model simply not replying (screen tail).
+
+**Run** (needs a registered claude-code agent with a workdir; spends a few model tokens —
+cheap model by default; the hub is started for you if none is running):
+
+```
+make test-comms
+```
+
+Defaults live in `tests/communications/communication-test-config.yml` (hub, agent1,
+model, timeout); CLI flags on the script override the file:
+`uv run python tests/communications/oper-agent1-oper.py --agent … --model …`
+
+**Expected:** blocks 0–3, then
+`PASS — full round trip: operator -> hub -> channel turn -> courtyard_send -> operator`,
+with `test message status: delivered` and a reply echoing the nonce (`ACK <nonce>`).
+The launcher answers the dev-channels consent dialog by itself; a stuck operator line
+from earlier testing is released automatically first.
+
+**On FAIL, read the three diagnostics:** the message status, the channel verdict from
+Claude Code's own MCP log ("registered" is healthy; "skipped: …" names the reason — the
+launch-flag contract has drifted across Claude Code updates before), and the last lines
+of the agent's terminal.
+
+---
+
 ## Courtyard page layout: rail, rectangles, wires, pane, one input box
 
 **Feature under test:** the step-7 layout (design §10, D18) on Preact + htm: collapsible
@@ -159,20 +197,26 @@ make demo-stop     # afterwards
    survives a reload.
 2. **Lines** — `dev ↔ ops` with an **amber** wire, *held at the gate*, listed first;
    `alice ↔ bob` **blue**, *new since you looked* (auto-pass, their 6-message exchange).
-   "▸ show inactive lines (N)" folds lines of agents removed by earlier runs.
-3. **Gate from the pane** — click the amber wire: the pane shows `dev ↔ ops` with the
-   **supervised | auto-pass** switch (supervised filled amber; clicking auto-pass flips the
-   line and fills green), the held message with **approve / return to sender / reject**,
-   and the box becomes
-   `note → both`. Type a note in the box, click **approve**: the box empties, your note
-   appears in the pane as `you → ops`, ops's scripted reply arrives *held at the gate*
-   (supervised replies pass the gate too). Click **return to sender** with a comment: the
-   message is struck through with `returned to sender: <comment>` and the hub's notice to
-   dev follows.
+   Lines of removed agents are not on the board at all — they are in the Archive (D20).
+3. **Gate from the pane** (WP-B) — click the amber wire: the pane shows `dev ↔ ops` with
+   the **supervised | auto-pass** switch (supervised filled amber; clicking auto-pass
+   flips the line and fills green) and the held message with
+   **approve / return to sender / reject** — the strip under the buttons names both
+   directions (`approve → ops · return / reject → dev`). The box below shows an amber
+   **gate comment** chip; its ↑ button is greyed out and Enter sends nothing — the text
+   leaves only with a verdict. Type a comment, click **approve**: the box empties, your
+   comment appears in the pane as a note `you → ops`, ops's scripted reply arrives *held
+   at the gate* (supervised replies pass the gate too). Click **return to sender** with a
+   comment: the message is struck through with `returned to sender: <comment>` and the
+   hub's notice to dev follows. With nothing held, the box is a note into the line and
+   its chip is a visibly clickable **note → both ▾** control (click cycles both → one
+   side → the other).
 4. **Your own line** — click the `concierge-…` rectangle, type, Enter: your bubble on the
    right, the echo reply on the left within a second; the box stays enabled. Message
    `alice-…` (scripted, no reply): the box greys out with *waiting for alice to reply — one
-   message at a time on a line*.
+   message at a time on a line* — and a **release** button appears in the pane header
+   (the valve works on your own lines too, feedback 9); release returns the box. Drafts
+   are per selection: text typed for one agent or line never shows under another.
 5. **Unread** — with another agent selected, a reply to you shows `N new` on that agent's
    rectangle and the tab title reads `(N) Agent Courtyard`; both clear when you open it.
 6. **Frame** — the icon at the top of the side bar collapses it to a strip (remembered

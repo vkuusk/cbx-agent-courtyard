@@ -1,4 +1,4 @@
-.PHONY: run test lint fmt demo demo-stop db-up db-down db-nuke
+.PHONY: run test test-comms lint fmt demo demo-stop db-up db-down db-nuke
 
 run:            ## start the hub in dev mode (needs db-up first)
 	uv run courtyard-hub
@@ -11,6 +11,9 @@ demo-stop:      ## stop the hub and puppets the demo started
 
 test: db-up     ## run the test suite (brings postgres up if needed)
 	uv run pytest
+
+test-comms: db-up  ## operator -> agent1 -> operator with a LIVE Claude Code session (config: tests/communications/communication-test-config.yml)
+	uv run python tests/communications/oper-agent1-oper.py
 
 lint:
 	uv run ruff check src tests scripts

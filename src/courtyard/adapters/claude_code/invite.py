@@ -41,6 +41,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--description", help="what the agent is for (when --register)")
     p.add_argument("--sme-domain", help="what the agent owns (when --register)")
     p.add_argument("--color", help="board colour: red orange yellow green teal blue purple pink")
+    p.add_argument("--model", help="model for the agent's runtime, e.g. sonnet (when --register)")
     return p
 
 
@@ -62,7 +63,13 @@ def cli(argv: list[str] | None = None) -> None:
         token = args.token
         if args.register:
             _agent, token = client.register_agent(
-                args.name, args.type, args.description, args.sme_domain, args.workdir, args.color
+                args.name,
+                args.type,
+                args.description,
+                args.sme_domain,
+                args.workdir,
+                args.color,
+                model=args.model,
             )
             print(f"registered {args.name}; token: {token}")
 

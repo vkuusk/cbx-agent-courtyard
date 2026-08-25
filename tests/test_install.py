@@ -1,7 +1,8 @@
-"""Writing an agent's `.mcp.json` into its workdir (design §8/D8, step 6d).
+"""Writing an agent's `.mcp.json` and `.claude/settings.local.json` (steps 6d + WP-A/D21).
 
-Pure filesystem tests against tmp dirs: the merge preserves other servers, the write is
-0600 with a backup, and the reverse restores exactly what was there.
+Pure filesystem tests against tmp dirs: the merges preserve what was there, the token
+file is 0600 with a backup, and the reverse restores exactly what was there — for the
+settings, removing only what install adds.
 """
 
 from __future__ import annotations
@@ -113,3 +114,102 @@ def test_uninstall_with_nothing_to_undo_raises(tmp_path):
     (tmp_path / ".mcp.json").write_text(json.dumps({"mcpServers": {"other": {}}}))
     with pytest.raises(NothingToUninstall):
         install.uninstall(str(tmp_path))
+
+
+# -- the agent-side profile: .claude/settings.local.json (WP-A, D21) -------------------
+
+
+def settings_path(tmp_path):
+    return tmp_path / ".claude" / "settings.local.json"
+
+
+def test_install_writes_the_settings_profile(tmp_path):
+    result = install.install(str(tmp_path), CMD, HUB, "coding", "tok", model="sonnet")
+    target = settings_path(tmp_path)
+    assert result.settings_path == str(target)
+    assert result.settings_backed_up is None
+    doc = read(target)
+    assert doc["permissions"]["allow"] == ["mcp__courtyard"]  # no per-send prompt (7.2)
+    assert doc["model"] == "sonnet"  # item 1
+    assert doc["statusLine"]["command"] == "echo '⏺ coding · courtyard'"  # item 2
+
+
+def test_install_without_model_leaves_model_unset(tmp_path):
+    install.install(str(tmp_path), CMD, HUB, "coding", "tok")
+    assert "model" not in read(settings_path(tmp_path))
+
+
+def test_install_merges_settings_and_never_clobbers_a_status_line(tmp_path):
+    sdir = tmp_path / ".claude"
+    sdir.mkdir()
+    original = {
+        "permissions": {"allow": ["Bash(ls:*)"], "deny": ["WebFetch"]},
+        "statusLine": {"type": "command", "command": "my-own-line"},
+        "model": "opus",
+    }
+    settings_path(tmp_path).write_text(json.dumps(original))
+    result = install.install(str(tmp_path), CMD, HUB, "coding", "tok", model="sonnet")
+    doc = read(settings_path(tmp_path))
+    assert doc["permissions"]["allow"] == ["Bash(ls:*)", "mcp__courtyard"]  # appended
+    assert doc["permissions"]["deny"] == ["WebFetch"]  # untouched
+    assert doc["statusLine"] == original["statusLine"]  # theirs, kept
+    assert doc["model"] == "sonnet"  # the operator's declared intent wins
+    assert result.settings_backed_up == str(sdir / "settings.local.json.courtyard-bak")
+    assert read(sdir / "settings.local.json.courtyard-bak") == original
+
+
+def test_reinstall_does_not_duplicate_the_allow_rule(tmp_path):
+    install.install(str(tmp_path), CMD, HUB, "coding", "tok")
+    install.install(str(tmp_path), CMD, HUB, "coding", "tok")
+    assert read(settings_path(tmp_path))["permissions"]["allow"].count("mcp__courtyard") == 1
+
+
+def test_uninstall_restores_the_settings_backup(tmp_path):
+    sdir = tmp_path / ".claude"
+    sdir.mkdir()
+    original = {"model": "opus"}
+    settings_path(tmp_path).write_text(json.dumps(original))
+    install.install(str(tmp_path), CMD, HUB, "coding", "tok")
+
+    result = install.uninstall(str(tmp_path))
+    assert result.settings_restored is True
+    assert read(settings_path(tmp_path)) == original
+    assert not (sdir / "settings.local.json.courtyard-bak").exists()  # backup consumed
+
+
+def test_uninstall_without_settings_backup_removes_only_ours(tmp_path):
+    # the merged state whose backup was already cleaned up: hand-build it
+    (tmp_path / ".claude").mkdir()
+    settings_path(tmp_path).write_text(
+        json.dumps(
+            {
+                "permissions": {"allow": ["mcp__courtyard", "Bash(ls:*)"]},
+                "statusLine": install.status_line("coding"),
+                "model": "sonnet",
+            }
+        )
+    )
+    (tmp_path / ".mcp.json").write_text(json.dumps({"mcpServers": {"courtyard": {}}}))
+    result = install.uninstall(str(tmp_path))
+    assert result.settings_cleaned is True
+    doc = read(settings_path(tmp_path))
+    assert doc["permissions"]["allow"] == ["Bash(ls:*)"]  # ours gone, theirs kept
+    assert "statusLine" not in doc  # ours (STATUS_MARK), removed
+    assert doc["model"] == "sonnet"  # left as-is: may be hand-tuned, and it is harmless
+
+
+def test_uninstall_keeps_a_foreign_status_line(tmp_path):
+    (tmp_path / ".claude").mkdir()
+    theirs = {"type": "command", "command": "my-own-line"}
+    settings_path(tmp_path).write_text(
+        json.dumps({"permissions": {"allow": ["mcp__courtyard"]}, "statusLine": theirs})
+    )
+    (tmp_path / ".mcp.json").write_text(json.dumps({"mcpServers": {"courtyard": {}}}))
+    install.uninstall(str(tmp_path))
+    assert read(settings_path(tmp_path))["statusLine"] == theirs
+
+
+def test_uninstall_removes_a_settings_file_that_held_only_ours(tmp_path):
+    install.install(str(tmp_path), CMD, HUB, "coding", "tok")  # fresh: profile only
+    install.uninstall(str(tmp_path))
+    assert not settings_path(tmp_path).exists()  # don't leave an empty {}

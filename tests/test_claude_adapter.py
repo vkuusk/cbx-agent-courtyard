@@ -289,3 +289,44 @@ def test_peers_puts_reachable_agents_first_and_trims_dev_clutter(live_hub):
         adapter.close()
         live.close()
         admin.close()
+
+
+def test_adapter_attaches_when_the_hub_arrives_late(live_hub, config):
+    """Agents-first, hub-second must work (feedback item 12): the adapter keeps retrying
+    attach instead of giving up after ~10s and leaving the agent permanently offline."""
+    from dataclasses import replace as dc_replace
+
+    import uvicorn
+
+    from conftest import _free_port
+    from courtyard.hub.main import create_app
+
+    hub_a = live_hub()  # only to register the agent; state lives in the shared DB
+    admin = HubClient(hub_a)
+    _, token = admin.register_agent("coding", "claude-code", "late-hub twin")
+
+    port = _free_port()  # nothing listens here yet — the adapter retries against it
+    adapter = AdapterProcess(f"http://127.0.0.1:{port}", "coding", token)
+    server = None
+    try:
+        adapter.request("initialize", {"protocolVersion": "2025-06-18", "capabilities": {}})
+        adapter.notify("notifications/initialized")
+        time.sleep(11.0)  # well past the original five-attempts-then-give-up horizon
+
+        cfg = dc_replace(config, port=port)  # the hub finally appears where it was expected
+        server = uvicorn.Server(
+            uvicorn.Config(create_app(cfg), host=cfg.host, port=cfg.port, log_level="warning")
+        )
+        thread = threading.Thread(target=server.run, daemon=True)
+        thread.start()
+        deadline = time.monotonic() + 15
+        while not server.started:
+            assert time.monotonic() < deadline, "late test hub failed to start"
+            time.sleep(0.02)
+
+        wait_status(admin, "coding", "connected")  # via hub A — same database
+    finally:
+        adapter.close()
+        if server is not None:
+            server.should_exit = True
+        admin.close()

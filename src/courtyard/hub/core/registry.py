@@ -58,6 +58,7 @@ class Registry:
         workdir: str | None = None,
         launch: dict[str, Any] | None = None,
         color: str | None = None,
+        model: str | None = None,
     ) -> tuple[Agent, str]:
         """Register an agent. The token is returned here and kept (D19): the operator can
         read it again via `token_of` and replace it via `rotate_token`. Every agent but the
@@ -79,6 +80,7 @@ class Registry:
                 token=token,
                 launch=launch,
                 color=color,
+                model=model,
             )
         self._events.publish("agent", agent)
         return agent, token

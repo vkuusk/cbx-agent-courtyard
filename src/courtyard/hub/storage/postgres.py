@@ -56,11 +56,13 @@ class PgAgentRepo:
         token,
         launch,
         color,
+        model,
     ) -> Agent:
         row = self._conn.execute(
             "INSERT INTO agents"
-            " (id, name, type, description, sme_domain, workdir, token_hash, token, launch, color)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
+            " (id, name, type, description, sme_domain, workdir, token_hash, token, launch,"
+            "  color, model)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
             (
                 agent_id,
                 name,
@@ -72,6 +74,7 @@ class PgAgentRepo:
                 token,
                 Json(launch) if launch else None,
                 color,
+                model,
             ),
         ).fetchone()
         return Agent.model_validate(row)

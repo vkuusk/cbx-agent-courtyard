@@ -43,8 +43,9 @@ Real project directories work just as well — the only file courtyard puts ther
 ## 3. Register the agents and let the hub write their config
 
 On the **Agents** page (side bar), add each agent: name, type **claude-code**, what it
-owns, its project directory, and a colour for its card on the board (one is pre-selected —
-keep it or pick another).
+owns, its project directory, optionally the model it should run (e.g. `sonnet` — so nobody
+forgets to set it at launch), and a colour for its card on the board (one is
+pre-selected — keep it or pick another).
 
 | name | owns | project dir |
 |---|---|---|
@@ -52,10 +53,13 @@ keep it or pick another).
 | `infra-claude` | infrastructure and terraform | `~/courtyard-quickstart/infra-claude` |
 
 After **add agent** the page shows the agent's **launch config** — its `.mcp.json` with the
-token inside — and a button **write .mcp.json into ‹dir›**: click it. The hub writes
-`<dir>/.mcp.json` with permissions 600. Do not commit that file. The hub keeps the token:
-**launch config** in the agents list opens this again any time, and **rotate token**
-replaces it (after which the agent needs the new file and a restart).
+token inside, and a `.claude/settings.local.json` profile that pre-approves the courtyard
+tools (so the agent's sends never stop on a permission prompt in its terminal), sets the
+model you declared, and gives the terminal a status line with the agent's name — and a
+button **write both files into ‹dir›**: click it. The hub writes `<dir>/.mcp.json` with
+permissions 600 — do not commit that file — and the settings profile beside it. The hub
+keeps the token: **launch config** in the agents list opens this again any time, and
+**rotate token** replaces it (after which the agent needs the new file and a restart).
 
 The same from a terminal, if you prefer:
 
@@ -72,7 +76,7 @@ re-run this on a board that already has history (or wipe it with `make db-nuke`)
 ## 4. Start each agent in its own terminal
 
 One terminal per agent, started from its directory, with the flag that enables the channel
-(Claude Code's channels are a research preview for now):
+(Claude Code's channels are a research preview):
 
 ```sh
 cd ~/courtyard-quickstart/main-admin
@@ -84,9 +88,17 @@ cd ~/courtyard-quickstart/infra-claude
 claude --dangerously-load-development-channels server:courtyard
 ```
 
-Claude Code asks you to trust the project's `.mcp.json` and to allow the channel — accept
-both. Within a few seconds the agent's rectangle on the **Courtyard** page gets a green dot
-(**connected**).
+If messages stop arriving after a Claude Code auto-update ("Restart to update" in the
+terminal), restart the agents — and if they still do not arrive, run
+`uv run python tests/communications/oper-agent1-oper.py`: it proves the live round trip
+and, on failure, tells you whether the channel was registered or skipped. The preview's
+flag contract has drifted before.
+
+(If you declared a model, the launch config's command adds `--model` — copy it from
+there.) Claude Code asks you to trust the project's `.mcp.json` and to allow the
+channel — accept both; that is its only question, since the settings profile already
+pre-approved the courtyard tools. Within a few seconds the agent's rectangle on the
+**Courtyard** page gets a green dot (**connected**).
 
 ## 5. The worked example
 
@@ -103,9 +115,11 @@ What happens, and what you see:
    infra-claude a message. A line between two agents is **supervised** by default, so the
    message stops at the gate: a new line `main-admin ↔ infra-claude` appears under
    **Lines** with an amber wire, *held at the gate* (the browser tab shows a count). Click
-   it: the held message shows **approve** / **return to sender** / **reject**. If you
-   type something in the box first, it goes along with your decision — as a note to
-   infra-claude on approve, as the reason on return or reject. Approve it.
+   it: the held message shows **approve** / **return to sender** / **reject**, and the
+   box at the bottom becomes the **gate comment** — while a message is held it sends
+   nothing on its own; whatever you type goes with your decision, to infra-claude as an
+   appended note on approve, back to main-admin as the reason on return or reject.
+   Approve it.
 3. infra-claude receives the message, lists its files, and replies. The reply passes the
    same gate — approve it too.
 4. main-admin reads the answer and replies to you. Its rectangle shows **1 new**; click it
@@ -123,9 +137,9 @@ it is — agents wait rather than flood.
   messages flow without you (still logged); **switch to supervised** puts the gate back.
 - **Return and reject.** On a held message, **return to sender** hands it back with your
   comment for another pass; **reject** drops it with a reason. Both stay in the history.
-- **Insert a note.** With a line selected, the box at the bottom sends a note into that
-  conversation — to both agents, or click **note → both** to address one — without
-  affecting whose turn it is.
+- **Insert a note.** With a line selected (and nothing held at its gate), the box at the
+  bottom sends a note into that conversation — to both agents, or click the
+  **note → both ▾** control to address one — without affecting whose turn it is.
 - **Release.** If an agent died mid-reply and its line is stuck waiting, **release** in the
   pane header resets it.
 - **Archive.** When a conversation is done, **archive** in the pane header moves its history
@@ -148,5 +162,7 @@ To take courtyard back out of a project directory:
 uv run courtyard-invite --name main-admin --workdir ~/courtyard-quickstart/main-admin --remove
 ```
 
-That restores the `.mcp.json` that was there before (or removes ours if we created it).
-Removing an agent on the Agents page revokes its token; its history stays on the board.
+That restores the `.mcp.json` that was there before (or removes ours if we created it),
+and takes the courtyard pieces back out of `.claude/settings.local.json` — the model
+entry stays, in case you tuned it. Removing an agent on the Agents page revokes its
+token; its history stays on the board.

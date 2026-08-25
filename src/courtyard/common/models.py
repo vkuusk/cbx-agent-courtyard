@@ -29,6 +29,8 @@ class Agent(BaseModel):
     description: str | None = None  # operator-curated: what this agent is for
     sme_domain: str | None = None  # operator-curated: what this agent OWNS (§7.5 grading)
     workdir: str | None = None
+    model: str | None = None  # operator-declared model for the agent's runtime (WP-A);
+    # install writes it into the agent's settings so nobody forgets to set it
     color: AgentColor | None = None  # WebUI identity colour; None only for the operator
     status: AgentStatus  # liveness only; removal is removed_at
     launch: dict[str, Any] | None = None

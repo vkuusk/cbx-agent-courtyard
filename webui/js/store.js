@@ -22,7 +22,8 @@ export const store = {
   ui: {
     page: "board", // which page is on screen (the input box adapts)
     selected: null, // {kind: "agent", id} = your line with it · {kind: "line", id} = a line
-    draft: "", // the one input box at the bottom
+    draft: "", // what is typed for the CURRENT selection (drafts holds the others)
+    drafts: {}, // per-selection drafts — text stays with what it was typed for
     noteTarget: "both", // when a line is selected: both | <participant id>
     collapsed: localStorage.getItem(RAIL_KEY) === "collapsed",
     showInactive: false,
@@ -66,12 +67,17 @@ export function setUi(patch) {
   notify();
 }
 
+const selKey = (s) => (s ? `${s.kind}:${s.id}` : "none");
+
 export function select(selected) {
-  // Switching what you talk to keeps the draft — it's yours — but resets the note target.
-  setUi({ selected, noteTarget: "both" });
+  // The draft belongs to what it was typed for (feedback 9, 2026-08-24): stash it under
+  // the old selection, bring back whatever was typed for the new one, reset the target.
+  store.ui.drafts[selKey(store.ui.selected)] = store.ui.draft;
+  setUi({ selected, noteTarget: "both", draft: store.ui.drafts[selKey(selected)] ?? "" });
 }
 
 export function setDraft(draft) {
+  store.ui.drafts[selKey(store.ui.selected)] = draft;
   setUi({ draft });
 }
 

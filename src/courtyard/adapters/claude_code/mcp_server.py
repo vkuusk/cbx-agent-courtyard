@@ -143,7 +143,9 @@ def load_config(env: Mapping[str, str] | None = None) -> AdapterConfig:
         hub_url=env.get("COURTYARD_HUB_URL", DEFAULT_HUB_URL),
         agent=agent,
         token=token,
-        heartbeat_seconds=float(env.get("COURTYARD_HEARTBEAT_SECONDS", "30")),
+        heartbeat_seconds=float(
+            env.get("COURTYARD_HEARTBEAT_SECONDS", "15")
+        ),  # match the hub (D23)
     )
 
 

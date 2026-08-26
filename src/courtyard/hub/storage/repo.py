@@ -155,6 +155,17 @@ class ArchiveRepo(Protocol):
     def delete(self, archive_id: UUID) -> None: ...
 
 
+class SettingsRepo(Protocol):
+    """Hub-level key-value settings (migration 0010): team_mode, terminal_app, the shift
+    state document. Values are whole JSON documents, replaced atomically."""
+
+    def get(self, key: str) -> Any | None: ...
+
+    def set(self, key: str, value: Any) -> None: ...
+
+    def delete(self, key: str) -> None: ...
+
+
 class ChannelRepo(Protocol):
     def upsert(self, agent_id: UUID, endpoint: str, channel_token: str) -> Channel: ...
 
@@ -175,6 +186,7 @@ class UnitOfWork(Protocol):
     messages: MessageRepo
     channels: ChannelRepo
     archives: ArchiveRepo
+    settings: SettingsRepo
 
 
 class Storage(Protocol):

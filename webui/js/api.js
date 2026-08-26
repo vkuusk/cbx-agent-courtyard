@@ -49,4 +49,9 @@ export const api = {
   archive: (id) => call("GET", `/api/archive/${id}`),
   deleteArchive: (id) => call("DELETE", `/api/archive/${id}`),
   archiveExportUrl: (id) => `/api/archive/${id}/export`,
+  shift: () => call("GET", "/api/shift"),
+  shiftStart: () => call("POST", "/api/shift/start"),
+  shiftEnd: (force) => call("POST", "/api/shift/end", { force: Boolean(force) }),
+  settings: () => call("GET", "/api/settings"),
+  patchSettings: (patch) => call("PATCH", "/api/settings", patch),
 };

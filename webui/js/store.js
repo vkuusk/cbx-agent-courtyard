@@ -16,6 +16,7 @@ export const store = {
   messages: new Map(), // lineId -> Map(messageId -> message), only for lines on screen
   pending: new Map(), // messageId -> message held at the gate
   inbox: new Map(), // messageId -> message addressed to the operator
+  shift: null, // ShiftStatus from the hub (design §8.1) — the Team panel pill renders it
   sse: "connecting", // connecting | live | lost
   version: 0, // bumped on every change; lets a component catch up if it subscribed late
   archiveVersion: 0, // bumped when an archive is created (the Archive page refetches)
@@ -233,16 +234,18 @@ export function totalUnread() {
 // ---- data loading -----------------------------------------------------------------
 
 export async function refreshSnapshot() {
-  const [agents, lines, pending, inbox] = await Promise.all([
+  const [agents, lines, pending, inbox, shift] = await Promise.all([
     api.agents(),
     api.lines(),
     api.pending(),
     api.operatorInbox(),
+    api.shift(),
   ]);
   store.agents = new Map(agents.map((a) => [a.id, a]));
   store.lines = new Map(lines.map((l) => [l.id, l]));
   store.pending = new Map(pending.map((m) => [m.id, m]));
   store.inbox = new Map(inbox.map((m) => [m.id, m]));
+  store.shift = shift;
   await Promise.all([...store.messages.keys()].map(loadMessages));
   ensureSelection();
   notify();
@@ -261,6 +264,7 @@ export function dropMessages(lineId) {
 function onEvent(kind, data) {
   if (kind === "agent") store.agents.set(data.id, data);
   else if (kind === "line") store.lines.set(data.id, data);
+  else if (kind === "shift") store.shift = data;
   else if (kind === "archive") {
     // A history moved out: lines, counters and open transcripts all change at once —
     // the snapshot is the simplest truth.
@@ -281,7 +285,7 @@ function onEvent(kind, data) {
 
 export function connectEvents() {
   const es = new EventSource("/api/events");
-  for (const kind of ["agent", "line", "message", "gate", "archive"]) {
+  for (const kind of ["agent", "line", "message", "gate", "archive", "shift"]) {
     es.addEventListener(kind, (e) => onEvent(kind, JSON.parse(e.data)));
   }
   es.onopen = () => {

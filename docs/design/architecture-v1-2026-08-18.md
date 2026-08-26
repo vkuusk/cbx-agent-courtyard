@@ -86,6 +86,8 @@ commit:
 | **SME domain** | An agent's declared area of responsibility (`sme_domain`, §5.1): a short operator-written phrase like `AWS estate and IAM`. Inside it the agent speaks as the owner; outside it, it may ask but not order (§7.5). Distinct from `description`, which is prose for discovery — an agent may be described without being given ownership of anything. |
 | **Invite** | Installing tunnel config into an agent's environment + creating its hub registration. No agent code is modified. |
 | **Launch profile** | Per-agent recipe for starting it (command, cwd, env). Launching is a convenience; it is *not* how the channel is established (§8). |
+| **Shift** | The operator's working period (§8.1, D23): Start shift brings up every registered agent not already up (one terminal window each, via its launch profile); End shift closes exactly what the shift opened. |
+| **Team mode** | Whose presence the agents' lifetimes are tied to (§8.1): `On shift` (v1) or `Always on` (future, not implemented). Changed only on the Admin page; the board's shift pill displays it. |
 | **Puppet** | A fake agent (Python) that behaves like a real adapter — scriptable or human-driven — used for tests and UX evaluation. |
 
 ## 4. Architecture overview
@@ -356,7 +358,9 @@ Channel { agent_id, endpoint: http://127.0.0.1:<ephemeral>, channel_token, regis
 
 ### 6.3 Liveness
 
-Adapters heartbeat (default 30 s). `connected` → `stale` after 3 missed beats → `gone` after a
+Adapters heartbeat (default 15 s; was 30 until D23 — the shorter cadence halves how long
+a live agent looks down after a hub restart and with it the shift-start grace countdown,
+§8.1). `connected` → `stale` after 3 missed beats → `gone` after a
 configurable window or on clean detach. Liveness is **advisory** (drives UI badges and push
 short-circuiting); correctness never depends on it, because storage is the source of truth and
 undelivered messages re-deliver on attach.
@@ -596,7 +600,7 @@ therefore explicitly rejected for primary agents.
 | Option | Mechanism | Pros | Cons | v1? |
 |---|---|---|---|---|
 | **L0 — manual + copy-paste** | "Add agent" in UI shows the exact launch command (env vars + `claude` invocation); operator runs it in any terminal | Zero moving parts; works everywhere; always the fallback | One manual step | **Yes — baseline** |
-| **L1 — spawn a terminal window** | Hub runs `osascript` to open Terminal.app / iTerm2 with the launch command (fire-and-forget; the terminal owns the process) | One-click "start"; agent lands in a normal window the operator can use | macOS-specific (Linux later via `gnome-terminal`/`x-terminal-emulator`); fire-and-forget = no stop/restart from hub | Post-v1 (D16); was a v1 convenience under D8 |
+| **L1 — spawn a terminal window** | Hub runs `osascript` to open Terminal.app / iTerm2 with the launch command (fire-and-forget; the terminal owns the process) | One-click "start"; agent lands in a normal window the operator can use | macOS-specific (Linux later via `gnome-terminal`/`x-terminal-emulator`); fire-and-forget = no stop/restart from hub | **v1 via the Shift** (§8.1, D23) — one gesture over the team, not a per-agent button; was parked post-v1 by D16 |
 | **L2 — tmux detached session** | `tmux new-session -d -s courtyard-<name> '<cmd>'`; operator attaches on demand | Start *and* stop/restart from hub; survives UI; works over ssh | tmux dependency; drags toward terminal management; operator must attach to interact | Deferred — revisit if L1's fire-and-forget hurts |
 | **L3 — headless subprocess / SDK** | No terminal at all | Fully automatable | Contradicts the working model (operator works *with* each agent in its terminal) | Rejected for primary agents (fine for puppets) |
 
@@ -605,6 +609,128 @@ command plus the 6d install button that writes `.mcp.json` for the operator. L1 
 but post-v1: "Start" in the UI = spawn via the launch profile and wait for the attach
 handshake; status turns `connected` when it arrives. "Stop" = ask the agent to exit via a
 message, or the operator closes the window — the hub only observes liveness.
+
+*Amended by §8.1 (D23): the Shift brings L1 back into v1 scope as one gesture over the
+whole team rather than a per-agent Start button.*
+
+### 8.1 Shift and Team mode (WP‑F, decision D23 — accepted 2026-08-25)
+
+*Origin: feedback item 13 (review cycle 1). Starting the courtyard today means a terminal
+per agent, a `cd`, a pasted launch command — every working day. It should be: start the
+hub, press one button.*
+
+#### Team mode — the setting
+
+**Team mode** says whose presence the agents' lifetimes are tied to:
+
+| Value | Meaning | v1 |
+|---|---|---|
+| **`On shift`** | Agents run while the operator works: starting a shift starts them, ending it stops them | **implemented** |
+| **`Always on`** | Agents run independently of anyone's presence (e.g. grinding overnight on a home server) | shown in Admin, disabled ("not yet available") |
+
+The axis is deliberately **agent lifecycle, not audience**. "Single user vs service" was
+considered and rejected as the name: it points at multi-operator/auth/tenancy — the §2
+non-goals fence — and isn't even coupled (one operator can legitimately run always-on).
+Changed **only on the Admin page** (a two-state pill, the `supervised | auto-pass` idiom),
+in a new **Team** section that also holds the terminal application setting.
+
+#### The Shift
+
+A **Shift** is the operator's working period. **Start shift** brings up every registered
+agent that is not already up; **End shift** closes what the shift started. Both terms are
+in the vocabulary (§3).
+
+What **Start shift** does, in order:
+
+1. **Target set** = every registered agent whose type has a launch profile. v1 that is
+   `claude-code`; `human` is the operator; `puppet` agents are skipped and their cards
+   simply stay as they are (a puppet is a test twin — started by whoever is testing).
+   The launch profile (§3) is the per-adapter seam: the shift never knows how a
+   Claude Code agent starts; it asks the agent's adapter type for a profile —
+   for `claude-code`: *terminal window, `cd <workdir>`, the launch command already shown
+   in the launch config (channel flag + `--model`)*. A future headless type would return
+   *background process, no terminal*.
+2. **Grace window — don't fork the living.** After a hub restart, a healthy agent looks
+   down until its adapter's next heartbeat hits `not_attached` and re-attaches (item 12
+   made this bulletproof). Spawning during that window would start a **second session on
+   the same identity** — observed in cycle 1, never again. So the shift judges liveness
+   only once the hub has been up for `heartbeat_seconds + 5 s`; if the shift starts
+   earlier, the pill counts down the remainder (15…0) and the target set is re-evaluated
+   at zero. When the hub has been up longer than one heartbeat window — the common case —
+   the countdown is skipped entirely and start is instant.
+3. **Spawn** each still-`gone` agent via its launch profile, **fire-and-forget** (§8's
+   principle stands: the hub never holds a PTY, never supervises, never restarts; launch
+   order is irrelevant since the adapter retries attach forever). The hub records one
+   thing per spawn: the terminal window/tab reference, so End shift knows what is its to
+   close. Liveness remains the only health signal — the pill's count (`Starting · 2/3`)
+   is just the connected-count over the target set, read from the cards' existing state.
+4. **First-run dialogs** (`.mcp.json` trust, channel consent) cannot be pre-approved
+   (D21): a brand-new agent's first shift start needs a keypress in its terminal.
+   Accepted (architect, 2026-08-25); revisit only if it proves frustrating.
+
+**End shift** closes exactly the recorded windows — terminals the operator opened by hand
+are untouched. No graceful in-session shutdown in v1 (accepted; there is no polite remote
+"exit" for an interactive session anyway). If any line is not idle, the UI asks once
+("2 lines are mid-conversation — end the shift?") before calling the hub; turn state is
+untouched either way — obligations are durable (§5.4) and survive into the next shift
+(their fate is feedback item 10, a separate decision).
+
+**Shift state machine:** `off → starting (grace countdown, then spawning) → on → off`.
+`on` is entered when every target agent reads `connected`, or after a 60 s settle timeout
+with some still down — the pill then shows the true count and the cards show who is red;
+the operator fixes by hand (D14's banner philosophy). A hub restart mid-shift changes
+nothing for the agents (their terminals own them); the persisted shift document lets the
+hub come back knowing a shift is on and what it spawned.
+
+#### Persistence, API, UI
+
+- **Migration 0010 — `settings`**: a key-value table (`key text primary key, value
+  jsonb`), the hub single-writer as ever. Keys now: `team_mode`, `terminal_app`, and the
+  `shift` state document (state, started_at, spawns: `[{agent_id, window_ref,
+  spawned_at}]`). This table is also where 7c's "default supervision mode" will live —
+  one mechanism, no per-setting migrations.
+- **API**: `GET /api/shift` (state, counts, `grace_until` for the countdown — the UI
+  renders the ticking numbers from the timestamp, the hub never streams a clock);
+  `POST /api/shift/start`; `POST /api/shift/end` (`{"force": true}` after the confirm);
+  `GET/PATCH /api/settings` (mode, terminal app). SSE gains a `shift` event.
+- **Spawner**: an interface with two macOS implementations behind the `terminal_app`
+  setting — Terminal.app and iTerm2, both via `osascript` (window/tab reference captured
+  from the AppleScript result), plus a fake for tests. Workdir paths and the command are
+  escaped into AppleScript string literals — the values come from the operator's own
+  registry (D3 threat model), but a workdir with a quote in it must not break the script.
+  Linux terminals later; the seam is this interface.
+- **Courtyard page**: top right of the Team panel header — `▶ Start shift` →
+  `Waiting for the team · 12` (countdown, only when applicable) → `Starting · 2/3` →
+  running: the `● 3/3 on shift` status pill with an explicit **`■ End shift`** button
+  beside it (with the not-idle confirm). The stop control is a visible button mirroring
+  Start, not a click on the status — a bare clickable status was not discoverable
+  (architect's live check, 2026-08-26). Under *Always on* the whole group is replaced by
+  a static `always on` tag. No second "Team mode: …" label anywhere on the board;
+  per-agent progress lives where it already does — the card status dots.
+- **Admin page**: the **Team** section — Team mode pill (`On shift | Always on`,
+  the latter disabled), terminal application. A per-agent "part of the shift" toggle is
+  deferred: v1 shifts include all registered agents.
+
+#### Config change decided alongside
+
+`COURTYARD_HEARTBEAT_SECONDS` default **30 → 15** (hub and adapter read the same
+variable; stale = 3 missed = 45 s). For 3–5 agents the overhead is negligible and it
+halves both the worst-case countdown and the time cards stay wrongly grey after a hub
+restart (the "15–20 s of not responding" the architect watched during cycle 1).
+
+#### What this deliberately does not change
+
+D14 stays intact: the hub spawns only because the operator pressed the button — an
+operator gesture, exactly like the install button, never a hub reflex. §8's launch
+principle stands (channel via self-registration, no process supervision). The turn
+machine, delivery, and liveness are untouched. L1's post-v1 parking (D16) is superseded:
+the spawn returns to v1 inside the shift, as one gesture over the team.
+
+**Verification.** Unit: shift state machine with a fake clock and fake spawner (grace
+skipped when the hub is old enough; only `gone` agents spawned; end closes only recorded
+windows; settle timeout). AppleScript escaping tests. Live (the architect): press the
+pill with one agent already running and one down — exactly one terminal opens; end the
+shift — only that terminal closes. Runbook entry + script per the testing standard.
 
 ## 9. Storage
 
@@ -658,6 +784,9 @@ messages (id uuid PK, line_id uuid FK, seq bigint,     -- UNIQUE (line_id, seq)
 
 channels (agent_id uuid PK, endpoint text, channel_token text,
           registered_at, last_heartbeat)
+
+settings (key text PK, value jsonb, updated_at)        -- 0010: team_mode, terminal_app,
+                                                       -- the shift state document (§8.1)
 ```
 
 Notes: the agent pair is normalized (a < b) before insert so line uniqueness is one plain
@@ -715,6 +844,12 @@ in the middle — no title strip — and **one input box pinned to the bottom of
 becomes depends on what is selected.
 
 1. **Courtyard** (the main page; "MainBoard" in earlier notes) — the daily page, top to bottom:
+   - **The shift control** (§8.1, D23), top right of the Team panel header:
+     `▶ Start shift` → `Waiting for the team · 12` (the grace countdown, only when the
+     hub is young) → `Starting · 2/3` → running: the `● 3/3 on shift` status pill plus an
+     explicit **`■ End shift`** button, with an are-you-sure when lines are
+     mid-conversation. Under *Always on* it would be a static `always on` tag. Per-agent
+     progress lives where it already does — the card status dots.
    - **Team**: on a tinted panel that sets it apart from the conversation below, scrolling on
      its own when the team is large — one rounded rectangle per agent in the **agent's
      colour** (a palette of eight names — red, orange, yellow, green, teal, blue, purple,
@@ -754,8 +889,10 @@ becomes depends on what is selected.
    box. (L1 "start" is post-v1, D16.)
 3. **Archive** — archived line histories (§5.7), newest first; pick one to read it in the
    conversation style, export it as JSON, or delete it. The input box is disabled here.
-4. **Admin** — the courtyard itself: hub health and configuration, counts; housekeeping
-   actions (clearing removed agents and their lines, defaults) are the 7c page.
+4. **Admin** — the courtyard itself: the **Team** section (Team mode `On shift | Always
+   on` with the latter disabled, and the terminal application the shift opens — §8.1),
+   hub health and configuration, counts; housekeeping actions (clearing removed agents
+   and their lines, defaults) are the 7c page.
 
 **Light and dark themes.** Every colour is a token; the dark set applies when the operating
 system is in dark mode unless a theme was chosen — the sun/moon switch at the bottom of the
@@ -851,6 +988,7 @@ cbx-agent-courtyard/
 | D19 | **The hub keeps every agent's token; the operator can read an agent's launch config again and rotate its token.** Migration 0006 adds `agents.token` (plaintext) beside the hash; `GET /api/agents/{id}/token`, `POST /api/agents/{id}/token` (rotate: old token refused at once, channel dropped, agent reads as offline until restarted), install and `courtyard-invite` no longer need a token passed in; Agents page gains **launch config** and **rotate token** per agent | **Accepted** (architect, 2026-08-22) | "Personal-use app, definitely not a public SaaS" — the once-only token was a SaaS reflex that cost the operator the ability to re-open a config. Within the D3 threat model (one operator, one machine) a plaintext token in the local database adds nothing an attacker on the machine did not already have. Registrations from before 0006 have no stored token until rotated; the UI says so |
 | D20 | **Archive: a line's history becomes one immutable JSON document in `lines_archive`; automatic when a participant is removed (and the line row goes), on request via an Archive button; an Archive page to re-read and export** (§5.7) | **Accepted** (architect, 2026-08-22; all three points confirmed) | Architect's ask: inactive lines dilute the board; keep history as a reminder and for offline audit in a dedicated table that can be backed up and cleaned up. Decisions to confirm: (1) one JSON document per archive rather than mirrored line/message tables; (2) removal deletes the archived line rows, and lines of already-removed agents are archived at the next hub start; (3) archiving a non-idle line releases it and archives the in-flight message as it stands, after a confirm that says so |
 
+| D23 | **Shift + Team mode (§8.1)** — Team mode `On shift` (v1) \| `Always on` (future, disabled), changed only in Admin; one pill on the Courtyard page starts every registered agent not already up via its launch profile (terminal window, fire-and-forget, window ref recorded) and End shift closes exactly what it started; grace countdown before spawning only while the hub is younger than one heartbeat window; settings KV table (migration 0010); heartbeat default 30 s → 15 s | **Accepted** (architect, 2026-08-25 — WP‑F, feedback item 13) | Brings parked L1 (D8/D16) back into v1 as an operator gesture over the whole team — D14 intact. "Crew" rejected (the concept is already named Team); "Single User vs Service" rejected as the setting name (audience axis = §2 non-goals; lifecycle is what the setting controls). D22 is reserved for the manual-links discovery mode (WP‑E, not yet proposed) |
 | D21 | **Install writes the agent-side profile `.claude/settings.local.json` beside `.mcp.json`** — a permission rule pre-approving the courtyard MCP tools (feedback 7.2: without it every `courtyard_send` halts on a terminal prompt), the agent's declared model (`agents.model`, migration 0009; feedback 1 — also shown as `--model` in the suggested launch command), and a status line naming the agent (feedback 2), the status line only when none exists. Uninstall removes exactly what install added; the model stays | **Accepted** (architect, 2026-08-24 — WP-A of review cycle 1, `docs/planning/feedback-items.md`) | Widens D14's footprint from one file to two, deliberately: still configuration, not behaviour — no hooks. The file is per-machine (git-excluded by Claude Code when it writes it itself) and carries no secret. Verified against the Claude Code docs: `mcp__courtyard` allows all the server's tools; `model` accepts aliases like `sonnet`; the one-time trust dialog for a project's `.mcp.json` servers cannot be pre-approved and remains |
 
 ## 14. Risks and required spikes
@@ -871,8 +1009,10 @@ cbx-agent-courtyard/
    acceptance checklist: give an agent a 60-second task, message it from the board, watch
    whether it answers unprompted. If it does not, the Stop hook is the fix — verified in
    6a, adoptable with no hub change.
-4. **macOS-only L1** — moot for v1: the L1 spawn itself is parked post-v1 (D16); L0 plus the
-   6d install button cover the quickstart.
+4. **macOS-only L1** — live again since the Shift (§8.1, D23) brought the spawn back into
+   v1: Start shift drives Terminal.app or iTerm2 via `osascript`, so shift-launching is
+   macOS-only for now. L0 copy-paste remains the fallback everywhere; Linux terminals are
+   a spawner implementation behind the same interface when needed.
 
 ## 15. References
 

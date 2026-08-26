@@ -154,3 +154,38 @@ class AttachSummary(BaseModel):
     roster: list[PeerInfo]
     lines: list[LineSummary]
     queued: int  # backlog size; the hub pushes these right after this response is built
+
+
+TeamMode = Literal["on_shift", "always_on"]  # design §8.1 (D23); v1 implements on_shift
+ShiftPhase = Literal["off", "starting", "on"]
+
+
+class ShiftSpawn(BaseModel):
+    """One terminal the shift opened — recorded so End shift closes exactly these."""
+
+    agent_id: UUID
+    agent_name: str
+    window_ref: str | None = None  # spawner-specific handle; None if capture failed
+    spawned_at: datetime
+
+
+class ShiftStatus(BaseModel):
+    """The whole shift picture (design §8.1): the WebUI pill renders from this, the
+    countdown ticking locally from grace_until — the hub never streams a clock."""
+
+    mode: TeamMode
+    state: ShiftPhase
+    started_at: datetime | None = None
+    grace_until: datetime | None = None  # while starting: judge liveness only after this
+    spawns: list[ShiftSpawn] = []
+    skipped: list[str] = []  # agents the shift cannot launch (puppet, no workdir), by name
+
+
+TerminalApp = Literal["Terminal", "iTerm2"]  # macOS terminal apps the shift can drive
+
+
+class Settings(BaseModel):
+    """Hub-level settings the operator can change (Admin page)."""
+
+    team_mode: TeamMode = "on_shift"
+    terminal_app: TerminalApp = "Terminal"

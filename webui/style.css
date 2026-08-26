@@ -215,6 +215,22 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .conv-head h2 { margin: 0; font-size: .95rem; font-weight: 650; }
 .conv-head .meta { color: var(--muted); font-size: .82rem; }
 .conv-head .act { margin-left: auto; font-size: .8rem; color: var(--muted); display: flex; gap: .5rem; align-items: center; }
+/* The shift pill (§8.1): mode display and daily control in one element, top right of Team. */
+.eyebrow-row { display: flex; align-items: center; justify-content: space-between; gap: .6rem; }
+.board-panel .eyebrow-row:first-child { margin-top: .5rem; }
+.shift-pill { font-size: .8rem; font-weight: 550; padding: .28rem .8rem; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface); white-space: nowrap;
+  display: inline-flex; align-items: center; gap: .45rem; }
+.shift-pill.start:hover { background: var(--hover); }
+.shift-pill.busy { color: var(--amber); background: var(--amber-bg); border-color: transparent;
+  font-variant-numeric: tabular-nums; }
+.shift-pill.on { color: var(--green); background: var(--green-bg); border-color: transparent; }
+.shift-pill.tag { color: var(--muted); }
+.shift-group { display: inline-flex; align-items: center; gap: .4rem; }
+.shift-pill.stop:hover { background: var(--hover); color: var(--red); }
+.shift-pill.stop .square { width: .6em; height: .6em; border-radius: 2px; background: currentColor; display: inline-block; }
+.panel .btn:disabled { color: var(--muted); cursor: not-allowed; }
+
 .mode-switch { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; background: var(--surface); }
 .mode-switch button { font-size: .8rem; font-weight: 500; padding: .3rem .75rem; color: var(--muted); }
 .mode-switch button:hover { background: var(--hover); }

@@ -48,7 +48,9 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
         database_url=env.get("DATABASE_URL", DEFAULT_DATABASE_URL),
         webui_dir=Path(env.get("COURTYARD_WEBUI_DIR", str(_default_webui_dir()))),
         max_body_bytes=int(env.get("COURTYARD_MAX_BODY_BYTES", "16384")),
-        heartbeat_seconds=float(env.get("COURTYARD_HEARTBEAT_SECONDS", "30")),
+        # 15 s (was 30, D23): halves how long a live agent looks down after a hub restart
+        # and therefore the shift-start grace countdown; negligible for a handful of agents
+        heartbeat_seconds=float(env.get("COURTYARD_HEARTBEAT_SECONDS", "15")),
         gone_seconds=float(env.get("COURTYARD_GONE_SECONDS", "600")),
         sweep_seconds=float(env.get("COURTYARD_SWEEP_SECONDS", "10")),
         push_timeout=float(env.get("COURTYARD_PUSH_TIMEOUT", "3")),

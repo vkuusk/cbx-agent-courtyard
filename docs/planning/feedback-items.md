@@ -307,6 +307,119 @@ port, the hub appears 11 s later, the agent must reach `connected`. 142 tests.
 
 **Status.** fixed and confirmed 2026-08-24 — launch order no longer matters
 
+### 13. Shift — one button starts (and stops) the whole team
+
+**Asked (2026-08-25).** Starting the courtyard today means: open a terminal per agent,
+`cd` to each workdir, paste each launch command, start the hub. It should be: **start the
+hub, press "Start shift"** — and every registered agent that is not already up gets
+started (new terminal window → `cd <workdir>` → launch command). The terminal application
+is a setting on the Admin page.
+
+**The term (renamed from "Session" the same day).** A **Shift** = the operator's working
+period: all registered agents are started when it begins and stopped when it ends. Chosen
+over "Session" because that word is already taken three times over (Claude Code's
+resumable sessions — item 10 turns on them — plus browser and DB sessions), and because
+the metaphor is exact: the team clocks in, works under the operator's watch, clocks out.
+Named in contrast to a possible future *autonomous team* mode (agents running between
+shifts, without an operator, or with several operators) — that mode is explicitly **not**
+being designed now.
+
+**Team mode (added same day).** The shift behaviour is one value of a new setting, **Team
+mode**: **`On shift`** (agents' lifetimes are tied to the operator's working period — v1,
+the only implemented value) | **`Always on`** (agents run independently of anyone's
+presence — future, shown disabled). Named around the lifecycle axis deliberately: the
+architect also floated "Single User vs Service", but that names the *audience* axis
+(multi-operator, auth, tenancy) which sits behind the §2 non-goals fence and isn't what
+this setting controls — a single operator can legitimately run always-on. "Crew" was
+dropped as a synonym for the existing term **Team** (one name per concept).
+
+**UI (agreed 2026-08-25).** Admin is the only place the *mode* changes: a **Team mode**
+pill `On shift | Always on` (same two-state idiom as `supervised | auto-pass`; *Always
+on* disabled, "not yet available"), in a Team section that also holds the terminal
+application (per-agent membership toggle deferred — v1 shifts include all registered
+agents). The Courtyard page informs but never changes the mode, and the information and
+the daily control are **the same element**: one pill, top right of the Team panel header
+— its presence says the team runs on shifts, its state says where the shift stands: idle
+`▶ Start shift`; starting `Starting · 2/3` (per-agent progress lives where it already
+does — the card status dots); running `● 3/3 on shift` with **End shift** revealed on
+click. Under *Always on* the pill would be replaced by a small static `always on` tag —
+no second "Team mode: …" label anywhere on the board.
+
+**Decisions on the known hazards (architect, 2026-08-25):**
+- **Double-launch** (after a hub restart healthy agents look down until their heartbeat
+  re-attaches — spawning then would fork a live session, seen in cycle 1): shift start
+  waits out one re-attach window with a visible **countdown** (30…0) before launching
+  whatever is still `gone`; also consider shortening the heartbeat interval to ~15 s —
+  for 3–5 agents the overhead is negligible.
+- **Stop semantics**: no graceful remote shutdown for now — ending the shift closes what
+  the shift started (tracked window/PID), manually started terminals are left alone.
+- **First-run dialogs** (`.mcp.json` trust, channel consent — cannot be pre-approved):
+  accepted — a brand-new agent's first shift start needs a keypress in its terminal;
+  revisit only if it proves frustrating in practice.
+
+**Touches.** Launch is manual today (design §7.2, §8; step 6e "L1 launch" was parked by
+D16 — this is its return as an operator gesture, which keeps D14 intact: the hub spawns
+only because the operator pressed the button). Pieces that exist: per-agent launch command
+(launch config: workdir, channel flag, `--model`), channel liveness
+(connected/stale/gone), attach-retries-forever (item 12) making launch order irrelevant.
+New seams: a per-adapter-type **launch recipe** (the shift must not know how to start a
+Claude Code agent specifically; a future headless/puppet agent would be a background
+process with no terminal), terminal spawning on macOS (`osascript` → Terminal.app /
+iTerm2), an Admin setting, shift-spawn tracking for stop.
+
+**Status.** discussed 2026-08-25 → **WP‑F**; design §8.1 accepted the same day (**D23**);
+implemented 2026-08-26 (migration 0010 settings table, `hub/core/shift.py` + `spawn.py`,
+`/api/shift` + `/api/settings`, SSE `shift`, board pill, Admin → Team, heartbeat 30→15 s;
+18 new tests, runbook script + manual spawn procedure, quickstart step 4 rewritten).
+
+**Live check (architect, 2026-08-26): start worked** — countdown, both terminals opened,
+`● 2/2 on shift`. Two findings, fixed the same day:
+- **Stopping was not discoverable** ("start was obvious"; the running pill's only hint
+  was a hover tooltip). Fix: the running state is a status pill **plus an explicit
+  `■ End shift` button** with a square stop icon, mirroring `▶ Start shift`.
+- **Only one of two windows closed on end.** Root cause: close SIGTERMed the window's
+  tty and closed immediately — the window whose `claude` was still shutting down popped
+  Terminal's "process is running" modal and survived. Fix: close now **waits for the tty
+  to actually clear** (TERM up to 5 s, then KILL) before closing the window; window ids
+  are captured from the spawned tab (never "front window", which could race a
+  back-to-back spawn); per-window close outcomes are logged and the ended shift's spawn
+  record is kept in the settings document for post-mortems.
+
+**Re-checked and confirmed (architect, 2026-08-26):** end-shift terminated an agent
+mid-work and mid-conversation and **both windows closed**; the `■ End shift` button is
+in. **WP‑F done.**
+
+### 14. One-off "No such tool available: courtyard_peers" on a fresh session
+
+**Observed (architect, 2026-08-26, Claude Code 2.1.246).** First prompt of a freshly
+launched agent session: the model said "I'll check the courtyard peers", logged
+`Error: No such tool available: courtyard_peers` — then immediately recovered, called
+the courtyard tools twice (peers + send) and the message went out normally, held at the
+gate as expected. No delivery impact.
+
+**Analysis (senior engineer, same day).** Not a hub defect — the send path was
+untouched. Two candidate mechanisms, evidence from the 2.1.246 bundle:
+- The hub-rendered texts (envelope preamble, adapter instructions) name the tools bare —
+  `courtyard_send`, `courtyard_peers` — while Claude Code registers MCP tools as
+  `mcp__courtyard__<name>`. Models normally bridge that gap from the tool list; this
+  session tried the literal bare name once first.
+- 2.1.246 ships a "tool search" feature that can **defer** MCP tools out of the initial
+  tool list past a size threshold (`isToolSearchEnabled`, `isDeferredTool`,
+  `analyzeMcp`/`deferredToolTokens` in the bundle) — a deferred tool is not directly
+  callable until discovered, which would produce exactly this error on first use.
+
+**Remedy.** None required — self-recovering, one extra model turn at session start at
+worst. Low-cost hardening available when we touch these files anyway (**WP‑C** edits the
+same envelope preamble and tool descriptions): phrase tool references so they survive
+prefixing/deferral, e.g. "the courtyard MCP tools (`courtyard_send`, …)". Watch for
+recurrence; if deferral starts eating actual deliveries (not just discovery), that would
+be a new item.
+
+**Touches.** `hub/core/envelope.py` (preambles), `adapters/claude_code/mcp_server.py`
+(INSTRUCTIONS, tool descriptions) — the WP‑C surface.
+
+**Status.** recorded — benign, folded as a consideration into WP‑C (awaiting go)
+
 ---
 
 ## Work packages (discussion outcome, 2026-08-24)
@@ -323,6 +436,7 @@ that review.
 | **WP‑C** | 3.3, 7.1 | One answer-what-was-asked etiquette line in the hub-rendered envelope preambles and the `courtyard_send` tool description | `hub/core/envelope.py`, `mcp_server.py` | awaiting go |
 | **WP‑D** | 4, 8 | Agents-page rework: add form (name · type · directory · colour first, then two multiline descriptions); rows keep only **Edit** and **Remove**; an **Edit Agent** view holds launch config, rotate token, and the editable fields (description, owns, workdir, model, colour — closes the no-edit-after-creation gap; needs an update endpoint) | `webui/js/views/agents.js`, hub `PATCH /api/agents/{id}` | awaiting go |
 | **WP‑E** | 5 | Manual-links discovery mode — design section first (a link can be a pre-created idle line; `peers` filters; unlinked `send` refused) | design doc (D22 candidate), then `hub/core/peers.py` + board | awaiting design proposal |
+| **WP‑F** | 13 | Shift + Team mode: one pill on the Courtyard page starts every registered agent not already up (terminal window + workdir + launch command, per-adapter launch recipe) and ends by closing what it started; countdown through the re-attach window before spawning; Admin gets Team mode (`On shift` v1 \| `Always on` disabled) + terminal app | design doc **§8.1** (D23), `hub/core/shift.py` + `spawn.py`, migration 0010, `/api/shift` + `/api/settings`, board pill + `■ End shift` button, Admin → Team | done (confirmed by the architect 2026-08-26: start, both-windows end, mid-conversation termination) |
 
 ## Index
 
@@ -345,3 +459,5 @@ that review.
 | 10 | Turn obligations outlive agent sessions (blocked line after a full restart) | turn machine / delivery | remedies R1–R3 proposed |
 | 11 | Channel contract drift (2.1.241 broke the flag, 2.1.245 restored it): sessions ACK but skip events | Claude Code preview / launch | resolved — original flag; round-trip test PASS |
 | 12 | Agents launched before the hub give up attaching and sit offline forever | adapter resilience | fixed — attach retries forever |
+| 13 | Shift + Team mode (`On shift` \| `Always on`): start/end the team's working period from one Courtyard-page pill; mode changed only in Admin | launch / board / Admin | WP‑F done, confirmed |
+| 14 | One-off "No such tool available: courtyard_peers" on a fresh 2.1.246 session — self-recovered | envelope wording / Claude Code tool search | recorded — consideration for WP‑C |

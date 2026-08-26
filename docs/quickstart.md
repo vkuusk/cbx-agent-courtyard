@@ -73,10 +73,26 @@ uv run courtyard-invite --register --name infra-claude \
 Names are permanent identities: a removed agent keeps its name, so pick fresh ones if you
 re-run this on a board that already has history (or wipe it with `make db-nuke`).
 
-## 4. Start each agent in its own terminal
+## 4. Start the team — press Start shift
 
-One terminal per agent, started from its directory, with the flag that enables the channel
-(Claude Code's channels are a research preview):
+On the **Courtyard** page, press **▶ Start shift** (top right of the Team panel). The
+courtyard opens one terminal window per agent — already in the agent's directory, already
+running the launch command — and the pill counts the team up (`Starting · 1/2` →
+`● 2/2 on shift`). Right after a hub start it first counts down a few seconds
+("Waiting for the team") to spot agents that are already running before opening anything.
+Which terminal app it uses (Terminal or iTerm2) is set under **Admin → Team**.
+
+The first time an agent starts, answer Claude Code's two questions in its terminal
+(trust the project's `.mcp.json`, allow the channel) — accept both; those cannot be
+pre-answered, and they are its only questions since the settings profile already
+pre-approved the courtyard tools. Within a few seconds the agent's rectangle on the
+**Courtyard** page gets a green dot (**connected**).
+
+When the day is done, press **■ End shift** (the square button beside the status pill) —
+it closes exactly the terminals it opened (terminals you opened yourself are left alone).
+
+You can always start an agent by hand instead — one terminal, its directory, the flag
+that enables the channel (Claude Code's channels are a research preview):
 
 ```sh
 cd ~/courtyard-quickstart/main-admin
@@ -95,10 +111,7 @@ and, on failure, tells you whether the channel was registered or skipped. The pr
 flag contract has drifted before.
 
 (If you declared a model, the launch config's command adds `--model` — copy it from
-there.) Claude Code asks you to trust the project's `.mcp.json` and to allow the
-channel — accept both; that is its only question, since the settings profile already
-pre-approved the courtyard tools. Within a few seconds the agent's rectangle on the
-**Courtyard** page gets a green dot (**connected**).
+there; the shift's spawned terminals include it automatically.)
 
 ## 5. The worked example
 

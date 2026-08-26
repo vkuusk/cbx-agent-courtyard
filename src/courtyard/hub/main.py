@@ -22,6 +22,7 @@ from courtyard.hub.core.errors import DomainError
 from courtyard.hub.core.events import EventBus
 from courtyard.hub.core.gate import EventApprover
 from courtyard.hub.core.registry import Registry
+from courtyard.hub.core.shift import ShiftService
 from courtyard.hub.storage.postgres import PostgresStorage
 
 logger = logging.getLogger("courtyard.hub")
@@ -67,11 +68,13 @@ def create_app(config: Config | None = None) -> FastAPI:
         channels = ChannelService(
             storage, events, deliverer, cfg.heartbeat_seconds, cfg.gone_seconds
         )
+        shift = ShiftService(storage, events, cfg.heartbeat_seconds)
         app.state.storage = storage
         app.state.events = events
         app.state.registry = registry
         app.state.channels = channels
         app.state.archiver = archiver
+        app.state.shift = shift
         app.state.board = Board(
             storage, registry, EventApprover(events), cfg.max_body_bytes, events, deliverer
         )
@@ -84,11 +87,23 @@ def create_app(config: Config | None = None) -> FastAPI:
                 except Exception:
                     logger.exception("liveness sweep failed")
 
+        async def tick_shift() -> None:
+            # 1 s so the pill's countdown flips to spawning without a visible dead stop;
+            # a tick outside `starting` is a lock-and-look, no database touched.
+            while True:
+                await asyncio.sleep(1)
+                try:
+                    await asyncio.to_thread(shift.tick)
+                except Exception:
+                    logger.exception("shift tick failed")
+
         sweeper = asyncio.create_task(sweep_liveness())
+        shift_ticker = asyncio.create_task(tick_shift())
         yield
-        sweeper.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await sweeper
+        for task in (sweeper, shift_ticker):
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
         deliverer.close()
         storage.close()
 

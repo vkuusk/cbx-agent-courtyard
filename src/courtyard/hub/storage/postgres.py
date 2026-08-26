@@ -373,6 +373,25 @@ class PgChannelRepo:
         return [Channel.model_validate(r) for r in rows]
 
 
+class PgSettingsRepo:
+    def __init__(self, conn: Connection):
+        self._conn = conn
+
+    def get(self, key: str) -> Any | None:
+        row = self._conn.execute("SELECT value FROM settings WHERE key = %s", (key,)).fetchone()
+        return row["value"] if row else None
+
+    def set(self, key: str, value: Any) -> None:
+        self._conn.execute(
+            "INSERT INTO settings (key, value) VALUES (%s, %s)"
+            " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
+            (key, Json(value)),
+        )
+
+    def delete(self, key: str) -> None:
+        self._conn.execute("DELETE FROM settings WHERE key = %s", (key,))
+
+
 class PgUnitOfWork:
     def __init__(self, conn: Connection):
         self.agents = PgAgentRepo(conn)
@@ -380,6 +399,7 @@ class PgUnitOfWork:
         self.messages = PgMessageRepo(conn)
         self.channels = PgChannelRepo(conn)
         self.archives = PgArchiveRepo(conn)
+        self.settings = PgSettingsRepo(conn)
 
 
 class PostgresStorage:

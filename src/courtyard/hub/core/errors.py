@@ -81,6 +81,17 @@ class InvalidToken(DomainError):
     http_status = 401
 
 
+class ShiftBusy(DomainError):
+    """End shift refused: lines are mid-conversation (the UI confirms, then forces)."""
+
+    code = "shift_busy"
+
+
+class InvalidSetting(DomainError):
+    code = "invalid_setting"
+    http_status = 422
+
+
 class NoStoredToken(DomainError):
     code = "no_stored_token"
 

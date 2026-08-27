@@ -548,7 +548,19 @@ reflex: stale is only reported; nothing happens until the operator answers.
 **Status.** implemented 2026-08-26 (**D25**: `ShiftStatus.stale`, `POST
 /api/shift/resume`, start-takes-over-stale, spawner `alive()`, the dialog + tag; 10 new
 tests, 181 total; runbook `stale_shift.py` on a throwaway hub + manual morning
-procedure; Playwright 9/9; quickstart bullet rewritten) — awaiting the architect's check
+procedure; Playwright 9/9; quickstart bullet rewritten). He confirmed the dialog, End
+shift, and the checking phase live the same evening.
+
+**Amendment (architect, 2026-08-26, during the check): Resume belongs to the living
+shift.** "Resume only appears if there are some agents still live reporting — with 1 of
+2 healthy we resume by starting the second." The all-dead dialog becomes a binary (End /
+Start new — with the whole team dead the working period is over, and both answers close
+the books; the UI no longer offers keeping them open there). With part of the team down
+mid-shift, the running pill shows `1/2 on shift` + **`▶ Resume shift`** beside
+`■ End shift` — the existing resume endpoint already did exactly this (start only the
+missing agents, live windows never doubled, books untouched, redelivery on attach).
+Implemented same day: dialog trimmed, pill button added, 1 new test (184), Playwright
+9/9 + a 4/4 partial-outage check — awaiting his check of the Resume button live
 
 ---
 

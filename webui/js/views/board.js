@@ -109,11 +109,6 @@ function StaleShiftQuestion({ onDismiss }) {
           start a new shift whenever you are ready</span>
       </div>
       <div class="choice">
-        <button class="btn" onClick=${act(() => api.shiftResume())}>▶ Resume shift</button>
-        <span class="hint">reopen the terminals — unfinished conversations continue where they left off
-          (unanswered messages are delivered again)</span>
-      </div>
-      <div class="choice">
         <button class="btn" onClick=${act(() => api.shiftStart())}>▶ Start new shift</button>
         <span class="hint">close the old shift, then start fresh, in one go</span>
       </div>
@@ -186,9 +181,16 @@ function ShiftPill() {
   }
   // Running: the status and the stop control are separate — a square stop button beside
   // the pill, mirroring `▶ Start shift` (his feedback, 2026-08-26: a bare clickable
-  // status was not discoverable as the way to stop).
+  // status was not discoverable as the way to stop). With part of the team down,
+  // ▶ Resume shift starts the missing agents — Resume exists exactly when someone is
+  // still reporting (D25 amended by the architect, 2026-08-26); a window that is
+  // merely stuck on a first-run dialog is never doubled.
   return html`<span class="shift-group">
     <span class="shift-pill on"><span class="dot connected" /> ${up}/${targets.length} on shift</span>
+    ${up < targets.length && targets.length > 0
+      ? html`<button class="shift-pill start" title="open terminals for the agents that are down"
+          onClick=${() => api.shiftResume().catch((e) => alert(e.message))}>▶ Resume shift</button>`
+      : null}
     <button class="shift-pill stop" title="close the terminals this shift opened"
       onClick=${endShift}><span class="square" /> End shift</button>
   </span>`;

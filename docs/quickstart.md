@@ -173,12 +173,15 @@ disagree, these are the moves; each one is safe to do at any time.
 
 - **You closed the terminals (or rebooted) without ending the shift.** After a short
   `Checking the team` countdown (making sure nobody is actually up), the courtyard
-  asks: "**The last shift was never ended** — the team is offline", with three answers. **End shift** closes it and nothing more (unfinished messages expire,
-  kept in history) — right when you only want to do admin work. **Resume shift** reopens
-  the terminals and the unfinished conversations continue where they left off —
-  unanswered messages are delivered again. **Start new shift** closes the old one and
-  starts fresh in one go. "Not now" leaves an amber *shift left open* tag in the Team
-  header; click it to get the question back.
+  asks: "**The last shift was never ended** — the team is offline", with two answers.
+  **End shift** closes it and nothing more (unfinished messages expire, kept in
+  history) — right when you only want to do admin work. **Start new shift** closes the
+  old one and starts fresh in one go. "Not now" leaves an amber *shift left open* tag
+  in the Team header; click it to get the question back.
+- **Part of the team died mid-shift** (a closed or crashed terminal, `1/2 on shift`).
+  Press **▶ Resume shift**, which appears next to `■ End shift` whenever someone is
+  down: it opens terminals for exactly the missing agents — the healthy ones are never
+  touched — and anything the returning agents still owed is delivered again.
 - **The hub was restarted mid-shift.** Do nothing. For the first seconds the board says
   so honestly — "checking…" dots, a `Checking the team · 15` countdown — and each agent
   turns green the moment its next heartbeat arrives (within 15 s); the terminals own the

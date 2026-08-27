@@ -287,11 +287,15 @@ resolves it; resume with nothing open is refused (`no_shift`).
    appears — "The last shift was never ended". **■ End shift** is the focused button;
    "Not now" (or Esc / a click outside) leaves the amber *shift left open* tag, which
    reopens the question on click.
-2. **Resume shift** → one terminal opens per agent (only the dead ones — a window you
-   left open is not doubled), the shift keeps its original start time, and anything an
+2. **Resume lives on the running pill** (the dialog offers only End / Start new): with
+   the shift running, close ONE agent's terminal by hand and wait for its card to go
+   offline — the pill reads `1/2 on shift` and **`▶ Resume shift`** appears beside
+   `■ End shift`. Press it: one terminal opens for exactly that agent (the healthy one
+   is untouched), the shift keeps its original start time, and anything the returning
    agent still owed arrives in its fresh session ("…redelivered" in the line history).
-3. Repeat step 1, then **Start new shift** → the old shift's unfinished messages show
-   `· expired`, and a brand-new shift starts (fresh terminals, new start time).
+3. Repeat step 1 (all terminals closed), then **Start new shift** → the old shift's
+   unfinished messages show `· expired`, and a brand-new shift starts (fresh terminals,
+   new start time).
 4. Restart the hub mid-shift with the agents *running*: the question must NOT appear —
    the cards show "checking…" for at most one heartbeat and turn green as the beats
    arrive, each the moment its agent proves itself (never a false green first).

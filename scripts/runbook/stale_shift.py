@@ -116,7 +116,9 @@ try:
         time.sleep(0.5)
         status = admin._call("GET", "/api/shift")
     coder = next(a for a in admin.agents() if a.name == "coder")
-    print(f"after the grace   : agent={coder.status} state={status['state']} stale={status['stale']}")
+    print(
+        f"after the grace   : agent={coder.status} state={status['state']} stale={status['stale']}"
+    )
 
     hr("2. A CONNECTED AGENT MEANS NOT STALE  (mid-shift restart never asks)")
     psql("UPDATE agents SET status = 'connected' WHERE name = 'coder'", db=DB_NAME)

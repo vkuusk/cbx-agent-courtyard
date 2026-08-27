@@ -332,6 +332,23 @@ class TestStaleShift:
             assert uow.lines.get(line.id).state == "awaiting_reply"  # books untouched
             assert uow.messages.get(msg.id).status == "delivered"  # nothing expired
 
+    def test_resume_mid_shift_starts_only_the_missing_agent(self, storage):
+        """The architect's rule (D25 amendment): with 1 of 2 healthy, resume by starting
+        the second — the connected agent is untouched, its dead spawn record is simply
+        retired, and the books never move."""
+        clock, spawner = Clock(), FakeSpawner()
+        service = make_stale(storage, clock, spawner, names=("alpha", "beta"))
+        with storage.transaction() as uow:
+            alpha = uow.agents.get_by_name("alpha")
+            uow.agents.set_status(alpha.id, "connected")  # alpha lives (own terminal)
+        assert not service.status().stale  # someone is home: no question
+
+        status = service.resume()
+
+        assert len(spawner.spawned) == 3  # alpha, beta, then ONLY beta again
+        assert spawner.spawned[2][0] == "/tmp/beta"
+        assert [s.agent_name for s in status.spawns] == ["beta"]
+
     def test_resume_with_no_shift_open_is_refused(self, storage):
         service = make_service(storage, Clock(), FakeSpawner())
         with pytest.raises(NoShiftToResume):

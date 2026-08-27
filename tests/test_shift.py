@@ -13,7 +13,7 @@ import psycopg
 import pytest
 
 from courtyard.common.models import Settings
-from courtyard.hub.core.errors import InvalidSetting, ShiftBusy
+from courtyard.hub.core.errors import InvalidSetting, NoShiftToResume, ShiftBusy
 from courtyard.hub.core.events import EventBus
 from courtyard.hub.core.shift import SETTLE_SECONDS, ShiftService, launch_command
 from courtyard.hub.core.spawn import applescript_str, shell_command
@@ -38,6 +38,7 @@ class FakeSpawner:
         self.spawned: list[tuple[str, str]] = []  # (cwd, command)
         self.closed: list[str] = []
         self.fail_for: set[str] = set()  # cwd substrings that refuse to spawn
+        self.alive_refs: set[str] = set()  # windows whose session still runs (D25)
 
     def spawn(self, cwd: str, command: str) -> str:
         if any(marker in cwd for marker in self.fail_for):
@@ -48,6 +49,9 @@ class FakeSpawner:
     def close(self, ref: str) -> bool:
         self.closed.append(ref)
         return True
+
+    def alive(self, ref: str) -> bool:
+        return ref in self.alive_refs
 
 
 @pytest.fixture()
@@ -248,6 +252,144 @@ class TestEscaping:
         assert cmd == """cd '/tmp/my agent'"'"'s dir' && claude --flag"""
 
 
+def make_stale(storage, clock, spawner, names=("coder",)):
+    """Drive a shift to the abandoned state (D25): started long ago, settle timed out,
+    every agent gone, every window dead (FakeSpawner reports dead unless told alive)."""
+    service = make_service(storage, clock, spawner, started_at=T0 - timedelta(hours=1))
+    for name in names:
+        add_agent(storage, name, workdir=f"/tmp/{name}")
+    service.start()
+    clock.tick(SETTLE_SECONDS + 1)
+    service.tick()  # settle timeout -> on
+    return service
+
+
+def awaiting_line(storage, a, b):
+    with storage.transaction() as uow:
+        line = uow.lines.get_or_create_locked(a.id, b.id)
+        msg = uow.messages.insert(
+            message_id=uuid4(),
+            line_id=line.id,
+            sender=a.id,
+            recipient=b.id,
+            kind="message",
+            body="hi",
+            reply_to=None,
+            status="delivered",
+        )
+        uow.lines.set_turn(line.id, "awaiting_reply", b.id, msg.id)
+    return line, msg
+
+
+class TestStaleShift:
+    def test_abandoned_shift_reads_stale(self, storage):
+        clock, spawner = Clock(), FakeSpawner()
+        service = make_stale(storage, clock, spawner)
+        status = service.status()
+        assert status.state == "on" and status.stale
+
+    def test_not_stale_while_a_spawned_window_is_alive(self, storage):
+        clock, spawner = Clock(), FakeSpawner()
+        service = make_stale(storage, clock, spawner)
+        spawner.alive_refs.add("ref-1")  # the window sits open (first-run dialog, say)
+        assert not service.status().stale
+
+    def test_not_stale_while_anyone_is_connected(self, storage):
+        clock, spawner = Clock(), FakeSpawner()
+        service = make_stale(storage, clock, spawner)
+        with storage.transaction() as uow:
+            agent = uow.agents.get_by_name("coder")
+            uow.agents.set_status(agent.id, "connected")
+        assert not service.status().stale
+
+    def test_not_stale_on_a_young_hub(self, storage):
+        """A hub restart mid-shift must never raise the question: live agents look down
+        only until their next heartbeat, inside the grace window."""
+        clock, spawner = Clock(), FakeSpawner()
+        make_stale(storage, clock, spawner)
+        service2 = make_service(storage, clock, spawner, started_at=clock())
+        assert not service2.status().stale
+        clock.tick(21)  # past heartbeat (15) + margin (5)
+        assert service2.status().stale
+
+    def test_resume_respawns_only_the_dead_windows_and_keeps_the_books(self, storage):
+        clock, spawner = Clock(), FakeSpawner()
+        service = make_stale(storage, clock, spawner, names=("alpha", "beta"))
+        with storage.transaction() as uow:
+            alpha = uow.agents.get_by_name("alpha")
+            beta = uow.agents.get_by_name("beta")
+        line, msg = awaiting_line(storage, alpha, beta)
+        started_before = service.status().started_at
+        spawner.alive_refs.add("ref-1")  # alpha's window survived; beta's is gone
+
+        status = service.resume()
+
+        assert status.state == "starting" and status.started_at == started_before
+        assert len(spawner.spawned) == 3  # alpha, beta, then beta again — never alpha twice
+        assert spawner.spawned[2][0] == "/tmp/beta"
+        assert sorted(s.agent_name for s in status.spawns) == ["alpha", "beta"]
+        with storage.transaction() as uow:
+            assert uow.lines.get(line.id).state == "awaiting_reply"  # books untouched
+            assert uow.messages.get(msg.id).status == "delivered"  # nothing expired
+
+    def test_resume_with_no_shift_open_is_refused(self, storage):
+        service = make_service(storage, Clock(), FakeSpawner())
+        with pytest.raises(NoShiftToResume):
+            service.resume()
+
+    def test_start_on_a_stale_shift_closes_the_books_then_starts_fresh(self, storage):
+        clock, spawner = Clock(), FakeSpawner()
+        service = make_stale(storage, clock, spawner, names=("alpha", "beta"))
+        with storage.transaction() as uow:
+            alpha = uow.agents.get_by_name("alpha")
+            beta = uow.agents.get_by_name("beta")
+        line, msg = awaiting_line(storage, alpha, beta)
+        started_before = service.status().started_at
+
+        status = service.start()
+
+        assert spawner.closed == ["ref-1", "ref-2"]  # the old shift's windows
+        assert status.state == "starting" and status.started_at != started_before
+        assert len(spawner.spawned) == 4  # a fresh spawn per agent
+        with storage.transaction() as uow:
+            assert uow.lines.get(line.id).state == "idle"  # books closed (D24)
+            assert uow.messages.get(msg.id).status == "expired"
+
+    def test_start_on_a_running_shift_stays_idempotent(self, storage):
+        clock, spawner = Clock(), FakeSpawner()
+        service = make_stale(storage, clock, spawner)
+        with storage.transaction() as uow:
+            agent = uow.agents.get_by_name("coder")
+            uow.agents.set_status(agent.id, "connected")  # somebody IS home: not stale
+        started_before = service.status().started_at
+        status = service.start()
+        assert status.started_at == started_before
+        assert len(spawner.spawned) == 1  # nothing new
+
+    def test_checking_window_reported_while_the_hub_is_young(self, storage):
+        """D26: a hub restarted into a running shift reports checking_until (the UI shows
+        the countdown, not unverified statuses); when it passes, stale can appear —
+        one transition, never green-then-broken-then-question."""
+        clock, spawner = Clock(), FakeSpawner()
+        service = make_stale(storage, clock, spawner)
+        assert service.status().checking_until is None  # old hub: nothing to verify
+
+        service2 = make_service(storage, clock, spawner, started_at=clock())
+        status = service2.status()
+        assert status.checking_until is not None
+        assert not status.stale  # no claims while checking
+        clock.tick(21)
+        status = service2.status()
+        assert status.checking_until is None and status.stale
+
+    def test_tick_publishes_the_stale_transition_once(self, storage):
+        clock, spawner = Clock(), FakeSpawner()
+        service = make_stale(storage, clock, spawner)
+        first = service.tick()
+        assert first is not None and first.stale
+        assert service.tick() is None  # no change, no event
+
+
 class TestShiftApi:
     def test_status_start_end_round_trip(self, client):
         assert client.get("/api/shift").json()["state"] == "off"
@@ -259,6 +401,11 @@ class TestShiftApi:
         resp = client.post("/api/shift/end", json={"force": False})
         assert resp.status_code == 200
         assert resp.json()["state"] == "off"
+
+    def test_resume_with_no_shift_is_a_409(self, client):
+        resp = client.post("/api/shift/resume")
+        assert resp.status_code == 409
+        assert resp.json()["error"]["code"] == "no_shift"
 
     def test_settings_round_trip_and_validation(self, client):
         assert client.get("/api/settings").json() == {

@@ -1,9 +1,10 @@
 // The Courtyard page: the team (one rectangle per agent), the lines between agents (two nodes,
 // one colour-coded wire each), and the conversation pane for whatever is selected.
 
-import { html, useEffect, useState } from "../../vendor/htm-preact-standalone.module.js";
+import { html, useEffect, useRef, useState } from "../../vendor/htm-preact-standalone.module.js";
 import {
   store, select, setPanelMax, teamAgents, isOperatorLine, isInactive, hasNewActivity, unreadWith, agentName,
+  operatorLineWith,
 } from "../store.js";
 import { useStore, fmtAgo, minutesSince } from "../ui.js";
 import { Conversation } from "../conversation.js";
@@ -13,9 +14,10 @@ const NO_REPLY_MINUTES = 15;
 
 // What the wire says and which colour it takes; lower rank = needs you more.
 export function wireStatus(line) {
+  // `unknown` (D26) is not yet a claim either way — never render it as "offline".
   const offline = [line.agent_a, line.agent_b]
     .map((id) => store.agents.get(id))
-    .find((a) => a && a.status !== "connected");
+    .find((a) => a && a.status !== "connected" && a.status !== "unknown");
   if (line.queued_count > 0 && offline) {
     return { cls: "trouble", rank: 0, label: `${offline.name} offline · ${line.queued_count} waiting` };
   }
@@ -33,19 +35,23 @@ export function wireStatus(line) {
   return { cls: "idle", rank: 4, label: "idle" };
 }
 
-const FOOT = { invited: "not started yet", stale: "not responding", gone: "offline" };
+const FOOT = { invited: "not started yet", stale: "not responding", gone: "offline", unknown: "checking…" };
 
 function AgentCard({ agent }) {
   const sel = store.ui.selected;
   const selected = sel?.kind === "agent" && sel.id === agent.id;
   const unread = unreadWith(agent.id);
   const foot = FOOT[agent.status];
+  // "Owes you a reply" (design §6.4, D24 — R3): your line with this agent is waiting on it.
+  const mine = operatorLineWith(agent.id);
+  const owes = mine && mine.state === "awaiting_reply" && mine.awaiting_from === agent.id;
   return html`<button class="agent ${selected ? "selected" : ""}" data-color=${agent.color}
       onClick=${() => select({ kind: "agent", id: agent.id })}>
     <span class="head"><span class="dot ${agent.status}" /><span class="name">${agent.name}</span>
-      ${unread ? html`<span class="badge">${unread} new</span>` : null}</span>
+      ${unread ? html`<span class="badge">${unread} new</span>` : null}
+      ${owes ? html`<span class="badge owes">owes you a reply</span>` : null}</span>
     <span class="owns">${agent.sme_domain ?? agent.description ?? agent.type}</span>
-    ${foot ? html`<span class="foot ${agent.status === "invited" ? "" : "warn"}">${foot}</span>` : null}
+    ${foot ? html`<span class="foot ${agent.status === "invited" || agent.status === "unknown" ? "" : "warn"}">${foot}</span>` : null}
   </button>`;
 }
 
@@ -67,22 +73,78 @@ function Wire({ line }) {
 
 const recency = (l) => l.last_activity_at ?? l.created_at;
 
+// The stale-shift question (design §8.1, D25): the shift was left open — terminals
+// closed by hand, a reboot — and the team is offline. A decision gets a question in
+// your face, not a status pill; nothing happens until the operator answers.
+function StaleShiftQuestion({ onDismiss }) {
+  // Focus the default button so Escape lands inside the dialog: at commit via the ref
+  // (synchronous on first mount) and again in the deferred effect (a re-opened dialog's
+  // ref-time focus can lose to the click that opened it).
+  const first = useRef();
+  const focusOnce = (el) => {
+    if (el && el !== first.current) {
+      first.current = el;
+      el.focus();
+    }
+  };
+  useEffect(() => {
+    first.current?.focus();
+  }, []);
+  const act = (fn) => async () => {
+    try {
+      await fn(); // the SSE shift event updates the board; stale clears, the dialog goes
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+  return html`<div class="overlay"
+      onClick=${(e) => e.target === e.currentTarget && onDismiss()}
+      onKeyDown=${(e) => e.key === "Escape" && onDismiss()}>
+    <div class="dialog" role="alertdialog" aria-modal="true" aria-label="The last shift was never ended">
+      <h3>The last shift was never ended</h3>
+      <p>The team is offline, but the shift is still marked as running.</p>
+      <div class="choice">
+        <button class="btn default" ref=${focusOnce} onClick=${act(() => api.shiftEnd(true))}>■ End shift</button>
+        <span class="hint">close it and nothing more — its unfinished messages expire (kept in history);
+          start a new shift whenever you are ready</span>
+      </div>
+      <div class="choice">
+        <button class="btn" onClick=${act(() => api.shiftResume())}>▶ Resume shift</button>
+        <span class="hint">reopen the terminals — unfinished conversations continue where they left off
+          (unanswered messages are delivered again)</span>
+      </div>
+      <div class="choice">
+        <button class="btn" onClick=${act(() => api.shiftStart())}>▶ Start new shift</button>
+        <span class="hint">close the old shift, then start fresh, in one go</span>
+      </div>
+      <button class="btn later" onClick=${onDismiss}>Not now</button>
+    </div>
+  </div>`;
+}
+
 // The shift pill (design §8.1, D23): one element that is both the Team-mode display and
 // the daily control — start the whole team, watch it come up, end the working day.
 function ShiftPill() {
   const shift = store.shift;
   const [, bump] = useState(0);
-  const graceLeft = shift?.grace_until
-    ? Math.max(0, Math.ceil((new Date(shift.grace_until) - Date.now()) / 1000))
-    : 0;
+  const left = (iso) => (iso ? Math.max(0, Math.ceil((new Date(iso) - Date.now()) / 1000)) : 0);
+  const graceLeft = left(shift?.grace_until);
+  const checkLeft = left(shift?.checking_until); // D26: liveness being verified after a restart
   useEffect(() => {
-    // While the countdown shows, tick the numbers locally — the hub never streams a clock.
-    if (!graceLeft) return undefined;
+    // While a countdown shows, tick the numbers locally — the hub never streams a clock.
+    if (!graceLeft && !checkLeft) return undefined;
     const t = setInterval(() => bump((n) => n + 1), 1000);
     return () => clearInterval(t);
-  }, [Boolean(graceLeft)]);
+  }, [Boolean(graceLeft), Boolean(checkLeft)]);
   if (!shift) return null;
+  if (!shift.stale) store.ui.shiftQuestionDismissed = false; // a resolved episode must not mute the next
   if (shift.mode === "always_on") return html`<span class="shift-pill tag">always on</span>`;
+  const anyUnknown = teamAgents().some((a) => a.status === "unknown");
+  if (checkLeft || (anyUnknown && shift.state === "on")) {
+    // No claims yet (D26): neither "n/n on shift" nor the stale question until verified.
+    return html`<span class="shift-pill busy"
+      title="the hub just restarted — waiting one heartbeat before trusting any status">Checking the team${checkLeft ? ` · ${checkLeft}` : "…"}</span>`;
+  }
 
   const targets = teamAgents().filter((a) => a.type === "claude-code" && a.workdir);
   const up = targets.filter((a) => a.status === "connected").length;
@@ -94,13 +156,28 @@ function ShiftPill() {
       await api.shiftEnd(false);
     } catch (e) {
       if (e instanceof ApiError && e.code === "shift_busy") {
-        if (confirm(`${e.message} — end the shift anyway?`)) await api.shiftEnd(true);
+        const text = `${e.message} — end the shift anyway?\n\nUnfinished messages are closed as expired (kept in history); the lines start the next shift clear.`;
+        if (confirm(text)) await api.shiftEnd(true);
       }
     }
   };
 
   if (shift.state === "off") {
     return html`<button class="shift-pill start" onClick=${() => api.shiftStart()}>▶ Start shift</button>`;
+  }
+  if (shift.stale) {
+    // D25: the shift was left open and nobody is home — ask, don't guess. "Not now"
+    // leaves this amber tag; clicking it brings the question back.
+    const dismissed = store.ui.shiftQuestionDismissed;
+    const setDismissed = (v) => {
+      store.ui.shiftQuestionDismissed = v;
+      bump((n) => n + 1);
+    };
+    return html`<span class="shift-group">
+      <button class="shift-pill busy" title="the team is offline but the shift was never ended — click to decide"
+        onClick=${() => setDismissed(false)}>shift left open</button>
+      ${dismissed ? null : html`<${StaleShiftQuestion} onDismiss=${() => setDismissed(true)} />`}
+    </span>`;
   }
   if (shift.state === "starting") {
     const label = graceLeft ? `Waiting for the team · ${graceLeft}` : `Starting · ${up}/${targets.length}`;
@@ -164,6 +241,9 @@ const panelStyle = (which) => (store.ui.panels[which] ? `max-height:${store.ui.p
 export function Board() {
   useStore();
   const team = teamAgents();
+  // D26: while any status is unverified after a hub restart, dim the Team panel — the
+  // liveness claims are what's unknown; lines and history below are database truth.
+  const checking = team.some((a) => a.status === "unknown");
   // Lines of removed agents are archived (design §5.7), so every line here is live.
   const active = [...store.lines.values()]
     .filter((l) => !isOperatorLine(l) && !isInactive(l))
@@ -172,7 +252,7 @@ export function Board() {
     .map((x) => x.l);
 
   return html`
-    <div class="board-panel panel-team" style=${panelStyle("team")}>
+    <div class="board-panel panel-team ${checking ? "checking" : ""}" style=${panelStyle("team")}>
       <div class="eyebrow-row"><div class="eyebrow">Team</div><${ShiftPill} /></div>
       <div class="team">
         ${team.map((a) => html`<${AgentCard} key=${a.id} agent=${a} />`)}

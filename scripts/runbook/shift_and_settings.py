@@ -41,8 +41,10 @@ except HubError as exc:
     print(f"always_on     : refused ({exc})")
 
 hr("2. SHIFT  (POST /api/shift/start -> GET /api/shift -> POST /api/shift/end)")
-# Guard: on a dev hub with REAL claude-code agents currently down, Start shift would
-# open real terminal windows for them. That is the manual runbook check, not this one.
+# Guards: on a dev hub with REAL claude-code agents currently down, Start shift would
+# open real terminal windows for them; and since D24, a forced End shift closes the
+# books — every non-idle line is released and its unanswered message expires. Neither
+# may touch real work, so both conditions skip this section.
 down = [
     a["name"]
     for a in admin._call("GET", "/api/agents")
@@ -51,10 +53,15 @@ down = [
     and a["workdir"]
     and a["status"] != "connected"
 ]
-if down:
-    print(f"SKIPPED: claude-code agent(s) down ({', '.join(down)}) — starting the shift")
-    print("would open real terminals for them. Start their sessions (or remove them),")
-    print("or do the manual pill check in docs/testing-runbook.md instead.")
+busy = [ln for ln in admin._call("GET", "/api/lines") if ln["state"] != "idle"]
+if down or busy:
+    if down:
+        print(f"SKIPPED: claude-code agent(s) down ({', '.join(down)}) — starting the shift")
+        print("would open real terminals for them. Start their sessions (or remove them),")
+        print("or do the manual pill check in docs/testing-runbook.md instead.")
+    if busy:
+        print(f"SKIPPED: {len(busy)} line(s) are mid-conversation — ending the shift with")
+        print("force would expire their unanswered messages (D24). Finish or release them.")
     admin._call("DELETE", f"/api/agents/{name}")
     admin.close()
     raise SystemExit(0)

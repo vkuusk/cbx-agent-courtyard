@@ -87,6 +87,12 @@ class ShiftBusy(DomainError):
     code = "shift_busy"
 
 
+class NoShiftToResume(DomainError):
+    """Resume called with no shift open (D25 — resume exists for the stale shift)."""
+
+    code = "no_shift"
+
+
 class InvalidSetting(DomainError):
     code = "invalid_setting"
     http_status = 422

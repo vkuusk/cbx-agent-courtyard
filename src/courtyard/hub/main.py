@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from datetime import UTC, datetime
 
 import psycopg
 import uvicorn
@@ -65,10 +66,17 @@ def create_app(config: Config | None = None) -> FastAPI:
         archiver = Archiver(storage, events)
         archiver.reconcile()  # lines of agents removed before archiving existed
         deliverer = Deliverer(storage, events, cfg.push_timeout)
+        hub_started_at = datetime.now(UTC)  # one clock for liveness judging and the shift grace
         channels = ChannelService(
-            storage, events, deliverer, cfg.heartbeat_seconds, cfg.gone_seconds
+            storage,
+            events,
+            deliverer,
+            cfg.heartbeat_seconds,
+            cfg.gone_seconds,
+            hub_started_at=hub_started_at,
         )
-        shift = ShiftService(storage, events, cfg.heartbeat_seconds)
+        channels.reset_unverified()  # D26: stored liveness is a claim until a beat proves it
+        shift = ShiftService(storage, events, cfg.heartbeat_seconds, hub_started_at=hub_started_at)
         app.state.storage = storage
         app.state.events = events
         app.state.registry = registry
@@ -81,7 +89,11 @@ def create_app(config: Config | None = None) -> FastAPI:
 
         async def sweep_liveness() -> None:
             while True:
-                await asyncio.sleep(cfg.sweep_seconds)
+                # D26: sweep fast while `unknown` statuses await judgement, so they
+                # resolve within a second of the grace boundary.
+                await asyncio.sleep(
+                    min(cfg.sweep_seconds, 1.0) if channels.judging else cfg.sweep_seconds
+                )
                 try:
                     await asyncio.to_thread(channels.sweep)
                 except Exception:

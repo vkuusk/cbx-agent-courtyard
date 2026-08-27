@@ -28,6 +28,12 @@ def start(shift: Annotated[ShiftService, Depends(get_shift)]) -> ShiftStatus:
     return shift.start()
 
 
+@router.post("/shift/resume")
+def resume(shift: Annotated[ShiftService, Depends(get_shift)]) -> ShiftStatus:
+    """D25: bring an abandoned shift's team back up; the books stay open."""
+    return shift.resume()
+
+
 class EndShift(BaseModel):
     force: bool = False  # set after the UI's are-you-sure on mid-conversation lines
 

@@ -44,7 +44,7 @@ export function Bubble({ m, readOnly }) {
     mine ? "you" : "",
     m.kind === "operator_note" ? "note" : "",
     m.status === "pending_gate" ? "pending" : "",
-    m.status === "returned" || m.status === "rejected" ? "dropped" : "",
+    m.status === "returned" || m.status === "rejected" || m.status === "expired" ? "dropped" : "",
   ].join(" ");
   const target = m.kind === "operator_note" && m.recipient_name ? ` → ${m.recipient_name}` : "";
   const state =
@@ -52,7 +52,9 @@ export function Bubble({ m, readOnly }) {
       ? html`<span class="state held"> · held at the gate</span>`
       : m.status === "queued"
         ? html`<span class="state"> · not yet delivered</span>`
-        : null;
+        : m.status === "expired"
+          ? html`<span class="state"> · expired</span>`
+          : null;
   const showVerdict = m.gate_verdict && (m.gate_verdict !== "approve" || m.gate_note);
   return html`<div class=${cls}>
     <div class="who">${mine ? "you" : (m.sender_name ?? "hub")}${target} · ${fmtClock(m.created_at)}${state}</div>
@@ -83,8 +85,16 @@ function Header({ line }) {
     }
   };
   if (agent) {
+    // The header tells the truth about the turn (D24 — R3), not just "your line".
+    const meta = !line
+      ? "no messages yet"
+      : line.state === "awaiting_reply"
+        ? line.awaiting_from === agent.id
+          ? `your line · ${agent.name} owes you a reply`
+          : "your line · waiting for your reply"
+        : "your line · never gated";
     return html`<div class="conv-head"><h2 class="mono">${agent.name}</h2>
-      <span class="meta">${line ? "your line · never gated" : "no messages yet"}</span>
+      <span class="meta">${meta}</span>
       ${line
         ? html`<span class="act">
             ${line.state === "awaiting_reply" ? html`<button class="btn" onClick=${release}>release</button>` : null}

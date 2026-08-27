@@ -40,6 +40,11 @@ class TerminalSpawner(Protocol):
         """Close the window spawn() opened. Best-effort; False when it was already gone."""
         ...
 
+    def alive(self, ref: str) -> bool:
+        """Is the spawned window's session still running? (D25: resume respawns only the
+        dead ones — a window merely waiting on a first-run dialog must not be doubled.)"""
+        ...
+
 
 def applescript_str(value: str) -> str:
     """A double-quoted AppleScript string literal. The values come from the operator's
@@ -71,6 +76,17 @@ def _tty_busy(name: str) -> bool:
         ).returncode
         == 0
     )
+
+
+def _ref_alive(ref: str) -> bool:
+    """Shared by both macOS spawners: the session lives iff its tty has processes.
+    A ref without a tty cannot be verified and reads as dead (resume will respawn)."""
+    try:
+        info = json.loads(ref)
+    except (TypeError, ValueError):
+        return False
+    tty = info.get("tty") or ""
+    return bool(tty) and _tty_busy(tty.removeprefix("/dev/"))
 
 
 def _kill_tty(tty: str) -> None:
@@ -108,6 +124,9 @@ class AppleTerminal:
         )
         window_id, _, tty = out.partition("|")
         return json.dumps({"app": "Terminal", "window_id": window_id, "tty": tty})
+
+    def alive(self, ref: str) -> bool:
+        return _ref_alive(ref)
 
     def close(self, ref: str) -> bool:
         info = json.loads(ref)
@@ -147,6 +166,9 @@ class ITerm2:
         )
         window_id, _, tty = out.partition("|")
         return json.dumps({"app": "iTerm2", "window_id": window_id, "tty": tty})
+
+    def alive(self, ref: str) -> bool:
+        return _ref_alive(ref)
 
     def close(self, ref: str) -> bool:
         info = json.loads(ref)

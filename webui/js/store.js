@@ -26,6 +26,7 @@ export const store = {
     draft: "", // what is typed for the CURRENT selection (drafts holds the others)
     drafts: {}, // per-selection drafts — text stays with what it was typed for
     noteTarget: "both", // when a line is selected: both | <participant id>
+    shiftQuestionDismissed: false, // D25: "Not now" on the stale-shift question (per page load)
     collapsed: localStorage.getItem(RAIL_KEY) === "collapsed",
     showInactive: false,
     theme: localStorage.getItem(THEME_KEY) || "system", // system | light | dark

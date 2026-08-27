@@ -40,3 +40,37 @@ def test_missed_heartbeats_decay_and_a_beat_revives(live_hub):
     receiver.stop()
     admin.close()
     bob.close()
+
+
+def test_restart_marks_stored_liveness_unknown_then_verifies(live_hub):
+    """D26: a new hub never repeats a previous life's `connected`. Stored statuses flip
+    to `unknown` at startup; a heartbeat proves an agent live immediately, and the sweep
+    resolves the rest once the hub is past one heartbeat window (+5 s margin)."""
+    hub1 = live_hub(heartbeat_seconds=0.1, gone_seconds=0.6, sweep_seconds=0.05)
+    admin1 = HubClient(hub1)
+    _, bob_token = admin1.register_agent("bob", "puppet")
+    _, carol_token = admin1.register_agent("carol", "puppet")
+    receiver = ChannelReceiver(lambda m: None)
+    for name, token in (("bob", bob_token), ("carol", carol_token)):
+        HubClient(hub1, name, token).attach(receiver.endpoint, receiver.channel_token)
+    wait_status(admin1, "bob", "connected", timeout=1.0)
+    wait_status(admin1, "carol", "connected", timeout=1.0)
+
+    # "The next morning": a second hub over the same database.
+    hub2 = live_hub(heartbeat_seconds=0.1, gone_seconds=0.6, sweep_seconds=0.05)
+    admin2 = HubClient(hub2)
+    wait_status(admin2, "bob", "unknown", timeout=2.0)
+    wait_status(admin2, "carol", "unknown", timeout=2.0)
+
+    # A heartbeat is proof and wins immediately, well inside the judging grace.
+    bob2 = HubClient(hub2, "bob", bob_token)
+    assert bob2.heartbeat()["status"] == "connected"
+    wait_status(admin2, "bob", "connected", timeout=1.0)
+
+    # carol never beats: the sweep resolves her to her true state after the grace
+    # (heartbeat 0.1 + margin 5 s), in one pass — never back to a false green.
+    wait_status(admin2, "carol", "gone", timeout=8.0)
+
+    receiver.stop()
+    for client in (admin1, admin2, bob2):
+        client.close()

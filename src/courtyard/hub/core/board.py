@@ -31,6 +31,45 @@ def _turn_state(line: Line) -> turns.TurnState:
     return turns.TurnState(line.mode, line.state, line.awaiting_from, line.in_flight_msg)
 
 
+def expire_open_work(uow: UnitOfWork) -> tuple[list[Line], list[Message]]:
+    """End-of-shift close-out (design §8.1, D24): every non-idle line goes back to idle
+    and its unfinished message — awaiting a reply (queued or delivered) or held at the
+    gate — becomes `expired`, with a `system` entry in the line's history. Nothing is
+    deleted, nothing is delivered; the record is the point. Bypasses the turn planners
+    deliberately, like `release`: an administrative transition, not a turn.
+
+    Returns (changed lines, messages to publish) for the caller's event fan-out.
+    """
+    changed: list[Line] = []
+    publish: list[Message] = []
+    for line in uow.lines.list():
+        if line.state == "idle":
+            continue
+        locked = uow.lines.get_locked(line.id)
+        if locked is None or locked.state == "idle":
+            continue  # answered or released between the list and the lock
+        expired = None
+        if locked.in_flight_msg is not None:
+            expired = uow.messages.expire(locked.in_flight_msg)
+        uow.lines.set_turn(locked.id, "idle", None, None)
+        what = "held at the gate" if locked.state == "pending_gate" else "awaiting a reply"
+        entry = uow.messages.insert(
+            message_id=uuid4(),
+            line_id=locked.id,
+            sender=None,
+            recipient=None,  # log-only board entry
+            kind="system",
+            body=f"the message {what} expired at end of shift",
+            reply_to=locked.in_flight_msg,
+            status="delivered",
+        )
+        if expired is not None:
+            publish.append(expired)
+        publish.append(entry)
+        changed.append(uow.lines.get(locked.id))
+    return changed, publish
+
+
 class Board:
     def __init__(
         self,

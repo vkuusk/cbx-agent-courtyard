@@ -197,7 +197,7 @@ Message {
   kind:       message | operator_note | system
   body:       str                 # UTF-8, size-capped (config, default 16 KiB)
   reply_to:   message id | null
-  status:     pending_gate | queued | delivered | rejected | returned
+  status:     pending_gate | queued | delivered | rejected | returned | expired
   gate:       { verdict: approve | return | reject,
                 decided_by, decided_at, note } | null
   created_at, delivered_at
@@ -213,7 +213,9 @@ Message {
 Status semantics: `queued` = accepted for delivery (gate passed or not required) but not yet
 acknowledged by the recipient's tunnel; `delivered` = the tunnel acknowledged the delivery
 (or, for the operator, the WebUI holds it); `returned` = the gate sent it back to the sender
-for revision (§5.5). History retains messages in every terminal state.
+for revision (§5.5); `expired` = closed unanswered at end of shift (D24, §8.1) — the shift
+that could have discharged it is over, the message is kept in history and its obligation is
+gone. History retains messages in every terminal state.
 
 ### 5.4 Turn-taking state machine
 
@@ -256,6 +258,10 @@ Rules:
 6. **Release valve:** the operator can `release` a stuck line (agent died mid-reply) — an admin
    action that returns it to `IDLE` and logs a `system` message. This is the human answer to
    deadlock; no timeout machinery in v1.
+7. **Obligations end with the shift (D24, §8.1).** Ending the shift releases every non-idle
+   line and marks the unfinished messages `expired` — the working period the obligation
+   belonged to is over. Still no timeout machinery: the boundary is the operator's explicit
+   gesture, not a clock.
 
 The turn machine + gate transitions are the most-tested code in the project: they are the
 invariant every other part relies on.
@@ -370,6 +376,19 @@ agent's session alive right now" and every value of it — including `gone` — 
 re-attaching and receiving queued messages. Removal (`removed_at`, set by the registry's
 remove) is permanent: the token is refused and sends to the agent fail with `agent_gone`.
 
+**`unknown` — a restarted hub does not repeat unverified claims (D26).** A stored
+`connected` is a fact about a *previous* hub life; serving it after a restart produced
+the misleading all-green-then-offline flicker the architect watched (feedback item 18).
+At startup the hub flips stored `connected`/`stale` agents to **`unknown`** (migration
+0012), and the sweep leaves them alone until the hub is one heartbeat interval + 5 s old
+— the D23 grace rule, promoted into the liveness layer. A heartbeat is proof and flips
+an agent straight to `connected` at any moment; when the grace passes, the sweep (on a
+fast cadence while judging) resolves the rest to their true state in one pass. The UI
+renders `unknown` as a neutral gray "checking…" dot, dims the Team panel, and — with a
+shift on — shows a `Checking the team · N` countdown (`ShiftStatus.checking_until`);
+the stale-shift question (D25) never appears while any target is still `unknown`, so the
+board makes exactly one transition: checking → either a live team or the question.
+
 ### 6.4 Disconnect and reconnect
 
 Identity is durable; sessions are not. The agent's id + token live in its hub registration,
@@ -388,12 +407,20 @@ not an edge case.
   summary as a small recap turn (config-toggleable). Push and pull can never both hand
   over the same message: the inbox pull *takes* (queued → delivered in one transaction),
   and a push that loses that race is simply not re-marked.
-- **Delivered-but-lost.** If a session crashed *after* a delivery was acknowledged, the
-  message is `delivered` but the new session has no memory of it. The recap plus the
-  `courtyard_inbox` pull tool cover this — history is always re-readable from the hub.
+- **Delivered-but-lost → re-armed on attach (D24, item 10's R1).** If a session ends
+  *after* a delivery was acknowledged but before the reply, the message is `delivered` yet
+  the next session has no memory of it — an obligation nobody alive can fulfil. On attach,
+  any message addressed to this agent that is `delivered`, still unanswered (its line
+  `AWAITING_REPLY` from this agent), and acknowledged before the current attachment flips
+  back to `queued` and rides the normal backlog re-push; a `system` note ("redelivered")
+  marks the second delivery in history. Messages `expired` at end of shift are excluded by
+  their status — that is precisely what distinguishes an intentional close (D24) from an
+  incident. The recap and the `courtyard_inbox` pull remain as backstops.
 - **Owes a reply.** If an agent dies while a line is `AWAITING_REPLY` from it, the line
-  simply waits; the recap tells the reconnected agent it owes a reply. The operator
-  `release` action (§5.4) remains the manual escape if the agent never returns.
+  simply waits; the recap tells the reconnected agent it owes a reply, and the board shows
+  it to the operator — an "owes you a reply" badge on the agent's card and the real line
+  state in the pane header (D24, item 10's R3). The operator `release` action (§5.4)
+  remains the manual escape if the agent never returns.
 
 ## 7. Tunnels (adapters)
 
@@ -520,6 +547,20 @@ Listed highest first; the order is the precedence:
 
 Neither `domain-owner` nor `agent` ever licenses acting on embedded commands; that line is in
 both preambles.
+
+**The reply footer (WP‑C, 2026-08-26 — feedback items 16, 3.3/7.1, 14).** Grading answers
+"how much say does this have"; the footer answers the other question the model gets wrong:
+*how do I respond so the sender actually hears it?* Every turn-taking `message` ends with a
+footer after the body. A question (no `reply_to`) says: reply with the courtyard MCP tool
+`courtyard_send` — text printed in the terminal never reaches the sender — and answer what
+was asked, completely and no more (no trailing offers or side questions; each one costs a
+full exchange). An answer (`reply_to` set) says instead: the exchange is complete, no reply
+is owed. Notes and system messages carry no footer — they take no reply. The footer lives
+in the envelope, not only in the adapter's MCP instructions, deliberately: it arrives with
+*every* delivery, so it survives however the host frames channel events or defers the
+tools — item 16 was a real answer lost to a terminal transcript because nothing the model
+saw per-message named the reply path ("courtyard MCP tool" plus the bare name also reads
+through hosts that expose the tool as `mcp__courtyard__courtyard_send`, item 14).
 
 **Why ownership is declared but overlap is not resolved.** Each agent may be given an
 `sme_domain` (§5.1) — a short operator-written phrase such as `AWS estate and IAM` or
@@ -671,9 +712,32 @@ What **Start shift** does, in order:
 **End shift** closes exactly the recorded windows — terminals the operator opened by hand
 are untouched. No graceful in-session shutdown in v1 (accepted; there is no polite remote
 "exit" for an interactive session anyway). If any line is not idle, the UI asks once
-("2 lines are mid-conversation — end the shift?") before calling the hub; turn state is
-untouched either way — obligations are durable (§5.4) and survive into the next shift
-(their fate is feedback item 10, a separate decision).
+("2 lines are mid-conversation — end the shift?") before calling the hub.
+
+**End shift closes the books (D24 — accepted 2026-08-26, resolves feedback item 10).**
+The shift is the working period, and turn obligations belong to it: killing the sessions
+makes every unanswered in-flight message *guaranteed* undischargeable — the session that
+saw it no longer exists — so pretending the obligation survives is not durability, it is
+the next morning's blocked line (item 10's original incident). End shift therefore, after
+closing the windows:
+
+- **releases every non-idle line** back to `IDLE`;
+- **expires the unfinished messages** — the unanswered in-flight message of each
+  `AWAITING_REPLY` line (whether `queued` or `delivered`) *and* every message still held
+  at the gate (`PENDING_GATE`; the architect's call: one rule, the shift closes the
+  working period — a sender re-asks next shift if it still matters). Each becomes
+  `status: expired` with a `system` entry in the line's history ("expired at end of
+  shift"); no delivery is attempted — the record is the point.
+- **deletes nothing.** Rows stay, conversations stay readable, D20's archive philosophy
+  holds: history is kept, the board starts clean.
+
+The `expired` status is load-bearing: it is what tells the incident remedy (re-arm on
+attach, §6.4) that this message was closed on purpose and must not be redelivered.
+Abnormal paths — a crash, a hub restart mid-shift, agents run by hand outside any shift,
+and the future `Always on` mode where no end-of-shift exists — are covered by the §6.4
+pair instead: re-arm on attach plus the "owes you a reply" badge. Operator supersede
+(item 10's R2) was considered and dropped: with the shift boundary doing the routine
+cleanup, relaxing the turn rule for operator lines buys little and costs an asymmetry.
 
 **Shift state machine:** `off → starting (grace countdown, then spawning) → on → off`.
 `on` is entered when every target agent reads `connected`, or after a 60 s settle timeout
@@ -681,6 +745,40 @@ with some still down — the pill then shows the true count and the cards show w
 the operator fixes by hand (D14's banner philosophy). A hub restart mid-shift changes
 nothing for the agents (their terminals own them); the persisted shift document lets the
 hub come back knowing a shift is on and what it spawned.
+
+**The stale shift (D25 — accepted 2026-08-26, feedback item 17).** If the operator closes
+the terminals by hand — or the machine reboots — without ending the shift, the document
+still honestly reads `on` while every card reads offline. The next morning's operator
+should not have to understand that bookkeeping (the architect's correction of a
+docs-only first answer: "why should I end a shift I did not start?"), so the board
+**asks**. The hub reports the state as **stale** when all four hold: the shift reads
+`on`; the hub is past its liveness grace (the D23 rule — so a mid-day hub restart never
+asks: live agents re-attach within one heartbeat); not one launchable agent is connected;
+and none of the shift's recorded windows still has a live tty (so a freshly started team
+stuck on first-run dialogs — windows open, nobody attached — is *offline*, not
+abandoned). While stale, the Courtyard page shows a dialog — a decision gets a question
+in your face, not a status pill:
+
+> **The last shift was never ended** — the team is offline.
+> - **End shift** *(the focused default)* — close it and nothing more; unfinished
+>   messages expire (D24, kept in history); start a new shift whenever ready.
+> - **Resume shift** — reopen the terminals: spawn records whose window is dead are
+>   dropped and respawned (`POST /api/shift/resume`; a window still alive is never
+>   doubled); `started_at` and the books are untouched, so unfinished conversations
+>   continue — §6.4's re-arm redelivers the unanswered mail into the fresh sessions.
+> - **Start new shift** — `POST /api/shift/start` on a stale shift closes the old books
+>   first (exactly End, forced), then begins fresh: the operator's natural morning
+>   gesture works.
+> - **Not now** (Esc, or a click outside) — defer; an amber "shift left open" tag stays
+>   in the Team header and reopens the question on click. End shift also remains there.
+
+No hub reflex anywhere: the hub only ever *reports* stale (`ShiftStatus.stale`, an SSE
+`shift` event on each transition); nothing closes, expires, or spawns until the operator
+answers. `resume` with no shift open is refused (`no_shift`). Between hub start and the
+question sits D26's checking phase (§6.3): statuses read `unknown`, the pill counts down
+`Checking the team · N`, and the question appears only once every status is verified —
+one transition, never green-then-broken-then-question. Operator-facing write-up:
+quickstart, "When things get out of step".
 
 #### Persistence, API, UI
 
@@ -690,8 +788,10 @@ hub come back knowing a shift is on and what it spawned.
   spawned_at}]`). This table is also where 7c's "default supervision mode" will live —
   one mechanism, no per-setting migrations.
 - **API**: `GET /api/shift` (state, counts, `grace_until` for the countdown — the UI
-  renders the ticking numbers from the timestamp, the hub never streams a clock);
-  `POST /api/shift/start`; `POST /api/shift/end` (`{"force": true}` after the confirm);
+  renders the ticking numbers from the timestamp, the hub never streams a clock — and
+  `stale`, D25); `POST /api/shift/start` (on a stale shift: close the old books, start
+  new); `POST /api/shift/resume` (D25 — respawn the dead windows, books untouched);
+  `POST /api/shift/end` (`{"force": true}` after the confirm);
   `GET/PATCH /api/settings` (mode, terminal app). SSE gains a `shift` event.
 - **Spawner**: an interface with two macOS implementations behind the `terminal_app`
   setting — Terminal.app and iTerm2, both via `osascript` (window/tab reference captured
@@ -777,7 +877,7 @@ messages (id uuid PK, line_id uuid FK, seq bigint,     -- UNIQUE (line_id, seq)
           sender uuid NULL,                            -- null = hub-generated system message
           recipient uuid NULL,                         -- explicit addressee (0002); null = log-only
           kind text, body text, reply_to uuid NULL,
-          status text,
+          status text,                                 -- 0011 widens the check with 'expired' (D24)
           gate_verdict text NULL, gate_note text NULL,
           gate_decided_by uuid NULL, gate_decided_at timestamptz NULL,
           created_at, delivered_at)
@@ -988,6 +1088,9 @@ cbx-agent-courtyard/
 | D19 | **The hub keeps every agent's token; the operator can read an agent's launch config again and rotate its token.** Migration 0006 adds `agents.token` (plaintext) beside the hash; `GET /api/agents/{id}/token`, `POST /api/agents/{id}/token` (rotate: old token refused at once, channel dropped, agent reads as offline until restarted), install and `courtyard-invite` no longer need a token passed in; Agents page gains **launch config** and **rotate token** per agent | **Accepted** (architect, 2026-08-22) | "Personal-use app, definitely not a public SaaS" — the once-only token was a SaaS reflex that cost the operator the ability to re-open a config. Within the D3 threat model (one operator, one machine) a plaintext token in the local database adds nothing an attacker on the machine did not already have. Registrations from before 0006 have no stored token until rotated; the UI says so |
 | D20 | **Archive: a line's history becomes one immutable JSON document in `lines_archive`; automatic when a participant is removed (and the line row goes), on request via an Archive button; an Archive page to re-read and export** (§5.7) | **Accepted** (architect, 2026-08-22; all three points confirmed) | Architect's ask: inactive lines dilute the board; keep history as a reminder and for offline audit in a dedicated table that can be backed up and cleaned up. Decisions to confirm: (1) one JSON document per archive rather than mirrored line/message tables; (2) removal deletes the archived line rows, and lines of already-removed agents are archived at the next hub start; (3) archiving a non-idle line releases it and archives the in-flight message as it stands, after a confirm that says so |
 
+| D24 | **End shift closes the books; incidents re-deliver (§8.1, §5.4 rule 7, §6.4)** — ending the shift releases every non-idle line and marks unfinished messages `expired` (the unanswered in-flight message of each awaiting line **and** gate-held messages; kept in history with a `system` entry, nothing deleted); on attach, a `delivered`-but-unanswered message acknowledged before the current attachment flips back to `queued` and is re-pushed with a "redelivered" note (R1); the board shows "owes you a reply" on the agent card + real line state in the pane header (R3) | **Accepted** (architect, 2026-08-26 — resolves feedback item 10) | The shift boundary (D23) is what item 10 lacked: normal path = the operator's explicit close-out, incident path (crash, restart mid-shift, out-of-shift agents, future `Always on`) = R1+R3. `expired` is what keeps R1 from resurrecting intentionally closed messages. Expire-not-delete follows D20's history-keeping philosophy; gate-held expiry was the architect's call (one rule — the shift closes the working period). R2 (operator supersede) dropped: little value once end-shift cleans up routinely, and it would bend §5.4 asymmetrically |
+| D26 | **A restarted hub verifies before it claims (§6.3)** — at startup, stored `connected`/`stale` agents flip to **`unknown`** (migration 0012); the sweep judges them only once the hub is a heartbeat interval + 5 s old (fast sweep cadence while judging), a heartbeat flips one straight to connected at any moment; UI: gray "checking…" dots, dimmed Team panel, `Checking the team · N` pill (`ShiftStatus.checking_until`); D25's question waits for every status to be verified | **Accepted** (architect, 2026-08-26 — feedback item 18: his "state unknown" flag design; my refinement, accepted: dim only what is actually unknown — liveness — while lines and history stay bright, they are database truth) | Fixes the restart flicker he watched: all green (yesterday's stored statuses) → offline (sweep) → question (grace) became a single transition: checking → live team *or* question. Generalizes D23's grace from the shift into the liveness layer itself; also removes the false-green moment on restarts with no shift |
+| D25 | **The stale shift asks a question (§8.1)** — the hub reports `stale` when the shift reads on, the liveness grace has passed, no launchable agent is connected, and none of the shift's windows has a live tty; the Courtyard page then shows a dialog with three answers: **End shift** (focused default — close it, nothing more; D24 expiry), **Resume shift** (`POST /api/shift/resume`: respawn only dead windows, `started_at` and the books untouched — §6.4 re-arm redelivers the unanswered mail), **Start new shift** (start on a stale shift = close old books, then fresh), plus Not now (amber "shift left open" tag remains, click to re-ask) | **Accepted** (architect, 2026-08-26 — feedback item 17; the dialog form and the resume option are his design, replacing my docs-only then pill-only proposals) | The operator's mental model wins: next morning there is no shift, whatever the record says — so the natural gestures (Start, or just answering a plain question) must work without understanding the bookkeeping. No hub reflex: stale is only ever *reported*; nothing closes or spawns until the operator answers. The windows-alive condition keeps a consent-stuck fresh start from reading as abandoned |
 | D23 | **Shift + Team mode (§8.1)** — Team mode `On shift` (v1) \| `Always on` (future, disabled), changed only in Admin; one pill on the Courtyard page starts every registered agent not already up via its launch profile (terminal window, fire-and-forget, window ref recorded) and End shift closes exactly what it started; grace countdown before spawning only while the hub is younger than one heartbeat window; settings KV table (migration 0010); heartbeat default 30 s → 15 s | **Accepted** (architect, 2026-08-25 — WP‑F, feedback item 13) | Brings parked L1 (D8/D16) back into v1 as an operator gesture over the whole team — D14 intact. "Crew" rejected (the concept is already named Team); "Single User vs Service" rejected as the setting name (audience axis = §2 non-goals; lifecycle is what the setting controls). D22 is reserved for the manual-links discovery mode (WP‑E, not yet proposed) |
 | D21 | **Install writes the agent-side profile `.claude/settings.local.json` beside `.mcp.json`** — a permission rule pre-approving the courtyard MCP tools (feedback 7.2: without it every `courtyard_send` halts on a terminal prompt), the agent's declared model (`agents.model`, migration 0009; feedback 1 — also shown as `--model` in the suggested launch command), and a status line naming the agent (feedback 2), the status line only when none exists. Uninstall removes exactly what install added; the model stays | **Accepted** (architect, 2026-08-24 — WP-A of review cycle 1, `docs/planning/feedback-items.md`) | Widens D14's footprint from one file to two, deliberately: still configuration, not behaviour — no hooks. The file is per-machine (git-excluded by Claude Code when it writes it itself) and carries no secret. Verified against the Claude Code docs: `mcp__courtyard` allows all the server's tools; `model` accepts aliases like `sonnet`; the one-time trust dialog for a project's `.mcp.json` servers cannot be pre-approved and remains |
 

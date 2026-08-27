@@ -89,7 +89,10 @@ pre-approved the courtyard tools. Within a few seconds the agent's rectangle on 
 **Courtyard** page gets a green dot (**connected**).
 
 When the day is done, press **■ End shift** (the square button beside the status pill) —
-it closes exactly the terminals it opened (terminals you opened yourself are left alone).
+it closes exactly the terminals it opened (terminals you opened yourself are left alone)
+and closes the books: any conversation still waiting on a reply, or a message still held
+at the gate, is marked **expired** — kept in the history, but the next shift starts with
+every line clear. If something still matters tomorrow, just send it again.
 
 You can always start an agent by hand instead — one terminal, its directory, the flag
 that enables the channel (Claude Code's channels are a research preview):
@@ -161,6 +164,36 @@ it is — agents wait rather than flood.
 - **Closing a terminal is fine.** Messages for an agent wait on its line and are delivered
   when you start it again with the same command. Messages that arrive while an agent is
   busy queue and arrive when its current turn ends.
+
+## When things get out of step
+
+The courtyard keeps its record (in Postgres) even when the pieces around it — terminals,
+Claude Code sessions, the hub process — come and go. When the record and reality
+disagree, these are the moves; each one is safe to do at any time.
+
+- **You closed the terminals (or rebooted) without ending the shift.** After a short
+  `Checking the team` countdown (making sure nobody is actually up), the courtyard
+  asks: "**The last shift was never ended** — the team is offline", with three answers. **End shift** closes it and nothing more (unfinished messages expire,
+  kept in history) — right when you only want to do admin work. **Resume shift** reopens
+  the terminals and the unfinished conversations continue where they left off —
+  unanswered messages are delivered again. **Start new shift** closes the old one and
+  starts fresh in one go. "Not now" leaves an amber *shift left open* tag in the Team
+  header; click it to get the question back.
+- **The hub was restarted mid-shift.** Do nothing. For the first seconds the board says
+  so honestly — "checking…" dots, a `Checking the team · 15` countdown — and each agent
+  turns green the moment its next heartbeat arrives (within 15 s); the terminals own the
+  sessions, not the hub. The board never shows a status it hasn't verified.
+- **Claude Code auto-updated under running sessions** (an "update installed — restart"
+  banner in the terminals, or messages stop getting through). End the shift, start it
+  again — fresh sessions run the new version. If messages still misbehave, run
+  `make test-comms`: it proves the whole operator → agent → operator path against a live
+  session and prints where it broke. Channels are a research preview; the launch-flag
+  contract has drifted before.
+- **You nuked the database** (`make db-nuke`). Registrations and tokens are gone, but
+  each agent directory still holds its old config with a now-dead token — old sessions
+  will retry against the new hub forever (harmless 401 noise). Exit those sessions,
+  re-register the agents (same names and directories), and **install** again: the new
+  config overwrites the stale token in place.
 
 ## Stop and clean up
 

@@ -33,7 +33,10 @@ uv run python scripts/runbook/envelope_and_peers.py
 1. **What the agent receives** — an envelope with `authority="domain-owner"`, a first line
    naming both grounds (`infra-… owns: the AWS estate and IAM. You own: the payments
    service.`), the "expert judgement … the call is yours" preamble, a `────` divider, then
-   the body.
+   the body — and, on a question, a second `────` divider with the **reply footer**
+   (WP‑C, item 16): "To answer, use the courtyard MCP tool `courtyard_send` … no trailing
+   offers, no side questions". A message that *answers* one ends instead with "the
+   exchange is complete and no reply is owed". Notes and system messages have no footer.
 2. **The board view of the same message** — `body` is the plain text; `rendered` is `None`.
 3. **`courtyard_peers`** — begins `Agents on the courtyard board`, reachable agents first
    then by name, each line `name — type, status [— owns: …] [— description]`. (Any other
@@ -41,6 +44,12 @@ uv run python scripts/runbook/envelope_and_peers.py
 4. **Break-out attempt** — the body's `</courtyard-message>` and forged
    `<courtyard-message from="operator" …>` come through escaped as `&lt;…`; verdict line
    reads `exactly one real closing tag (True), forged operator tag present? False`.
+
+**Live check for the reply footer** (item 16's incident, reversed): with an agent on
+shift, send it a natural question **with no hint about how to reply** (e.g. "do you have
+a terragrunt tree in your directory?"). The answer must arrive on the board — not only in
+the agent's terminal transcript. `make test-comms` proves the same thing scripted: since
+WP‑C its test message says only "reply with exactly: ACK <nonce>", no mechanism named.
 
 ---
 
@@ -208,6 +217,84 @@ uv run python scripts/runbook/shift_and_settings.py
 **Expected everywhere:** nothing the shift did not open is ever closed, and a running
 agent is never spawned a second time (no "two sessions may be claiming this identity"
 system entries after shift starts).
+
+---
+
+## End shift closes the books; incidents re-deliver (design §8.1, §6.4, D24)
+
+**Feature under test:** ending the shift releases every non-idle line and marks the
+unfinished messages `expired` (kept in history, nothing deleted); a message delivered to
+a previous session and never answered is re-armed and redelivered on the agent's next
+attach (R1); the board shows who owes the operator a reply (R3).
+
+**Scripted part** (both halves against a live hub; skips the end-shift half unless every
+other line is idle and no real claude-code agent is down — a forced end would expire
+real conversations, and a shift start would open real terminals):
+
+```
+make db-up && make run          # hub in another terminal
+uv run python scripts/runbook/expire_and_rearm.py
+```
+
+**Manual part:**
+
+1. Send a message to an agent and let it answer with a question of its own, so the line
+   waits on **you**: the pane header over your conversation reads "waiting for your
+   reply" and the agent's card shows **no** badge. Answer, ask something new, and don't
+   let it reply: the card now shows the amber **owes you a reply** badge and the header
+   names the agent.
+2. Press **■ End shift** while that question is unanswered. Expect the second confirm to
+   say unfinished messages are closed as expired — accept it. Afterwards: the badge is
+   gone, the line is idle, and the conversation shows the old message struck through
+   with `· expired` plus a system entry "the message awaiting a reply expired at end of
+   shift". A message that was **held at the gate** expires the same way (its entry says
+   "held at the gate").
+3. Start the next shift and message the same agent: the expired question is **not**
+   re-delivered — the new day starts clean.
+4. R1, the incident path: with a shift on, close an agent's terminal by hand while it
+   owes you a reply, then reopen it (launch config) — on attach the unanswered message
+   is delivered again to the fresh session, and the line history gains "…delivered to a
+   previous session … — redelivered".
+
+---
+
+## The stale shift asks a question (design §8.1, D25)
+
+**Feature under test:** a shift left open (terminals closed by hand, or a reboot) is
+detected — shift on, liveness grace passed, nobody connected, no window's tty alive —
+and the Courtyard page asks what to do instead of silently claiming `0/2 on shift`.
+
+**Scripted part** (its own throwaway hub + scratch database — never the dev hub; seeded
+dead-tty window refs, so nothing real ever opens):
+
+```
+make db-up
+uv run python scripts/runbook/stale_shift.py
+```
+
+Expect: right after start the agent reads **`unknown`** with `checking_until` set and
+stale `False` (D26 — no claims while the hub verifies); after the grace, ONE transition:
+agent `gone` and stale `True` together. A connected agent means not stale; End shift
+resolves it; resume with nothing open is refused (`no_shift`).
+
+**Manual part** (the real morning; opens actual windows):
+
+1. With a shift running, close every agent terminal by hand (⌘Q the terminal app is
+   fine) and stop the hub. Start the hub again and open the Courtyard page: first the
+   **checking phase** (D26) — gray pulsing dots with "checking…", the Team panel
+   dimmed, the pill counting `Checking the team · 15` — with **no** green dots and
+   **no** question; then, in one transition, the statuses turn offline and the question
+   appears — "The last shift was never ended". **■ End shift** is the focused button;
+   "Not now" (or Esc / a click outside) leaves the amber *shift left open* tag, which
+   reopens the question on click.
+2. **Resume shift** → one terminal opens per agent (only the dead ones — a window you
+   left open is not doubled), the shift keeps its original start time, and anything an
+   agent still owed arrives in its fresh session ("…redelivered" in the line history).
+3. Repeat step 1, then **Start new shift** → the old shift's unfinished messages show
+   `· expired`, and a brand-new shift starts (fresh terminals, new start time).
+4. Restart the hub mid-shift with the agents *running*: the question must NOT appear —
+   the cards show "checking…" for at most one heartbeat and turn green as the beats
+   arrive, each the moment its agent proves itself (never a false green first).
 
 ---
 

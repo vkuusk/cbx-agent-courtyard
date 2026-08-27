@@ -258,6 +258,27 @@ class PgMessageRepo:
         ).fetchone()
         return self.get(message_id) if row else None
 
+    def expire(self, message_id: UUID) -> Message | None:
+        row = self._conn.execute(
+            "UPDATE messages SET status = 'expired'"
+            " WHERE id = %s AND status IN ('pending_gate', 'queued', 'delivered')"
+            " RETURNING id",
+            (message_id,),
+        ).fetchone()
+        return self.get(message_id) if row else None
+
+    def rearm_undischarged(self, agent_id: UUID) -> list[Message]:
+        rows = self._conn.execute(
+            "UPDATE messages m SET status = 'queued', delivered_at = NULL"
+            " FROM lines l"
+            " WHERE l.id = m.line_id AND l.state = 'awaiting_reply'"
+            "   AND l.awaiting_from = %s AND l.in_flight_msg = m.id"
+            "   AND m.status = 'delivered'"
+            " RETURNING m.id",
+            (agent_id,),
+        ).fetchall()
+        return [self.get(r["id"]) for r in rows]
+
     def apply_gate(self, message_id, status, verdict, note, decided_by) -> Message:
         self._conn.execute(
             "UPDATE messages SET status = %s, gate_verdict = %s, gate_note = %s,"

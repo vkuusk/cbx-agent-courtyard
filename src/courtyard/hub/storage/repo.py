@@ -108,6 +108,18 @@ class MessageRepo(Protocol):
 
     def count_queued_for(self, agent_id: UUID) -> int: ...
 
+    def expire(self, message_id: UUID) -> Message | None:
+        """Close an unfinished message as `expired` (D24, end of shift). Only a message
+        still open — pending_gate, queued, or delivered — is touched; returns None
+        otherwise. Caller must hold the line row lock."""
+        ...
+
+    def rearm_undischarged(self, agent_id: UUID) -> list[Message]:
+        """R1 (D24, §6.4): flip this agent's delivered-but-unanswered in-flight messages
+        back to `queued` so the attach backlog re-pushes them into the new session.
+        Returns the re-armed messages (empty when there is nothing to re-arm)."""
+        ...
+
     def list_for_recipient(self, agent_id: UUID, limit: int) -> list[Message]:
         """Messages addressed to the agent, any status, newest first (inbox history)."""
         ...

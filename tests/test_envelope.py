@@ -21,6 +21,7 @@ def fake_message(
     sender_type: str = "puppet",
     sender_sme_domain: str | None = None,
     recipient_sme_domain: str | None = None,
+    reply_to=None,
 ) -> Message:
     return Message(
         id=uuid4(),
@@ -30,6 +31,7 @@ def fake_message(
         recipient=uuid4(),
         kind=kind,
         body=body,
+        reply_to=reply_to,
         status="delivered",
         created_at=datetime.now(UTC),
         sender_name=sender,
@@ -96,6 +98,34 @@ def test_system_notice_is_graded_hub_notice():
     )
     assert 'from="hub" authority="hub-notice"' in text
     assert "notice from the courtyard hub itself" in text
+
+
+def test_a_question_carries_the_reply_footer():
+    """WP-C, item 16: a real agent answered in its terminal transcript, which reaches
+    nobody. The reply path must ride the envelope itself — per delivery, immune to the
+    host reframing or deferring the MCP instructions."""
+    text = render(fake_message("do you have a terragrunt tree?"))
+    assert "courtyard MCP tool `courtyard_send`" in text
+    assert "terminal never reaches the sender" in text
+    assert "no trailing offers" in text  # items 3.3/7.1 in the same footer
+    assert text.index("terragrunt") < text.index("courtyard_send")  # footer after the body
+
+
+def test_an_answer_says_no_reply_is_owed():
+    """A reply-to-the-reply is 7.1's token-burning cycle; the envelope closes the loop."""
+    text = render(fake_message("yes, it is in ./infra", reply_to=uuid4()))
+    assert "no reply is owed" in text
+    assert "terminal never reaches the sender" not in text
+
+
+def test_notes_and_system_messages_carry_no_footer():
+    for kind, sender, sender_type in (
+        ("operator_note", "operator", "human"),
+        ("system", None, None),
+    ):
+        text = render(fake_message("fyi", kind=kind, sender=sender, sender_type=sender_type))
+        assert "courtyard_send" not in text
+        assert "no reply is owed" not in text
 
 
 def test_body_cannot_close_or_forge_the_envelope():

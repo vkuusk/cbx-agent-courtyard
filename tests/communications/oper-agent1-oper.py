@@ -62,6 +62,7 @@ DIALOGS = [
     "Iamusingthisforlocaldevelopment",  # dev-channels consent
     "Yes,proceed",  # workdir trust
     "Yes,Itrustthisfolder",  # workdir trust (newer wording)
+    "UsethisMCPserver",  # first-run .mcp.json server approval (fresh workdirs only)
 ]
 
 
@@ -259,10 +260,13 @@ def main() -> int:
         print(f"channel : {verdict}")
 
         hr("3. OPERATOR -> AGENT1 -> OPERATOR")
+        # Deliberately no word on HOW to reply (item 16, WP-C): the envelope's reply
+        # footer must carry that. A body that says "via the courtyard" would prove an
+        # instructed reply, not a natural one — and natural is what broke.
         nonce = secrets.token_hex(4)
         body = (
-            f"Courtyard delivery test {nonce}: reply to the operator via the courtyard "
-            f"with exactly: ACK {nonce}. Send only that reply; do nothing else."
+            f"Courtyard delivery test {nonce}: reply with exactly: ACK {nonce}. "
+            f"Send only that reply; do nothing else."
         )
         sent = admin._call("POST", "/api/operator/send", {"to": agent.name, "body": body})
         line_id, my_seq = sent["line_id"], sent["seq"]

@@ -9,11 +9,13 @@ from uuid import UUID
 from pydantic import BaseModel
 
 AgentType = Literal["claude-code", "pi", "puppet", "human"]
-AgentStatus = Literal["invited", "connected", "stale", "gone"]
+# `unknown` (D26): the hub restarted and has not yet verified this agent's stored
+# liveness — resolved by the first heartbeat or by the sweep once the hub is old enough.
+AgentStatus = Literal["invited", "connected", "stale", "gone", "unknown"]
 LineMode = Literal["supervised", "auto_pass"]
 LineState = Literal["idle", "pending_gate", "awaiting_reply"]
 MessageKind = Literal["message", "operator_note", "system"]
-MessageStatus = Literal["pending_gate", "queued", "delivered", "rejected", "returned"]
+MessageStatus = Literal["pending_gate", "queued", "delivered", "rejected", "returned", "expired"]
 GateVerdict = Literal["approve", "return", "reject"]
 ArchiveReason = Literal["agent_removed", "operator"]
 
@@ -179,6 +181,13 @@ class ShiftStatus(BaseModel):
     grace_until: datetime | None = None  # while starting: judge liveness only after this
     spawns: list[ShiftSpawn] = []
     skipped: list[str] = []  # agents the shift cannot launch (puppet, no workdir), by name
+    # D25: the shift reads on, the hub is past its liveness grace, and not one target
+    # agent is connected — the working period factually ended (terminals closed by hand,
+    # a reboot) without the End gesture. The UI asks what to do; the hub never decides.
+    stale: bool = False
+    # D26: the hub restarted into a running shift and is still inside its liveness grace
+    # — statuses are being verified. The UI shows "Checking the team" until this passes.
+    checking_until: datetime | None = None
 
 
 TerminalApp = Literal["Terminal", "iTerm2"]  # macOS terminal apps the shift can drive

@@ -9,6 +9,7 @@ turn state are never touched by it.
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
@@ -23,6 +24,10 @@ from courtyard.hub.storage.repo import Storage, UnitOfWork
 logger = logging.getLogger("courtyard.hub")
 
 LOCAL_ENDPOINT_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+# D26: how much older than one heartbeat interval the hub must be before it judges an
+# `unknown` agent — the same margin the shift's grace uses (design §6.3, §8.1).
+JUDGE_MARGIN_SECONDS = 5.0
 
 
 def _check_endpoint(endpoint: str) -> None:
@@ -42,12 +47,49 @@ class ChannelService:
         deliverer: Deliverer,
         heartbeat_seconds: float,
         gone_seconds: float,
+        hub_started_at: datetime | None = None,
     ):
         self._storage = storage
         self._events = events
         self._deliverer = deliverer
         self._stale_after = 3 * heartbeat_seconds  # 3 missed beats (design §6.3)
         self._gone_after = gone_seconds
+        # D26: `unknown` agents are judged only after this — one heartbeat interval plus
+        # margin from hub start, so a live adapter always gets its beat in first.
+        self._judge_after = (hub_started_at or datetime.now(UTC)) + timedelta(
+            seconds=heartbeat_seconds + JUDGE_MARGIN_SECONDS
+        )
+
+    @property
+    def judging(self) -> bool:
+        """True while the hub is too young to judge `unknown` agents (D26). The sweeper
+        runs on a fast cadence while this holds (+ one pass after), so resolution lands
+        within a second of the boundary — one transition, not a straggling second one."""
+        return datetime.now(UTC) < self._judge_after + timedelta(seconds=1)
+
+    def reset_unverified(self) -> int:
+        """D26, called once at hub startup: stored `connected`/`stale` are claims from a
+        previous hub life — flip them to `unknown` rather than repeat them unverified.
+        The first heartbeat proves an agent live again at any moment; the sweep resolves
+        the rest once the hub is past its judging grace."""
+        with self._storage.transaction() as uow:
+            unverified = [
+                agent
+                for agent in uow.agents.list()
+                if agent.status in ("connected", "stale") and agent.removed_at is None
+            ]
+            for agent in unverified:
+                uow.agents.set_status(agent.id, "unknown")
+            changed = [uow.agents.get(agent.id) for agent in unverified]
+        for agent in changed:
+            self._events.publish("agent", agent)
+        if changed:
+            logger.info(
+                "liveness: %s unverified after restart -> unknown (judging after %s)",
+                ", ".join(agent.name for agent in changed),
+                self._judge_after.isoformat(timespec="seconds"),
+            )
+        return len(changed)
 
     # -- the adapter contract (attach / heartbeat / detach) --------------------------
 
@@ -64,10 +106,17 @@ class ChannelService:
             warning = None
             if previous is not None and agent.status == "connected":
                 warning = self._warn_replaced(uow, agent)
+            rearmed = self._rearm_undischarged(uow, updated)
             summary = self._build_summary(uow, updated)
         self._events.publish("agent", updated)
         if warning is not None:
             self._events.publish("message", warning)
+        for message in rearmed:
+            self._events.publish("message", message)
+        for line_id in {m.line_id for m in rearmed}:
+            with self._storage.transaction() as uow:
+                line = uow.lines.get(line_id)
+            self._events.publish("line", line)  # its queued counter changed
         return summary
 
     def deliver_backlog(self, agent_id: UUID) -> int:
@@ -100,19 +149,33 @@ class ChannelService:
     # -- liveness sweep (advisory; run periodically by the hub) ----------------------
 
     def sweep(self) -> list[Agent]:
-        """Decay connected -> stale -> gone by heartbeat age; returns agents that changed."""
+        """Decay connected -> stale -> gone by heartbeat age; returns agents that changed.
+
+        `unknown` agents (D26, set at hub startup) are left alone while the hub is
+        younger than one heartbeat window — a live adapter's beat flips them straight to
+        connected — and resolved to their true state afterwards, all in one pass."""
         changed: list[Agent] = []
+        judging = datetime.now(UTC) < self._judge_after
         with self._storage.transaction() as uow:
-            for channel in uow.channels.list():
-                agent = uow.agents.get(channel.agent_id)
+            channels = {channel.agent_id: channel for channel in uow.channels.list()}
+            for agent in uow.agents.list():
                 if agent.removed_at is not None:
                     continue
-                age = channel.heartbeat_age_seconds or 0.0
+                channel = channels.get(agent.id)
+                age = (channel.heartbeat_age_seconds or 0.0) if channel else None
                 target = None
-                if agent.status == "connected" and age > self._stale_after:
-                    target = "stale"
-                if agent.status in ("connected", "stale") and age > self._gone_after:
-                    target = "gone"
+                if agent.status == "unknown":
+                    if judging:
+                        continue
+                    if age is None or age > self._gone_after:
+                        target = "gone"
+                    else:
+                        target = "stale"  # a later heartbeat still revives it
+                elif channel is not None:
+                    if agent.status == "connected" and age > self._stale_after:
+                        target = "stale"
+                    if agent.status in ("connected", "stale") and age > self._gone_after:
+                        target = "gone"
                 if target is not None:
                     uow.agents.set_status(agent.id, target)
                     changed.append(uow.agents.get(agent.id))
@@ -141,6 +204,33 @@ class ChannelService:
             reply_to=None,
             status="delivered",
         )
+
+    def _rearm_undischarged(self, uow: UnitOfWork, agent: Agent) -> list:
+        """R1 (design §6.4, D24): a message delivered to a *previous* session and never
+        answered is an obligation nobody alive can fulfil — flip it back to `queued` so
+        the backlog push after this attach delivers it into the new session. A `system`
+        entry marks the second delivery in history. Messages `expired` at end of shift
+        are excluded by their status: that close was intentional."""
+        rearmed = uow.messages.rearm_undischarged(agent.id)
+        published = []
+        for message in rearmed:
+            uow.lines.get_locked(message.line_id)  # insert bumps the per-line seq
+            entry = uow.messages.insert(
+                message_id=uuid4(),
+                line_id=message.line_id,
+                sender=None,
+                recipient=None,  # log-only board entry
+                kind="system",
+                body=(
+                    f"the message (seq {message.seq}) was delivered to a previous "
+                    f"session of {agent.name} and never answered — redelivered"
+                ),
+                reply_to=message.id,
+                status="delivered",
+            )
+            logger.info("rearm: seq %s on line %s -> %s", message.seq, message.line_id, agent.name)
+            published.extend([message, entry])
+        return published
 
     def _build_summary(self, uow: UnitOfWork, agent: Agent) -> AttachSummary:
         peers = roster(uow.agents.list(), agent)  # reachable first, like `GET /peers`

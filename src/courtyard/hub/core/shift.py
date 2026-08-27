@@ -22,7 +22,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from courtyard.common.models import Agent, Settings, ShiftStatus
-from courtyard.hub.core.errors import InvalidSetting, ShiftBusy
+from courtyard.hub.core.board import expire_open_work
+from courtyard.hub.core.errors import InvalidSetting, NoShiftToResume, ShiftBusy
 from courtyard.hub.core.events import EventBus
 from courtyard.hub.core.spawn import TerminalSpawner, make_spawner
 from courtyard.hub.storage.repo import Storage
@@ -72,6 +73,8 @@ class ShiftService:
         self._make_spawner = spawner_factory
         self._hub_started_at = hub_started_at or clock()
         self._lock = threading.Lock()
+        # tick() publishes only transitions of the derived flags (D25 stale, D26 checking)
+        self._last_on_signature: tuple[bool, bool] | None = None
         with storage.transaction() as uow:
             self._settings = Settings.model_validate(uow.settings.get(SETTINGS_KEY) or {})
             self._doc: dict[str, Any] = uow.settings.get(SHIFT_KEY) or {"state": "off"}
@@ -104,21 +107,63 @@ class ShiftService:
             return self._status()
 
     def start(self) -> ShiftStatus:
-        """Idempotent: pressing Start during a running shift changes nothing."""
+        """Idempotent while a shift is genuinely running. On a STALE shift (D25 — left
+        open, nobody home) this is the "start a new shift" answer: close yesterday's
+        books first, then begin fresh."""
+        expired_lines: list = []
+        board_events: list = []
+        with self._lock:
+            if self._doc.get("state") != "off":
+                if not self._stale():
+                    return self._status()
+                expired_lines, board_events = self._end_locked(force=True)
+            now = self._clock()
+            self._doc = {
+                "state": "starting",
+                "started_at": now.isoformat(),
+                "grace_until": max(now, self._judge_after()).isoformat(),
+                "terminal_app": self._settings.terminal_app,
+                "spawned": False,
+                "spawns": [],
+                "skipped": [],
+            }
+            self._persist()
+            logger.info("shift: starting (grace until %s)", self._doc["grace_until"])
+            status = self._status()
+        self._publish_board(board_events, expired_lines)
+        self._publish(status)
+        return self.tick() or status
+
+    def resume(self) -> ShiftStatus:
+        """D25's "resume shift": bring the abandoned shift's team back up. Spawn records
+        whose window is dead are dropped and respawned; a window still alive (waiting on
+        a first-run dialog, say) is left alone — never doubled. The books stay open:
+        unfinished conversations continue, re-attach redelivery (§6.4) does the rest."""
         with self._lock:
             if self._doc.get("state") == "off":
-                now = self._clock()
-                self._doc = {
-                    "state": "starting",
-                    "started_at": now.isoformat(),
-                    "grace_until": max(now, self._judge_after()).isoformat(),
-                    "terminal_app": self._settings.terminal_app,
-                    "spawned": False,
-                    "spawns": [],
-                    "skipped": [],
-                }
-                self._persist()
-                logger.info("shift: starting (grace until %s)", self._doc["grace_until"])
+                raise NoShiftToResume("no shift is open — press Start shift instead")
+            now = self._clock()
+            spawner = self._make_spawner(self._doc.get("terminal_app", "Terminal"))
+            alive_spawns = []
+            dead: list[str] = []
+            for spawn in self._doc.get("spawns", []):
+                ref = spawn.get("window_ref")
+                try:
+                    alive = bool(ref) and spawner.alive(ref)
+                except Exception:  # noqa: BLE001 - an unverifiable window counts as dead
+                    alive = False
+                if alive:
+                    alive_spawns.append(spawn)
+                else:
+                    dead.append(spawn["agent_name"])
+            self._doc["spawns"] = alive_spawns
+            self._doc["state"] = "starting"
+            logger.info(
+                "shift: resuming (windows still alive: %s; respawning: %s)",
+                [s["agent_name"] for s in alive_spawns] or "-",
+                dead or "-",
+            )
+            self._spawn_missing(now)  # spawns every target not connected and not alive
             status = self._status()
         self._publish(status)
         return self.tick() or status
@@ -128,50 +173,91 @@ class ShiftService:
         with self._lock:
             if self._doc.get("state") == "off":
                 return self._status()
-            if not force:
-                busy = self._busy_lines()
-                if busy:
-                    raise ShiftBusy(
-                        f"{busy} line{'s are' if busy != 1 else ' is'} mid-conversation",
-                        busy_lines=busy,
-                    )
-            spawner = self._make_spawner(self._doc.get("terminal_app", "Terminal"))
-            closed: list[str] = []
-            failed: list[str] = []
-            for spawn in self._doc.get("spawns", []):
-                if not spawn.get("window_ref"):
-                    continue
-                try:
-                    ok = spawner.close(spawn["window_ref"])
-                except Exception:  # noqa: BLE001 - a vanished window must not block the rest
-                    ok = False
-                (closed if ok else failed).append(spawn["agent_name"])
-                if not ok:
-                    logger.warning("shift: closing %s's window failed", spawn["agent_name"])
-            logger.info("shift: ended (closed: %s; failed: %s)", closed or "-", failed or "-")
-            # keep what the ended shift did, for post-mortems (overwritten by the next one)
-            self._doc = {"state": "off", "last": {**self._doc, "closed": closed, "failed": failed}}
-            self._persist()
+            expired_lines, board_events = self._end_locked(force)
             status = self._status()
+        self._publish_board(board_events, expired_lines)
         self._publish(status)
         return status
+
+    def _end_locked(self, force: bool) -> tuple[list, list]:
+        """The end-of-shift work, caller holding the lock: close the recorded windows,
+        close the books (D24), persist `off`. Returns (expired lines, board events)."""
+        if not force:
+            busy = self._busy_lines()
+            if busy:
+                raise ShiftBusy(
+                    f"{busy} line{'s are' if busy != 1 else ' is'} mid-conversation",
+                    busy_lines=busy,
+                )
+        spawner = self._make_spawner(self._doc.get("terminal_app", "Terminal"))
+        closed: list[str] = []
+        failed: list[str] = []
+        for spawn in self._doc.get("spawns", []):
+            if not spawn.get("window_ref"):
+                continue
+            try:
+                ok = spawner.close(spawn["window_ref"])
+            except Exception:  # noqa: BLE001 - a vanished window must not block the rest
+                ok = False
+            (closed if ok else failed).append(spawn["agent_name"])
+            if not ok:
+                logger.warning("shift: closing %s's window failed", spawn["agent_name"])
+        # Close the books (design §8.1, D24): the sessions are gone, so every
+        # unanswered in-flight message is undischargeable — release the lines, mark
+        # the unfinished messages expired, keep everything in history.
+        with self._storage.transaction() as uow:
+            expired_lines, board_events = expire_open_work(uow)
+        logger.info(
+            "shift: ended (closed: %s; failed: %s; expired lines: %d)",
+            closed or "-",
+            failed or "-",
+            len(expired_lines),
+        )
+        # keep what the ended shift did, for post-mortems (overwritten by the next one)
+        self._doc = {
+            "state": "off",
+            "last": {
+                **self._doc,
+                "closed": closed,
+                "failed": failed,
+                "expired_lines": len(expired_lines),
+            },
+        }
+        self._persist()
+        return expired_lines, board_events
+
+    def _publish_board(self, board_events: list, expired_lines: list) -> None:
+        for message in board_events:
+            self._events.publish("message", message)
+        for line in expired_lines:
+            self._events.publish("line", line)
 
     def tick(self) -> ShiftStatus | None:
         """Advance the machine; returns the new status when something changed."""
         with self._lock:
-            if self._doc.get("state") != "starting":
-                return None
-            now = self._clock()
-            if not self._doc.get("spawned"):
-                if now < datetime.fromisoformat(self._doc["grace_until"]):
+            state = self._doc.get("state")
+            if state == "on":
+                # Publish the transitions of the derived flags: D25's stale (the question
+                # appears/vanishes) and D26's checking window ending (statuses verified).
+                signature = (self._stale(), self._checking_until() is not None)
+                if signature == self._last_on_signature:
                     return None
-                self._spawn_missing(now)
+                self._last_on_signature = signature
                 status = self._status()
-            elif self._settled(now):
-                self._doc["state"] = "on"
-                self._persist()
-                logger.info("shift: on")
-                status = self._status()
+            elif state == "starting":
+                now = self._clock()
+                if not self._doc.get("spawned"):
+                    if now < datetime.fromisoformat(self._doc["grace_until"]):
+                        return None
+                    self._spawn_missing(now)
+                    status = self._status()
+                elif self._settled(now):
+                    self._doc["state"] = "on"
+                    self._persist()
+                    logger.info("shift: on")
+                    status = self._status()
+                else:
+                    return None
             else:
                 return None
         self._publish(status)
@@ -182,6 +268,41 @@ class ShiftService:
     def _judge_after(self) -> datetime:
         return self._hub_started_at + timedelta(seconds=self._heartbeat + GRACE_MARGIN_SECONDS)
 
+    def _stale(self) -> bool:
+        """D25: the shift reads on, the hub is old enough for liveness to be trusted
+        (the D23 grace rule), not one launchable agent is connected, and none of the
+        shift's windows are still open — the working period factually ended without the
+        End gesture. Never true mid-restart (live agents re-attach within one heartbeat,
+        inside the grace window) and never true while a spawned window merely waits on a
+        first-run dialog (its tty is alive)."""
+        if self._doc.get("state") != "on":
+            return False
+        if self._clock() < self._judge_after():
+            return False
+        targets, _ = self._targets()
+        if not targets or any(agent.status == "connected" for agent in targets):
+            return False
+        if any(agent.status == "unknown" for agent in targets):
+            return False  # D26: not yet judged — no claim, so no question yet either
+        spawner = self._make_spawner(self._doc.get("terminal_app", "Terminal"))
+        for spawn in self._doc.get("spawns", []):
+            ref = spawn.get("window_ref")
+            try:
+                alive = bool(ref) and spawner.alive(ref)
+            except Exception:  # noqa: BLE001 - an unverifiable window counts as dead
+                alive = False
+            if alive:
+                return False  # a window is still open — not abandoned, just offline
+        return True
+
+    def _checking_until(self) -> datetime | None:
+        """D26: the hub restarted into a running shift and liveness is not yet judged —
+        the UI shows a "Checking the team" countdown instead of unverified statuses."""
+        if self._doc.get("state") != "on":
+            return None
+        judge_after = self._judge_after()
+        return judge_after if self._clock() < judge_after else None
+
     def _status(self) -> ShiftStatus:
         doc = self._doc
         return ShiftStatus(
@@ -191,6 +312,8 @@ class ShiftService:
             grace_until=doc.get("grace_until") if not doc.get("spawned") else None,
             spawns=doc.get("spawns", []),
             skipped=doc.get("skipped", []),
+            stale=self._stale(),
+            checking_until=self._checking_until(),
         )
 
     def _persist(self) -> None:

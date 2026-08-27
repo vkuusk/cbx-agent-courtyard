@@ -51,6 +51,7 @@ export const api = {
   archiveExportUrl: (id) => `/api/archive/${id}/export`,
   shift: () => call("GET", "/api/shift"),
   shiftStart: () => call("POST", "/api/shift/start"),
+  shiftResume: () => call("POST", "/api/shift/resume"),
   shiftEnd: (force) => call("POST", "/api/shift/end", { force: Boolean(force) }),
   settings: () => call("GET", "/api/settings"),
   patchSettings: (patch) => call("PATCH", "/api/settings", patch),

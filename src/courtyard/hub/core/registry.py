@@ -17,6 +17,7 @@ from courtyard.hub.core.errors import (
     InvalidToken,
     NameTaken,
     NoStoredToken,
+    NotAllowed,
     UnknownAgent,
 )
 from courtyard.hub.core.events import EventBus
@@ -84,6 +85,26 @@ class Registry:
             )
         self._events.publish("agent", agent)
         return agent, token
+
+    def update(self, name_or_id: str, patch: dict[str, Any]) -> Agent:
+        """Edit an agent's operator-owned fields (WP-D, item 8): description, sme_domain,
+        workdir, model, color. Name and type are permanent identities — never editable.
+        An explicit None clears a field; absent keys are untouched."""
+        editable = {"description", "sme_domain", "workdir", "model", "color"}
+        unknown = set(patch) - editable
+        if unknown:
+            raise NotAllowed(f"not editable: {', '.join(sorted(unknown))}")
+        with self._storage.transaction() as uow:
+            agent = self.resolve(uow, name_or_id)
+            if agent.type == "human":
+                raise NotAllowed("the operator record is not editable")
+            if agent.removed_at is not None:
+                raise AgentGone(f"{agent.name} was removed from the courtyard")
+            if patch:
+                uow.agents.update(agent.id, patch)
+            agent = uow.agents.get(agent.id)
+        self._events.publish("agent", agent)
+        return agent
 
     def token_of(self, name_or_id: str) -> str:
         """The agent's stored token, for the launch config (D19)."""

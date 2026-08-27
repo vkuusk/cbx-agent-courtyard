@@ -186,8 +186,8 @@ of the agent's terminal.
 **Feature under test:** the shift state machine (off → starting with grace countdown →
 on → off), the Team-mode/terminal-app settings, and the real terminal spawning.
 
-**Scripted part** (settings round trip, `always_on` refused, the machine through a full
-cycle — spawns nothing: the throwaway agent is a puppet, and it refuses to run the shift
+**Scripted part** (settings round trip, `always_on` refused, custom terminal apps
+added/validated/removed (item 20), the machine through a full cycle — spawns nothing: the throwaway agent is a puppet, and it refuses to run the shift
 if real claude-code agents are down):
 
 ```
@@ -299,6 +299,46 @@ resolves it; resume with nothing open is refused (`no_shift`).
 4. Restart the hub mid-shift with the agents *running*: the question must NOT appear —
    the cards show "checking…" for at most one heartbeat and turn green as the beats
    arrive, each the moment its agent proves itself (never a false green first).
+
+---
+
+## Agents page: edit, remove-with-cleanup, and the Defaults dial (WP-D + 7c)
+
+**Feature under test:** the reworked Agents page (items 4/8/15) — the add form's field
+order, the Edit Agent view over `PATCH /api/agents/{id}`, removal that also cleans the
+agent's project directory — and Admin → Defaults' `New lines start` setting (7c).
+
+**Scripted part** (throwaway agents + a temp workdir; the settings value is restored):
+
+```
+make db-up && make run          # hub in another terminal
+uv run python scripts/runbook/agents_edit.py
+```
+
+**Manual part:**
+
+1. Agents page: **no message box** (it lives on the Courtyard page only, item 20); the
+   add form is collapsed behind **+ Add an agent** and, expanded, reads name · type ·
+   directory · model · colour on one row, then two multiline boxes (what is it for /
+   what does it own). Rows carry **edit** and **remove** only.
+2. **edit** on a row opens the Edit Agent view: change the description and colour, save —
+   the row and the board card update live; **launch config** and **rotate token** are in
+   the same panel. Name and type are shown as permanent.
+3. **remove** opens a dialog; with a workdir set, "also clean up its project directory"
+   is pre-checked. Confirm → the agent leaves the list, its lines go to the Archive, and
+   the courtyard entries are gone from `.mcp.json` / `.claude/settings.local.json` in
+   its directory (other content untouched).
+4. Admin (item 20): **Status** section (Hub, Courtyard) first, **Settings** (Team,
+   Terminal application, Defaults, Appearance) below; every setting is a pulldown, with
+   `Always on` a disabled choice; no message box here either.
+5. Admin → **Defaults** → set `New lines start` to auto-pass: a message between two
+   agents that never talked before flows ungated; an existing supervised line still
+   holds its messages. Set it back.
+6. Admin → **Terminal application** → **+ add an application** (e.g. name `kitty`, start
+   string `kitty --directory {dir} sh -c {command}`): it appears in the pulldown; select
+   it and the start string becomes editable, with the caveat that a custom app only
+   opens windows (End shift cannot close them); **remove app** falls back to Terminal.
+   With a custom app selected, Start shift opens the agents in that terminal.
 
 ---
 

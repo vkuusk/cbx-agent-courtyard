@@ -188,7 +188,39 @@ class ITerm2:
         return True
 
 
-def make_spawner(terminal_app: str) -> TerminalSpawner:
+def render_template(template: str, cwd: str, command: str) -> str:
+    """Fill a custom terminal's start string: `{dir}` and `{command}` become the
+    shell-quoted workdir and launch command."""
+    return template.replace("{dir}", shlex.quote(cwd)).replace(
+        "{command}", shlex.quote(shell_command(cwd, command))
+    )
+
+
+class CommandTemplate:
+    """An operator-defined terminal application (Admin → Terminal application): its
+    start string is a shell template run fire-and-forget. Honest limits, stated in the
+    UI too: we get no window handle back from an arbitrary launcher, so End shift cannot
+    close what it opened (ref None) and resume treats its windows as unverifiable."""
+
+    def __init__(self, template: str):
+        self._template = template
+
+    def spawn(self, cwd: str, command: str) -> str | None:
+        rendered = render_template(self._template, cwd, command)
+        # shell=True on purpose: this IS the operator's own start string (D3 trust model)
+        subprocess.Popen(rendered, shell=True, start_new_session=True)
+        return None
+
+    def close(self, ref: str) -> bool:
+        return False
+
+    def alive(self, ref: str) -> bool:
+        return False
+
+
+def make_spawner(terminal_app: str, custom: dict[str, str] | None = None) -> TerminalSpawner:
     if terminal_app == "iTerm2":
         return ITerm2()
+    if custom and terminal_app in custom:
+        return CommandTemplate(custom[terminal_app])
     return AppleTerminal()

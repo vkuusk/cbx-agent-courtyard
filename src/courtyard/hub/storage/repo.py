@@ -29,6 +29,11 @@ class AgentRepo(Protocol):
 
     def get(self, agent_id: UUID) -> Agent | None: ...
 
+    def update(self, agent_id: UUID, fields: dict) -> None:
+        """Set the operator-editable columns (WP-D): description, sme_domain, workdir,
+        model, color. None values clear. Caller validates which keys are allowed."""
+        ...
+
     def get_token(self, agent_id: UUID) -> str | None:
         """The stored plaintext token (D19); None for registrations that predate storing it."""
         ...
@@ -53,8 +58,10 @@ class AgentRepo(Protocol):
 
 
 class LineRepo(Protocol):
-    def get_or_create_locked(self, a: UUID, b: UUID) -> Line:
-        """Return the line for the (unordered) pair, row-locked; create it if missing."""
+    def get_or_create_locked(self, a: UUID, b: UUID, mode: str = "supervised") -> Line:
+        """Return the line for the (unordered) pair, row-locked; create it if missing.
+        `mode` applies only on creation (7c: the operator's Admin default); an existing
+        line keeps its own dial."""
         ...
 
     def get(self, line_id: UUID) -> Line | None: ...

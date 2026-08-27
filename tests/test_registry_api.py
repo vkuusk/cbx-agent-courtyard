@@ -306,3 +306,68 @@ def test_install_then_uninstall_round_trips(client, tmp_path):
     assert _json.loads((tmp_path / ".mcp.json").read_text())["mcpServers"] == {
         "other": {"command": "x"}
     }
+
+
+def test_patch_edits_fields_and_null_clears(client, make_agent):
+    """WP-D (item 8): description, owns, workdir, model, colour are editable after
+    creation; an explicit null clears; absent keys are untouched."""
+    make_agent("scout")
+    resp = client.patch(
+        "/api/agents/scout",
+        json={"description": "recon", "sme_domain": "the network edge", "model": "haiku"},
+    )
+    assert resp.status_code == 200
+    updated = resp.json()
+    assert (updated["description"], updated["sme_domain"], updated["model"]) == (
+        "recon",
+        "the network edge",
+        "haiku",
+    )
+    resp = client.patch("/api/agents/scout", json={"model": None, "color": "teal"})
+    assert resp.status_code == 200
+    assert resp.json()["model"] is None  # cleared
+    assert resp.json()["color"] == "teal"
+    assert resp.json()["description"] == "recon"  # untouched
+
+
+def test_patch_never_edits_identity_or_the_operator(client, make_agent):
+    make_agent("scout")
+    resp = client.patch("/api/agents/scout", json={"name": "spy"})
+    assert resp.status_code == 422  # unknown field for the schema
+    resp = client.patch("/api/agents/operator", json={"description": "x"})
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == "not_allowed"
+
+
+def test_patch_refuses_a_removed_agent(client, make_agent):
+    make_agent("scout")
+    client.delete("/api/agents/scout")
+    resp = client.patch("/api/agents/scout", json={"description": "x"})
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "agent_gone"
+
+
+def test_default_line_mode_applies_to_new_lines_only(client, make_agent):
+    """7c: the Admin default sets the dial a NEW line starts on; existing lines keep
+    theirs, and operator lines are still never gated."""
+    from conftest import auth
+
+    _, alice = make_agent("alice")
+    make_agent("bob")
+    make_agent("carol")
+    first = client.post(
+        "/api/lines/send", json={"to": "bob", "body": "q"}, headers=auth(alice)
+    ).json()
+    assert first["status"] == "pending_gate"  # default default: supervised
+
+    client.patch("/api/settings", json={"default_line_mode": "auto_pass"})
+    second = client.post(
+        "/api/lines/send", json={"to": "carol", "body": "q"}, headers=auth(alice)
+    ).json()
+    assert second["status"] == "queued"  # new line follows the new default
+    lines = {
+        frozenset((ln["agent_a_name"], ln["agent_b_name"])): ln["mode"]
+        for ln in client.get("/api/lines").json()
+    }
+    assert lines[frozenset(("alice", "bob"))] == "supervised"  # existing line untouched
+    assert lines[frozenset(("alice", "carol"))] == "auto_pass"

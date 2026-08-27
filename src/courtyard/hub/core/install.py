@@ -91,8 +91,10 @@ def merge_settings(existing: dict | None, agent_name: str, model: str | None) ->
     """The agent-side profile merged over `.claude/settings.local.json` (WP-A, D21).
 
     The allow rule is appended if missing; the model is the operator's declared intent and
-    wins when set (untouched when the agent has none); the status line is set only when
-    the file has none — an existing one is somebody's choice and is never clobbered.
+    wins when set (untouched when the agent has none); the status line is set when the
+    file has none — or when the existing one is recognisably OURS (`STATUS_MARK`), so a
+    workdir re-registered under a new name stops announcing the old one (feedback item
+    19). A status line somebody wrote themselves is never clobbered.
     """
     doc = dict(existing) if existing else {}
     permissions = dict(doc.get("permissions") or {})
@@ -103,7 +105,9 @@ def merge_settings(existing: dict | None, agent_name: str, model: str | None) ->
     doc["permissions"] = permissions
     if model:
         doc["model"] = model
-    if "statusLine" not in doc:
+    current = doc.get("statusLine")
+    ours = isinstance(current, dict) and str(current.get("command", "")).endswith(STATUS_MARK)
+    if "statusLine" not in doc or ours:
         doc["statusLine"] = status_line(agent_name)
     return doc
 

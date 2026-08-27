@@ -7,6 +7,7 @@ be observed apart (design doc §6.1, §9.2).
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from uuid import UUID, uuid4
 
 from courtyard.common.models import Agent, Line, Message
@@ -79,6 +80,7 @@ class Board:
         max_body_bytes: int,
         events: EventBus,
         deliverer: Deliverer,
+        default_line_mode: Callable[[], str] | None = None,
     ):
         self._storage = storage
         self._registry = registry
@@ -86,6 +88,8 @@ class Board:
         self._max_body_bytes = max_body_bytes
         self._events = events
         self._deliverer = deliverer
+        # 7c: what supervision dial a NEW line starts on (the operator's Admin default).
+        self._default_line_mode = default_line_mode or (lambda: "supervised")
 
     # -- sending -------------------------------------------------------------------
 
@@ -98,7 +102,9 @@ class Board:
                 raise InvalidRecipient("cannot send a message to yourself")
             if recipient.removed_at is not None:
                 raise AgentGone(f"agent {recipient.name!r} was removed from the courtyard")
-            line = uow.lines.get_or_create_locked(sender.id, recipient.id)
+            line = uow.lines.get_or_create_locked(
+                sender.id, recipient.id, self._default_line_mode()
+            )
             if "human" in (sender.type, recipient.type) and line.mode != "auto_pass":
                 # Operator lines are never gated (design §5.6, D9). Enforced here so the
                 # invariant holds however the line was created or later toggled.

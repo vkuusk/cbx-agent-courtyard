@@ -27,6 +27,8 @@ export const api = {
   agents: () => call("GET", "/api/agents"),
   createAgent: (payload) => call("POST", "/api/agents", payload),
   removeAgent: (name) => call("DELETE", `/api/agents/${encodeURIComponent(name)}`),
+  patchAgent: (name, patch) => call("PATCH", `/api/agents/${encodeURIComponent(name)}`, patch),
+  uninstallAgent: (name) => call("POST", `/api/agents/${encodeURIComponent(name)}/uninstall`, {}),
   installAgent: (name, workdir) =>
     call("POST", `/api/agents/${encodeURIComponent(name)}/install`, { workdir }),
   agentToken: (name) => call("GET", `/api/agents/${encodeURIComponent(name)}/token`),

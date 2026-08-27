@@ -190,11 +190,26 @@ class ShiftStatus(BaseModel):
     checking_until: datetime | None = None
 
 
-TerminalApp = Literal["Terminal", "iTerm2"]  # macOS terminal apps the shift can drive
+BUILTIN_TERMINALS = ("Terminal", "iTerm2")  # macOS apps the shift fully drives (open AND close)
+
+
+class CustomTerminal(BaseModel):
+    """An operator-defined terminal application (item 20): `command` is the start
+    string, a shell template where `{dir}` and `{command}` are substituted quoted.
+    It opens windows only — End shift cannot close what an arbitrary launcher opened."""
+
+    name: str
+    command: str
 
 
 class Settings(BaseModel):
     """Hub-level settings the operator can change (Admin page)."""
 
     team_mode: TeamMode = "on_shift"
-    terminal_app: TerminalApp = "Terminal"
+    # a BUILTIN_TERMINALS name, or the name of a custom_terminals entry; the shift
+    # service validates membership on every change
+    terminal_app: str = "Terminal"
+    custom_terminals: list[CustomTerminal] = []
+    # 7c: the supervision dial a NEW line starts on (D6 kept supervised as the default;
+    # this is its promised relief valve). Existing lines keep whatever they were set to.
+    default_line_mode: LineMode = "supervised"

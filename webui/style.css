@@ -323,6 +323,9 @@ td .name { font-family: var(--mono); font-weight: 600; }
 .actions { display: flex; gap: .35rem; flex-wrap: wrap; }
 .form-row { display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; }
 input, select { font: inherit; padding: .4rem .65rem; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--text); }
+.add-form { display: flex; flex-direction: column; gap: .6rem; }
+.add-form textarea { font: inherit; padding: .45rem .65rem; border: 1px solid var(--border); border-radius: 9px;
+  background: var(--surface); color: var(--text); resize: vertical; }
 .form-row input[name="name"] { width: 11rem; }
 .form-row input[name="description"], .form-row input[name="sme_domain"] { flex: 1; min-width: 13rem; }
 .warn { color: var(--amber); font-size: .85rem; }

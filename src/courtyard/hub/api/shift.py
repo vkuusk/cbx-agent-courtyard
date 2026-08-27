@@ -8,7 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
-from courtyard.common.models import Settings, ShiftStatus, TeamMode, TerminalApp
+from courtyard.common.models import CustomTerminal, LineMode, Settings, ShiftStatus, TeamMode
 from courtyard.hub.core.shift import ShiftService
 
 router = APIRouter(tags=["shift"])
@@ -48,7 +48,10 @@ def end(
 
 class SettingsPatch(BaseModel):
     team_mode: TeamMode | None = None
-    terminal_app: TerminalApp | None = None
+    # a built-in or custom terminal name; the shift service validates membership
+    terminal_app: str | None = None
+    custom_terminals: list[CustomTerminal] | None = None  # item 20: operator-defined apps
+    default_line_mode: LineMode | None = None  # 7c: the dial a NEW line starts on
 
 
 @router.get("/settings")

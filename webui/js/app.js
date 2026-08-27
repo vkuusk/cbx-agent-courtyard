@@ -1,5 +1,6 @@
-// App frame: the collapsible rail, the page, and the one input box at the bottom of every
-// page. Hash router: #/board (default) · #/agents · #/admin.
+// App frame: the collapsible rail and the page. The input box lives on the Courtyard
+// page only (his feedback, 2026-08-26 — it does not belong on admin-ish pages).
+// Hash router: #/board (default) · #/agents · #/archive · #/admin.
 
 import { html, render, useEffect, useState } from "../vendor/htm-preact-standalone.module.js";
 import { store, connectEvents, refreshSnapshot, setUi, setTheme, effectiveTheme, totalUnread } from "./store.js";
@@ -78,7 +79,7 @@ function App() {
     <${Rail} current=${current} />
     <div class="main">
       <div class="page ${current}"><${View} /></div>
-      <${Composer} />
+      ${current === "board" ? html`<${Composer} />` : null}
     </div>
   </div>`;
 }

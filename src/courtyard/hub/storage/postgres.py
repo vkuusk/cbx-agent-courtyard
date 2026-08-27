@@ -107,6 +107,14 @@ class PgAgentRepo:
         rows = self._conn.execute("SELECT * FROM agents ORDER BY created_at").fetchall()
         return [Agent.model_validate(r) for r in rows]
 
+    def update(self, agent_id: UUID, fields: dict) -> None:
+        columns = ", ".join(f"{name} = %({name})s" for name in fields)
+        self._conn.execute(
+            # keys are validated against the editable-field allowlist by the registry
+            f"UPDATE agents SET {columns} WHERE id = %(id)s",
+            {**fields, "id": agent_id},
+        )
+
     def set_status(self, agent_id: UUID, status: str) -> None:
         self._conn.execute("UPDATE agents SET status = %s WHERE id = %s", (status, agent_id))
 
@@ -123,12 +131,12 @@ class PgLineRepo:
     def __init__(self, conn: Connection):
         self._conn = conn
 
-    def get_or_create_locked(self, a: UUID, b: UUID) -> Line:
+    def get_or_create_locked(self, a: UUID, b: UUID, mode: str = "supervised") -> Line:
         a, b = sorted((a, b))
         self._conn.execute(
-            "INSERT INTO lines (id, agent_a, agent_b)"
-            " VALUES (gen_random_uuid(), %s, %s) ON CONFLICT (agent_a, agent_b) DO NOTHING",
-            (a, b),
+            "INSERT INTO lines (id, agent_a, agent_b, mode)"
+            " VALUES (gen_random_uuid(), %s, %s, %s) ON CONFLICT (agent_a, agent_b) DO NOTHING",
+            (a, b, mode),
         )
         row = self._conn.execute(
             "SELECT * FROM lines WHERE agent_a = %s AND agent_b = %s FOR UPDATE", (a, b)

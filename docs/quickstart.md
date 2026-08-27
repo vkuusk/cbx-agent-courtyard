@@ -58,8 +58,11 @@ tools (so the agent's sends never stop on a permission prompt in its terminal), 
 model you declared, and gives the terminal a status line with the agent's name — and a
 button **write both files into ‹dir›**: click it. The hub writes `<dir>/.mcp.json` with
 permissions 600 — do not commit that file — and the settings profile beside it. The hub
-keeps the token: **launch config** in the agents list opens this again any time, and
-**rotate token** replaces it (after which the agent needs the new file and a restart).
+keeps the token, and nothing is set in stone but the name and type: **edit** on an
+agent's row opens everything about it — the descriptions, directory, model and colour
+(editable any time), plus **launch config** (this panel again) and **rotate token**
+(after which the agent needs the new file and a restart). **remove** asks whether to
+also clean the courtyard pieces back out of the agent's project directory.
 
 The same from a terminal, if you prefer:
 

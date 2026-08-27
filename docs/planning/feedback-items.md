@@ -101,7 +101,8 @@ does it own?" as single-line inputs; row 2 = project dir · colour swatches · *
 **Touches.** `webui/js/views/agents.js`; the two texts are `Agent.description` and
 `Agent.sme_domain` (design §5.1, §7.5).
 
-**Status.** discussed → **WP‑D**, awaiting the architect's go
+**Status.** done 2026-08-26 (**WP‑D**): the add form is name · type · directory ·
+model · colour on one row, then the two multiline entries — awaiting the architect's check
 
 ### 5. Two modes of agent discovery: auto-discovery and manual links
 
@@ -194,8 +195,10 @@ list; **launch config** and **rotate token** belong inside an **Edit Agent** vie
 colour and model cannot be changed after creation (no hub endpoint for editing an agent's
 fields yet — create, token and remove only).
 
-**Status.** discussed → folded into **WP‑D** (widened from the add-form layout to the
-Agents-page rework), awaiting the architect's go
+**Status.** done 2026-08-26 (**WP‑D**): rows carry **edit** and **remove** only; the
+Edit Agent view holds launch config, rotate token and the editable fields (description,
+owns, workdir, model, colour) over the new `PATCH /api/agents/{id}` (null clears;
+name/type refused) — awaiting the architect's check
 
 ### 9. Two bugs from the WP‑A check: no release on your own line; the draft follows you
 
@@ -467,7 +470,9 @@ caveat).
 **Touches.** `webui/js/views/agents.js` (the remove handler and confirm),
 `webui/js/api.js`; hub pieces exist (`install.py::uninstall`, the API route).
 
-**Status.** decided 2026-08-26 → folded into **WP‑D** (awaiting go)
+**Status.** done 2026-08-26 (**WP‑D**): the remove dialog offers "also clean up its
+project directory" (pre-checked when a workdir is set); uninstall runs before the
+delete — awaiting the architect's check
 
 ### 16. Agent answered in its terminal instead of via `courtyard_send` — reply lost
 
@@ -588,6 +593,46 @@ dots, dimmed Team panel, `Checking the team · N` pill; D25's question waits unt
 status is verified — one transition. 2 new tests (183); `stale_shift.py` asserts the
 checking phase; Playwright 8/8 — awaiting the architect's check
 
+### 19. Re-registered workdir kept announcing the old agent's name in the status line
+
+**Observed (architect, 2026-08-26).** After re-registering a workdir's agent under a new
+name (`cbxorg-infra` → `infra-agent`) and reinstalling, the terminal status line still
+read `⏺ cbxorg-infra · courtyard`.
+
+**Cause.** WP‑A's non-clobber rule: install set the status line only when the file had
+none, to never overwrite a line the person wrote themselves — but that also protected
+OUR stale line from a previous registration.
+
+**Fix (same day).** `merge_settings` now replaces the status line when it is absent **or
+recognisably ours** (the `· courtyard` marker uninstall already keys on); a hand-written
+status line is still never touched. Applies at the next install; regression test added.
+
+**Status.** fixed and confirmed 2026-08-26 (189 tests; his live check: hub restart → write both files → session restart → the status line follows the new name)
+
+### 20. Admin/Agents polish batch — sections, pulldowns, custom terminals, one input box
+
+**Asked (architect, 2026-08-26, seven points).** (1) Admin in two sections — **Status**
+(Hub, Courtyard) first, **Settings** (Team, Defaults) below; (2) pulldowns instead of
+button-pill rows; (3) **Terminal application as its own group**: app choice + an
+*application start string* + add-new-app; (4+5+7) the message box does not belong on the
+Admin or Agents pages — it lives on the main Courtyard page only; (6) the add-agent form
+collapsible, collapsed by default.
+
+**Status.** done 2026-08-26 — awaiting the architect's check. Admin = Status (Hub,
+Courtyard) then Settings (Team, Terminal application, Defaults, Appearance), every
+setting a pulldown (`Always on` a disabled option). Custom terminal apps: name + start
+string, a shell template with `{dir}`/`{command}` substituted quoted (`{command}` = the
+launch command as ONE argument — most apps want `sh -c {command}`); validated hub-side
+(unique, no built-in shadowing, `{command}` required, selected app must exist; removing
+the app in use falls back to Terminal); honest limit shown in the UI: a custom app only
+*opens* windows — End shift cannot close them (no window handle from an arbitrary
+launcher), the built-ins keep full behaviour. Composer rendered on the Courtyard page
+only (amends D18's "every page"); add-agent form collapsed behind "+ Add an agent".
+Follow-up (same day): the Courtyard status panel counted the operator record and showed
+removed agents ("3 active · 1 removed" for a team of two — the third was the operator,
+the removed one a test throwaway); it now shows registered team agents only
+("2 registered"). 191 tests; Playwright 12/12.
+
 ---
 
 ## Work packages (discussion outcome, 2026-08-24)
@@ -602,9 +647,9 @@ that review.
 | **WP‑B** | 3.1, 6b, 6c (3.2: keep `reject`) | While a message is held, the box *is* the verdict's comment (Enter sends nothing); otherwise the note target is a visibly clickable control | `webui/js/composer.js`, `conversation.js` — WebUI only, hub semantics already correct | done (confirmed by the architect 2026-08-24) |
 | **WP‑A** | 1, 2, 7.2 | Install also writes `.claude/settings.local.json`: `model`, a status line with the courtyard name (only if absent), `permissions.allow` for the courtyard tools; `agents.model` (migration 0009) + launch config `--model` | `hub/core/install.py`, migration, Agents form | done (2026-08-24, confirmed by the architect) |
 | **WP‑C** | 3.3, 7.1, 14, 16 | The envelope ends every question with a **reply footer** (use the courtyard MCP tool `courtyard_send`, terminal output never reaches the sender; answer what was asked — no trailing offers or side questions) and every answer with **"no reply is owed"**; adapter INSTRUCTIONS + `courtyard_send` description carry the same rules and name the `mcp__courtyard__` prefixing (item 14); test-comms message un-hinted | `hub/core/envelope.py`, `mcp_server.py`, `tests/communications/` | done 2026-08-26 (171 tests; un-hinted round trip PASS on 2.1.247) — awaiting the architect's check |
-| **WP‑D** | 4, 8, 15 | Agents-page rework: add form (name · type · directory · colour first, then two multiline descriptions); rows keep only **Edit** and **Remove**; an **Edit Agent** view holds launch config, rotate token, and the editable fields (description, owns, workdir, model, colour — closes the no-edit-after-creation gap; needs an update endpoint); remove offers directory cleanup (uninstall before delete, item 15) | `webui/js/views/agents.js`, hub `PATCH /api/agents/{id}`; uninstall already exists | awaiting go |
+| **WP‑D** | 4, 8, 15 | Agents-page rework done 2026-08-26: add form = identity row + two multiline entries; rows = edit + remove; Edit Agent view (editable description/owns/workdir/model/colour via `PATCH /api/agents/{id}`, plus launch config + rotate token); remove dialog cleans the project directory (uninstall before delete) | `webui/js/views/agents.js`, `api/agents.py` PATCH, `registry.update` | done (4 new tests, 188; runbook `agents_edit.py`; Playwright 12/12) — awaiting the architect's check |
 | **WP‑E** | 5 | Manual-links discovery mode — design section first (a link can be a pre-created idle line; `peers` filters; unlinked `send` refused) | design doc (D22 candidate), then `hub/core/peers.py` + board | awaiting design proposal |
-| **WP‑G** | 10 | End shift closes the books (D24): release non-idle lines + expire unfinished messages incl. gate-held (`expired` status, migration; system entries; nothing deleted); R1 re-arm delivered-but-unanswered on attach (skip `expired`) + "redelivered" note; R3 owes-you-a-reply badge on the card + real line state in the pane header | migration 0011 (`expired`), `board.py` `expire_open_work` ← shift end path, `channels.py` attach re-arm, board card + pane header | implemented 2026-08-26 (8 new tests, 168 total; runbook `expire_and_rearm.py`; Playwright 8/8) — awaiting the architect's check |
+| **WP‑G** | 10 | End shift closes the books (D24): release non-idle lines + expire unfinished messages incl. gate-held (`expired` status, migration; system entries; nothing deleted); R1 re-arm delivered-but-unanswered on attach (skip `expired`) + "redelivered" note; R3 owes-you-a-reply badge on the card + real line state in the pane header | migration 0011 (`expired`), `board.py` `expire_open_work` ← shift end path, `channels.py` attach re-arm, board card + pane header | implemented 2026-08-26 (8 new tests; runbook `expire_and_rearm.py`; Playwright 8/8) — awaiting the architect's check |
 | **WP‑H** | 17 | The stale shift asks (D25): detect shift-on + grace passed + nobody connected + no live window tty; dialog with End (default) / Resume (respawn dead windows, books open, redelivery does the rest) / Start new (close books, fresh) / Not now (amber tag re-asks); `POST /api/shift/resume`, `ShiftStatus.stale`, spawner `alive()` | `hub/core/shift.py` + `spawn.py`, `/api/shift/resume`, board dialog + tag, quickstart | done 2026-08-26 (181 tests; runbook `stale_shift.py`; Playwright 9/9) — awaiting the architect's check |
 | **WP‑F** | 13 | Shift + Team mode: one pill on the Courtyard page starts every registered agent not already up (terminal window + workdir + launch command, per-adapter launch recipe) and ends by closing what it started; countdown through the re-attach window before spawning; Admin gets Team mode (`On shift` v1 \| `Always on` disabled) + terminal app | design doc **§8.1** (D23), `hub/core/shift.py` + `spawn.py`, migration 0010, `/api/shift` + `/api/settings`, board pill + `■ End shift` button, Admin → Team | done (confirmed by the architect 2026-08-26: start, both-windows end, mid-conversation termination) |
 
@@ -617,21 +662,23 @@ that review.
 | 3.1 | Note on a held message travels with the verdict (approve-/return-with-comment) | gate / WebUI | WP‑B done |
 | 3.2 | Rename `reject` → `drop` (maybe) | gate / vocabulary | decided: keep `reject` |
 | 3.3 | Agents append trailing questions that can start unrelated exchanges | envelope / model behaviour | WP‑C done, awaiting check |
-| 4 | "Add an agent" form: name · type · directory · colour, then two multiline descriptions | WebUI Agents | WP‑D awaiting go |
+| 4 | "Add an agent" form: name · type · directory · colour, then two multiline descriptions | WebUI Agents | WP‑D done, awaiting check |
 | 5 | Discovery modes: auto-discovery vs manual links (sub-teams) | peers / lines | WP‑E awaiting design |
 | 6a | Use case for a note to both agents on a line? | notes / WebUI | closed — use case confirmed |
 | 6b | Line chip (clickable) vs agent chip (static) look the same | WebUI composer | WP‑B done |
 | 6c | Note as the verdict's comment → destination switch unnecessary (extends 3.1) | gate / WebUI | WP‑B done |
 | 7.1 | Token-spending cycle: unasked offer → decline → walk-back | envelope / model behaviour | WP‑C done, awaiting check |
 | 7.2 | Pre-approve the courtyard MCP tools (Claude Code permission prompt blocks sends) | install | WP‑A done |
-| 8 | Agents rows: Edit + Remove only; launch config and rotate token inside Edit Agent | WebUI Agents | WP‑D awaiting go |
+| 8 | Agents rows: Edit + Remove only; launch config and rotate token inside Edit Agent | WebUI Agents | WP‑D done, awaiting check |
 | 9 | Bugs: no release on the operator's own stuck line; draft not per-selection | WebUI | fixed, confirmed |
 | 10 | Turn obligations outlive agent sessions (blocked line after a full restart) | turn machine / delivery | decided → D24; WP‑G implemented, awaiting check |
 | 11 | Channel contract drift (2.1.241 broke the flag, 2.1.245 restored it): sessions ACK but skip events | Claude Code preview / launch | resolved — original flag; round-trip test PASS |
 | 12 | Agents launched before the hub give up attaching and sit offline forever | adapter resilience | fixed — attach retries forever |
 | 13 | Shift + Team mode (`On shift` \| `Always on`): start/end the team's working period from one Courtyard-page pill; mode changed only in Admin | launch / board / Admin | WP‑F done, confirmed |
 | 14 | One-off "No such tool available: courtyard_peers" on a fresh 2.1.246 session — self-recovered | envelope wording / Claude Code tool search | hardening shipped with WP‑C |
-| 15 | Removing an agent must also clean up its project directory (uninstall before delete) | WebUI Agents / install | WP‑D awaiting go |
+| 15 | Removing an agent must also clean up its project directory (uninstall before delete) | WebUI Agents / install | WP‑D done, awaiting check |
 | 16 | Agent answered in its terminal, not via `courtyard_send` — reply never reached the hub | envelope / Claude Code channel framing | WP‑C done, awaiting check |
 | 17 | Stale shift: the board must ask (End / Resume / Start new), not assert `0/2 on shift` | shift / board dialog | D25 implemented, awaiting check |
 | 18 | Restart flicker (green → offline → question): statuses must read `unknown` until verified | liveness / board | D26 implemented, awaiting check |
+| 19 | Re-registered workdir kept the old name in the status line (non-clobber protected our own stale line) | install | fixed, confirmed |
+| 20 | Admin restructure (Status/Settings, pulldowns, custom terminal apps) + composer on Courtyard only + collapsed add form | WebUI Admin/Agents / settings | done, awaiting check |

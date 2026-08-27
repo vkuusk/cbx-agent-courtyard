@@ -213,3 +213,14 @@ def test_uninstall_removes_a_settings_file_that_held_only_ours(tmp_path):
     install.install(str(tmp_path), CMD, HUB, "coding", "tok")  # fresh: profile only
     install.uninstall(str(tmp_path))
     assert not settings_path(tmp_path).exists()  # don't leave an empty {}
+
+
+def test_reinstall_under_a_new_name_updates_our_status_line(tmp_path):
+    """Item 19 (bug, 2026-08-26): a workdir re-registered under a new name kept
+    announcing the old one — the non-clobber rule protected OUR stale line. A line
+    matching STATUS_MARK is ours and follows the current name; a hand-written one is
+    still never touched (covered by the test above)."""
+    install.install(str(tmp_path), "cmd", "http://127.0.0.1:2626", "old-name", "tok-1")
+    install.install(str(tmp_path), "cmd", "http://127.0.0.1:2626", "new-name", "tok-2")
+    doc = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
+    assert doc["statusLine"]["command"] == "echo '⏺ new-name · courtyard'"

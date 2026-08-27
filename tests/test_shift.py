@@ -428,11 +428,18 @@ class TestShiftApi:
         assert client.get("/api/settings").json() == {
             "team_mode": "on_shift",
             "terminal_app": "Terminal",
+            "custom_terminals": [],
+            "default_line_mode": "supervised",
         }
         resp = client.patch("/api/settings", json={"terminal_app": "iTerm2"})
         assert resp.status_code == 200
         assert resp.json()["terminal_app"] == "iTerm2"
-        assert client.patch("/api/settings", json={"terminal_app": "xterm"}).status_code == 422
+        resp = client.patch("/api/settings", json={"default_line_mode": "auto_pass"})
+        assert resp.status_code == 200
+        assert resp.json()["default_line_mode"] == "auto_pass"
+        resp = client.patch("/api/settings", json={"terminal_app": "xterm"})
+        assert resp.status_code == 422  # not defined (item 20: definable under custom terminals)
+        assert client.patch("/api/settings", json={"default_line_mode": "yolo"}).status_code == 422
         resp = client.patch("/api/settings", json={"team_mode": "always_on"})
         assert resp.status_code == 422
         assert resp.json()["error"]["code"] == "invalid_setting"
@@ -445,3 +452,54 @@ def test_launch_command_without_model():
     assert launch_command(agent) == (
         "claude --dangerously-load-development-channels server:courtyard"
     )
+
+
+class TestCustomTerminals:
+    """Item 20: operator-defined terminal applications (name + start string)."""
+
+    def test_add_select_edit_and_the_refusals(self, client):
+        resp = client.patch(
+            "/api/settings",
+            json={"custom_terminals": [{"name": "kitty", "command": "kitty {command}"}]},
+        )
+        assert resp.status_code == 200
+        resp = client.patch("/api/settings", json={"terminal_app": "kitty"})
+        assert resp.status_code == 200 and resp.json()["terminal_app"] == "kitty"
+
+        for label, patch in (
+            ("unknown app", {"terminal_app": "ghostty"}),
+            ("no {command}", {"custom_terminals": [{"name": "kitty", "command": "kitty"}]}),
+            (
+                "shadows a built-in",
+                {"custom_terminals": [{"name": "Terminal", "command": "x {command}"}]},
+            ),
+            ("removing the selected app", {"custom_terminals": []}),
+            (
+                "duplicate names",
+                {
+                    "custom_terminals": [
+                        {"name": "kitty", "command": "a {command}"},
+                        {"name": "kitty", "command": "b {command}"},
+                    ]
+                },
+            ),
+        ):
+            resp = client.patch("/api/settings", json=patch)
+            assert resp.status_code == 422, label
+            assert resp.json()["error"]["code"] == "invalid_setting", label
+
+        # back to a built-in, then the custom can go
+        assert client.patch("/api/settings", json={"terminal_app": "Terminal"}).status_code == 200
+        assert client.patch("/api/settings", json={"custom_terminals": []}).status_code == 200
+
+    def test_template_rendering_quotes_both_holes(self):
+        from courtyard.hub.core.spawn import CommandTemplate, make_spawner, render_template
+
+        rendered = render_template(
+            "kitty --directory {dir} sh -c {command}", "/tmp/my dir", "claude --x"
+        )
+        assert rendered.startswith("kitty --directory '/tmp/my dir' sh -c ")
+        assert "claude --x" in rendered  # {command} = ONE quoted token (cd + launch)
+        spawner = make_spawner("kitty", {"kitty": "kitty {command}"})
+        assert isinstance(spawner, CommandTemplate)
+        assert spawner.close("anything") is False and spawner.alive("x") is False

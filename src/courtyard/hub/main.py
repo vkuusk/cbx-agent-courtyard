@@ -84,7 +84,13 @@ def create_app(config: Config | None = None) -> FastAPI:
         app.state.archiver = archiver
         app.state.shift = shift
         app.state.board = Board(
-            storage, registry, EventApprover(events), cfg.max_body_bytes, events, deliverer
+            storage,
+            registry,
+            EventApprover(events),
+            cfg.max_body_bytes,
+            events,
+            deliverer,
+            default_line_mode=lambda: shift.get_settings().default_line_mode,
         )
 
         async def sweep_liveness() -> None:

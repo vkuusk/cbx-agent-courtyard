@@ -39,6 +39,25 @@ try:
     print("always_on     : ACCEPTED — that is a bug (v1 implements on_shift only)")
 except HubError as exc:
     print(f"always_on     : refused ({exc})")
+# custom terminal apps (item 20): add, select, and the refusals; restored afterwards
+saved = admin._call(
+    "PATCH",
+    "/api/settings",
+    {"custom_terminals": [{"name": "rb-term", "command": "true {command}"}]},
+)
+admin._call("PATCH", "/api/settings", {"terminal_app": "rb-term"})
+print("custom app    : added and selected (rb-term)")
+try:
+    admin._call(
+        "PATCH", "/api/settings", {"custom_terminals": [{"name": "rb-term", "command": "true"}]}
+    )
+    print("no {command}  : ACCEPTED — that is a bug")
+except HubError as exc:
+    print(f"no {{command}}  : refused ({exc.code})")
+admin._call(
+    "PATCH", "/api/settings", {"terminal_app": settings["terminal_app"], "custom_terminals": []}
+)
+print(f"restored      : {admin._call('GET', '/api/settings')['terminal_app']}, no custom apps")
 
 hr("2. SHIFT  (POST /api/shift/start -> GET /api/shift -> POST /api/shift/end)")
 # Guards: on a dev hub with REAL claude-code agents currently down, Start shift would

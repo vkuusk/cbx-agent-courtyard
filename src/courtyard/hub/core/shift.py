@@ -21,7 +21,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from courtyard.common.models import Agent, Settings, ShiftStatus
+from courtyard.common.models import BUILTIN_TERMINALS, Agent, Settings, ShiftStatus
 from courtyard.hub.core.board import expire_open_work
 from courtyard.hub.core.errors import InvalidSetting, NoShiftToResume, ShiftBusy
 from courtyard.hub.core.events import EventBus
@@ -63,14 +63,20 @@ class ShiftService:
         events: EventBus,
         heartbeat_seconds: float,
         clock: Callable[[], datetime] = _now,
-        spawner_factory: Callable[[str], TerminalSpawner] = make_spawner,
+        spawner_factory: Callable[[str], TerminalSpawner] | None = None,
         hub_started_at: datetime | None = None,
     ):
         self._storage = storage
         self._events = events
         self._heartbeat = heartbeat_seconds
         self._clock = clock
-        self._make_spawner = spawner_factory
+        # The default factory resolves custom terminal apps (item 20) against the
+        # CURRENT settings, so an edited start string applies from the next spawn.
+        self._make_spawner = spawner_factory or (
+            lambda app: make_spawner(
+                app, {t.name: t.command for t in self._settings.custom_terminals}
+            )
+        )
         self._hub_started_at = hub_started_at or clock()
         self._lock = threading.Lock()
         # tick() publishes only transitions of the derived flags (D25 stale, D26 checking)
@@ -95,10 +101,35 @@ class ShiftService:
         with self._lock:
             merged = self._settings.model_copy(update=patch)
             merged = Settings.model_validate(merged.model_dump())  # re-check literals
+            self._check_terminals(merged)
             with self._storage.transaction() as uow:
                 uow.settings.set(SETTINGS_KEY, merged.model_dump())
             self._settings = merged
             return merged
+
+    @staticmethod
+    def _check_terminals(settings: Settings) -> None:
+        """Item 20: custom terminal apps are operator-defined start strings. Names must
+        not shadow the built-ins or each other; every start string must place the launch
+        `{command}` somewhere; the selected app must actually exist."""
+        names = [t.name.strip() for t in settings.custom_terminals]
+        for terminal, name in zip(settings.custom_terminals, names, strict=True):
+            if not name:
+                raise InvalidSetting("a custom terminal needs a name")
+            if name in BUILTIN_TERMINALS:
+                raise InvalidSetting(f"{name!r} is a built-in terminal application")
+            if "{command}" not in terminal.command:
+                raise InvalidSetting(
+                    f"{name!r}: the start string must contain {{command}} — where the "
+                    "agent's launch command goes ({dir} is optional)"
+                )
+        if len(set(names)) != len(names):
+            raise InvalidSetting("custom terminal names must be unique")
+        if settings.terminal_app not in BUILTIN_TERMINALS and settings.terminal_app not in names:
+            raise InvalidSetting(
+                f"terminal application {settings.terminal_app!r} is not defined — "
+                "pick a built-in or add it under custom terminals first"
+            )
 
     # -- the shift --------------------------------------------------------------------
 

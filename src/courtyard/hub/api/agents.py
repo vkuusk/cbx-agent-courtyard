@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from courtyard.common.models import Agent, AgentColor, AgentType, Message, PeersView
 from courtyard.hub.api.deps import get_board, get_registry, require_agent
@@ -62,6 +62,29 @@ def list_agents(registry: Annotated[Registry, Depends(get_registry)]) -> list[Ag
 @router.get("/{name_or_id}")
 def get_agent(name_or_id: str, registry: Annotated[Registry, Depends(get_registry)]) -> Agent:
     return registry.get(name_or_id)
+
+
+class AgentPatch(BaseModel):
+    """WP-D (item 8): the operator-editable fields. Absent = untouched; explicit null =
+    cleared. Name and type are permanent identities and cannot be edited — an attempt is
+    a schema error, never silently ignored."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    description: str | None = Field(default=None, max_length=500)
+    sme_domain: str | None = Field(default=None, max_length=120)
+    workdir: str | None = None
+    model: str | None = Field(default=None, max_length=120)
+    color: AgentColor | None = None
+
+
+@router.patch("/{name_or_id}")
+def update_agent(
+    name_or_id: str,
+    body: AgentPatch,
+    registry: Annotated[Registry, Depends(get_registry)],
+) -> Agent:
+    return registry.update(name_or_id, body.model_dump(exclude_unset=True))
 
 
 @router.delete("/{name_or_id}")

@@ -1,6 +1,7 @@
-// Agents page: the registry — list with liveness, add (shows the launch config with the
-// once-only token and the install button), remove. Clicking a row selects that agent for
-// the input box at the bottom.
+// Agents page (reworked in WP-D, items 4/8/15): the registry — list with liveness, rows
+// with edit + remove only; the Edit Agent view holds the editable fields plus launch
+// config and rotate token; removal offers directory cleanup. Clicking a row selects
+// that agent for the input box at the bottom.
 
 import { html, useEffect, useState } from "../../vendor/htm-preact-standalone.module.js";
 import { api, ApiError } from "../api.js";
@@ -170,35 +171,146 @@ function AddForm({ onCreated, suggested }) {
       );
     }
   };
-  return html`<form class="form-row" onSubmit=${submit}>
-    <input name="name" placeholder="name (e.g. scout)" required
-      pattern="[A-Za-z0-9][A-Za-z0-9._\\-]{0,63}" title="letters, digits, dots, dashes, underscores" />
-    <select name="type" title="claude-code: a real agent. puppet: a fake agent for testing.">
-      <option value="claude-code">claude-code</option>
-      <option value="puppet">puppet</option>
-    </select>
-    <input name="description" placeholder="what is this agent for? (shown to peers)" />
-    <input name="sme_domain" placeholder="what does it own? (e.g. the AWS estate)"
-      title="its domain of responsibility — raises its standing there when it messages peers" />
-    <input name="workdir" placeholder="project dir (claude-code, optional)"
-      title="the agent's project directory — lets the hub write .mcp.json there for you" />
-    <input name="model" placeholder="model (optional, e.g. sonnet)"
-      title="the model its runtime should use — written into .claude/settings.local.json by install, and the launch command adds --model" />
-    <div class="swatches" role="radiogroup" aria-label="colour on the board">
-      <span class="small muted">colour:</span>
-      ${COLORS.map((c) => html`<button type="button" class="swatch ${c === color ? "selected" : ""}" data-color=${c}
-        title=${c} aria-label=${c} aria-pressed=${c === color} onClick=${() => setPicked(c)} />`)}
+  // Item 4: identity first (name · type · directory · colour), then the two multiline
+  // texts the peers actually read — room to write real sentences.
+  return html`<form class="add-form" onSubmit=${submit}>
+    <div class="form-row">
+      <input name="name" placeholder="name (e.g. scout)" required
+        pattern="[A-Za-z0-9][A-Za-z0-9._\\-]{0,63}" title="letters, digits, dots, dashes, underscores" />
+      <select name="type" title="claude-code: a real agent. puppet: a fake agent for testing.">
+        <option value="claude-code">claude-code</option>
+        <option value="puppet">puppet</option>
+      </select>
+      <input name="workdir" placeholder="project directory (claude-code, optional)"
+        title="the agent's project directory — lets the hub write its config there for you" />
+      <input name="model" placeholder="model (optional, e.g. sonnet)"
+        title="the model its runtime should use — written into .claude/settings.local.json by install, and the launch command adds --model" />
+      <div class="swatches" role="radiogroup" aria-label="colour on the board">
+        <span class="small muted">colour:</span>
+        ${COLORS.map((c) => html`<button type="button" class="swatch ${c === color ? "selected" : ""}" data-color=${c}
+          title=${c} aria-label=${c} aria-pressed=${c === color} onClick=${() => setPicked(c)} />`)}
+      </div>
     </div>
-    <button class="btn primary">add agent</button>
-    ${error ? html`<div class="error" style="flex-basis:100%">${error}</div>` : null}
+    <textarea name="description" rows="2" placeholder="what is this agent for? (shown to peers)"></textarea>
+    <textarea name="sme_domain" rows="2"
+      placeholder="what does it own? (e.g. the AWS estate) — raises its standing there when it messages peers"></textarea>
+    <div class="form-row">
+      <button class="btn primary">add agent</button>
+      ${error ? html`<div class="error">${error}</div>` : null}
+    </div>
   </form>`;
+}
+
+// The Edit Agent view (item 8): everything about one agent in one place — the editable
+// fields (name and type are permanent identities), plus launch config and rotate token,
+// which moved here from the list rows.
+function EditPanel({ agent, onLaunch, onRotate, onClose }) {
+  const [error, setError] = useState(null);
+  const [saved, setSaved] = useState(false);
+  const [picked, setPicked] = useState(agent.color);
+  const submit = async (e) => {
+    e.preventDefault();
+    setError(null);
+    setSaved(false);
+    const data = new FormData(e.currentTarget);
+    const text = (k) => (data.get(k) || "").trim() || null;
+    try {
+      const updated = await api.patchAgent(agent.name, {
+        description: text("description"),
+        sme_domain: text("sme_domain"),
+        workdir: text("workdir"),
+        model: text("model"),
+        color: picked,
+      });
+      store.agents.set(updated.id, updated);
+      setSaved(true);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+  return html`<div class="panel ok">
+    <div class="panel-head"><h3><span class="chip" data-color=${picked}>${agent.name}</span> — edit</h3>
+      <button class="link" onClick=${onClose}>close</button></div>
+    <form class="add-form" onSubmit=${submit}>
+      <div class="form-row">
+        <span class="small muted">${agent.type} · name and type are permanent</span>
+        <input name="workdir" defaultValue=${agent.workdir ?? ""} placeholder="project directory" />
+        <input name="model" defaultValue=${agent.model ?? ""} placeholder="model (e.g. sonnet)" />
+        <div class="swatches" role="radiogroup" aria-label="colour on the board">
+          <span class="small muted">colour:</span>
+          ${COLORS.map((c) => html`<button type="button" class="swatch ${c === picked ? "selected" : ""}" data-color=${c}
+            title=${c} aria-label=${c} aria-pressed=${c === picked} onClick=${() => setPicked(c)} />`)}
+        </div>
+      </div>
+      <textarea name="description" rows="2" placeholder="what is this agent for? (shown to peers)"
+        defaultValue=${agent.description ?? ""}></textarea>
+      <textarea name="sme_domain" rows="2" placeholder="what does it own?"
+        defaultValue=${agent.sme_domain ?? ""}></textarea>
+      <div class="form-row">
+        <button class="btn primary">save</button>
+        <button type="button" class="btn" onClick=${() => onLaunch(agent)}>launch config</button>
+        <button type="button" class="btn" onClick=${() => onRotate(agent)}>rotate token</button>
+        ${saved ? html`<span class="small muted">saved — model and status-line changes reach the agent at its next install + restart</span>` : null}
+        ${error ? html`<div class="error">${error}</div>` : null}
+      </div>
+    </form>
+  </div>`;
+}
+
+// Removal asks about the agent's directory too (item 15): removing from the hub and
+// leaving a dead token in the project is the half-done state that bit us after db-nuke.
+function RemoveDialog({ agent, onClose }) {
+  const [cleanup, setCleanup] = useState(Boolean(agent.workdir));
+  const [busy, setBusy] = useState(false);
+  const doRemove = async () => {
+    setBusy(true);
+    if (cleanup && agent.workdir) {
+      try {
+        await api.uninstallAgent(agent.name);
+      } catch (err) {
+        if (err.code !== "nothing_to_uninstall") {
+          alert(`Directory cleanup failed: ${err.message}\n\nRemoving the agent anyway.`);
+        }
+      }
+    }
+    try {
+      await api.removeAgent(agent.name);
+      onClose(true);
+    } catch (err) {
+      alert(err.message);
+      onClose(false);
+    }
+  };
+  return html`<div class="overlay" onClick=${(e) => e.target === e.currentTarget && onClose(false)}
+      onKeyDown=${(e) => e.key === "Escape" && onClose(false)}>
+    <div class="dialog" role="alertdialog" aria-modal="true" aria-label="Remove ${agent.name}">
+      <h3>Remove ${agent.name} from the courtyard?</h3>
+      <p>Its token stops working at once; its conversations move to the Archive. The name
+        stays taken — names are permanent identities.</p>
+      ${agent.workdir
+        ? html`<label class="small" style="display:flex;gap:.5rem;align-items:baseline">
+            <input type="checkbox" checked=${cleanup} onChange=${(e) => setCleanup(e.target.checked)} />
+            <span>also clean up its project directory — takes the courtyard pieces back out of
+              <code>.mcp.json</code> and <code>.claude/settings.local.json</code> in ${agent.workdir}
+              (a running session is not stopped; the dead token locks it out)</span></label>`
+        : null}
+      <div class="form-row" style="justify-content:flex-end">
+        <button class="btn" onClick=${() => onClose(false)}>cancel</button>
+        <button class="btn danger" disabled=${busy} ref=${(el) => el?.focus()}
+          onClick=${doRemove}>${busy ? "removing…" : "remove"}</button>
+      </div>
+    </div>
+  </div>`;
 }
 
 const HEADERS = ["agent", "type", "description", "owns", "status", "last seen", "actions"];
 
 export function Agents() {
   useStore();
-  const [panel, setPanel] = useState(null); // {agent, token, note} | {agent, missing: true}
+  // {agent, token, note} = launch config · {agent, missing} = no stored token ·
+  // {agent, edit} = the Edit Agent view (item 8)
+  const [panel, setPanel] = useState(null);
+  const [removing, setRemoving] = useState(null); // agent in the remove dialog (item 15)
   const [adapterCommand, setAdapterCommand] = useState("courtyard-claude-mcp");
   useEffect(() => {
     api.config().then((c) => setAdapterCommand(c.adapter_command)).catch(() => {});
@@ -237,14 +349,9 @@ export function Agents() {
       alert(err.message);
     }
   };
-  const remove = async (agent) => {
-    if (!confirm(`Remove ${agent.name} from the courtyard?\n\nIts token stops working; history is kept.`)) return;
-    try {
-      await api.removeAgent(agent.name);
-      if (panel?.agent.id === agent.id) setPanel(null);
-    } catch (err) {
-      alert(err.message);
-    }
+  const closeRemove = (removed) => {
+    if (removed && panel?.agent.id === removing?.id) setPanel(null);
+    setRemoving(null);
   };
   const onCreated = (c) => {
     store.agents.set(c.agent.id, c.agent); // the SSE event follows; don't wait for it
@@ -272,21 +379,40 @@ export function Agents() {
           <td class="muted small">${fmtAgo(a.last_seen_at)}</td>
           <td>${pickable
             ? html`<div class="actions">
-                <button class="btn" onClick=${stop(() => open(a))}>launch config</button>
-                <button class="btn" onClick=${stop(() => rotate(a))}>rotate token</button>
-                <button class="btn danger" onClick=${stop(() => remove(a))}>remove</button></div>`
+                <button class="btn" onClick=${stop(() => setPanel({ agent: a, edit: true }))}>edit</button>
+                <button class="btn danger" onClick=${stop(() => setRemoving(a))}>remove</button></div>`
             : html`<span class="muted small">—</span>`}</td>
         </tr>`;
       })}</tbody>
     </table>
-    <div class="small muted" style="margin:.5rem 0 0">Click an agent to talk to it from the box below.</div>
+    <div class="small muted" style="margin:.5rem 0 0">Click an agent to select it — the Courtyard page's
+      message box follows your selection.</div>
     ${panel?.missing
       ? html`<${NoTokenPanel} agent=${panel.agent} onRotate=${rotate} onClose=${() => setPanel(null)} />`
-      : panel
-        ? html`<${LaunchPanel} key=${`${panel.agent.id}:${panel.token}`}
-            agent=${store.agents.get(panel.agent.id) ?? panel.agent} token=${panel.token}
-            note=${panel.note} adapterCommand=${adapterCommand} onClose=${() => setPanel(null)} />`
-        : null}
-    <div class="panel"><h3>Add an agent</h3>
-      <${AddForm} onCreated=${onCreated} suggested=${leastUsedColor([...store.agents.values()])} /></div>`;
+      : panel?.edit
+        ? html`<${EditPanel} key=${panel.agent.id}
+            agent=${store.agents.get(panel.agent.id) ?? panel.agent}
+            onLaunch=${open} onRotate=${rotate} onClose=${() => setPanel(null)} />`
+        : panel
+          ? html`<${LaunchPanel} key=${`${panel.agent.id}:${panel.token}`}
+              agent=${store.agents.get(panel.agent.id) ?? panel.agent} token=${panel.token}
+              note=${panel.note} adapterCommand=${adapterCommand} onClose=${() => setPanel(null)} />`
+          : null}
+    ${removing ? html`<${RemoveDialog} agent=${removing} onClose=${closeRemove} />` : null}
+    <${AddAgentPanel} onCreated=${onCreated} />`;
+}
+
+// Collapsed by default (his feedback, 2026-08-26): registering is occasional, the form
+// was crowding the page.
+function AddAgentPanel({ onCreated }) {
+  const [open, setOpen] = useState(false);
+  if (!open) {
+    return html`<button class="btn" style="margin-top:.8rem" onClick=${() => setOpen(true)}>+ Add an agent</button>`;
+  }
+  return html`<div class="panel">
+    <div class="panel-head"><h3>Add an agent</h3>
+      <button class="link" onClick=${() => setOpen(false)}>close</button></div>
+    <${AddForm} onCreated=${(c) => { setOpen(false); onCreated(c); }}
+      suggested=${leastUsedColor([...store.agents.values()])} />
+  </div>`;
 }

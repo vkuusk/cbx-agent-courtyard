@@ -262,12 +262,13 @@ export function Board() {
       </div>
     </div>
     <${Resizer} which="team" />
-    ${active.length
-      ? html`<div class="board-panel panel-lines" style=${panelStyle("lines")}>
-          <div class="eyebrow">Lines</div>
-          <div class="lines">${active.map((l) => html`<${Wire} key=${l.id} line=${l} />`)}</div>
-        </div>
-        <${Resizer} which="lines" />`
-      : null}
+    <div class="board-panel panel-lines" style=${panelStyle("lines")}>
+      <div class="eyebrow">Lines</div>
+      ${active.length
+        ? html`<div class="lines">${active.map((l) => html`<${Wire} key=${l.id} line=${l} />`)}</div>`
+        : html`<div class="small muted" style="padding:.2rem 0 .4rem">No lines between agents yet —
+            a line appears when two agents first message each other.</div>`}
+    </div>
+    <${Resizer} which="lines" />
     <${Conversation} />`;
 }

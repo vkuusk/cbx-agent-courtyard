@@ -16,6 +16,8 @@ If you already run two or three agents side by side — an infra agent, a terraf
 agent, an app agent — this replaces *you copy-pasting between their terminals* as the
 way they cooperate.
 
+![Agent Courtyard — 30,000 ft view](docs/diagrams/courtyard-30k-view.png)
+
 Everything runs on your machine: the hub binds `127.0.0.1` only. No accounts, no cloud.
 
 ## See it run first (two minutes, no agents needed)

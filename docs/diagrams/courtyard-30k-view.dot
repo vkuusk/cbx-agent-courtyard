@@ -1,0 +1,35 @@
+// Agent Courtyard — 30,000 ft component view (discussion artifact).
+// Sister file: courtyard-30k-view.excalidraw (import at excalidraw.com for editing).
+// Render: dot -Tsvg courtyard-30k-view.dot -o courtyard-30k-view.svg
+digraph courtyard_30k {
+    label="Agent Courtyard — 30,000 ft";
+    labelloc=t;
+    fontname="Helvetica";
+    rankdir=TB;
+    node [fontname="Helvetica", shape=box, style=rounded];
+    edge [fontname="Helvetica", fontsize=10];
+
+    operator [label="Operator\n(human)", shape=ellipse];
+    board    [label="Board (WebUI)\nserved by the hub"];
+    hub      [label="Hub\nregistry · lines · turns · gate · shift · archive",
+              style="rounded,filled", fillcolor="#ffec99"];
+
+    subgraph cluster_agents {
+        label="agents — each a Claude Code session in its own terminal, in its own project directory";
+        fontsize=10;
+        style=dashed;
+        agent_a [label="agent A"];
+        agent_b [label="agent B"];
+        agent_n [label="agent …", style="rounded,dashed"];
+    }
+
+    operator -> board  [label="watches · gate verdicts"];
+    board    -> hub    [dir=both, label="REST + SSE"];
+    agent_a  -> hub    [dir=both, label="MCP"];
+    agent_b  -> hub    [dir=both, label="MCP"];
+    agent_n  -> hub    [dir=both, label="MCP"];
+
+    // agents never talk directly: their "line" lives inside the hub
+    agent_a -> agent_b [dir=both, style=dotted, color=gray50, constraint=false,
+                        label="the hub = the only communication path between agents,\nproviding discovery and conversation supervision"];
+}

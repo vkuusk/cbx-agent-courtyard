@@ -9,7 +9,7 @@ Proves the install path without a Claude Code session:
   4. uninstall restores the project's original .mcp.json exactly and removes only what
      install added to the settings
 
-Run against a hub started with `make db-up && make run`:
+Run against a hub started with `make run`:
     uv run python scripts/runbook/install_mcp_json.py
 
 Throwaway: it registers one agent under a temp workdir and removes both at the end.

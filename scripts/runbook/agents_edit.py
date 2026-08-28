@@ -7,7 +7,7 @@
   3. Defaults: default_line_mode round trip (restored afterwards); a NEW line follows it
 
 Safe against the dev hub: throwaway agents, a temp workdir, and the settings value is
-put back exactly as found. Run against a hub started with `make db-up && make run`:
+put back exactly as found. Run against a hub started with `make run`:
     uv run python scripts/runbook/agents_edit.py
 """
 

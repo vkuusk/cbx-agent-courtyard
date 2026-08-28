@@ -7,7 +7,7 @@ or a spent token:
   3. courtyard_peers: ranked, trimmed and worded by the hub; the adapter forwards it
   4. a break-out attempt: a body's forged tags are escaped, so it cannot leave its envelope
 
-Run against a hub started with `make db-up && make run`:
+Run against a hub started with `make run`:
     uv run python scripts/runbook/envelope_and_peers.py
 
 Throwaway: it registers two agents with unique names and removes them at the end.

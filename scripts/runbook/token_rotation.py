@@ -5,7 +5,7 @@
   3. rotation: the old token is refused, the new one works, the running session is dropped
   4. re-installing writes the new token into .mcp.json
 
-Run against a hub started with `make db-up && make run`:
+Run against a hub started with `make run`:
     uv run python scripts/runbook/token_rotation.py
 
 Throwaway: it registers one agent under a temp workdir and removes both at the end.

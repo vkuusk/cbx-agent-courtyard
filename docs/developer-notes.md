@@ -36,7 +36,7 @@ alongside green `make test` and clean `make lint` — not a follow-up.
   is what a real agent would receive.
 
 **Before handing a procedure to the architect, run it yourself** against a live hub
-(`make db-up && make run`) and confirm it works end to end. Never present a command unrun.
+(`make run`) and confirm it works end to end. Never present a command unrun.
 
 **Automated tests remain the proof of logic; the runbook is for seeing it work.** Both, not
 either. The runbook also doubles as living documentation of how each feature behaves.

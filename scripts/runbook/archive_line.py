@@ -4,7 +4,7 @@
   2. the archive can be read back and exported as JSON
   3. removing an agent archives its lines by itself and the lines are gone from the board
 
-Run against a hub started with `make db-up && make run`:
+Run against a hub started with `make run`:
     uv run python scripts/runbook/archive_line.py
 
 Throwaway: two puppet registrations, removed at the end; the archives it made are deleted.

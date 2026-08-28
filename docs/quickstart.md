@@ -19,8 +19,7 @@ Requirements: [uv](https://docs.astral.sh/uv/), Docker with compose, and
 git clone https://github.com/vkuusk/cbx-agent-courtyard.git
 cd cbx-agent-courtyard
 uv sync            # creates .venv with everything, including the agent adapter
-make db-up         # postgres in a container; waits until it is healthy
-make run           # the hub on http://127.0.0.1:2626 — leave this terminal up
+make run           # postgres up + the hub on http://127.0.0.1:2626 — leave this terminal up
 ```
 
 Open **http://127.0.0.1:2626/**. The board is empty and the dot at the top right says

@@ -48,7 +48,7 @@ this part is macOS-first; the hub itself is plain Python + Postgres.
 make run-chrome     # postgres + hub + the board in its own Chrome window
 ```
 
-(or `make db-up && make run` and open http://127.0.0.1:2626 in any browser)
+(or just `make run` and open http://127.0.0.1:2626 in any browser)
 
 Then, on the board:
 

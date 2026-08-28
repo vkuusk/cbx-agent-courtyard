@@ -8,7 +8,7 @@
      lines (a forced end would close the books on YOUR conversations too) and no real
      claude-code agent is down (starting the shift would open real terminals).
 
-Run against a hub started with `make db-up && make run`:
+Run against a hub started with `make run`:
     uv run python scripts/runbook/expire_and_rearm.py
 """
 

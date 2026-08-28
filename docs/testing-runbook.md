@@ -12,7 +12,7 @@ make run      # leave this terminal up; run procedures from another
 ```
 
 Optional but recommended before a procedure whose output lists agents: `make db-nuke`
-(then `make db-up && make run` again) clears registrations left by earlier runs.
+(then `make run` again) clears registrations left by earlier runs.
 
 ---
 
@@ -191,7 +191,7 @@ added/validated/removed (item 20), the machine through a full cycle — spawns n
 if real claude-code agents are down):
 
 ```
-make db-up && make run          # hub in another terminal
+make run                        # hub in another terminal
 uv run python scripts/runbook/shift_and_settings.py
 ```
 
@@ -235,7 +235,7 @@ other line is idle and no real claude-code agent is down — a forced end would 
 real conversations, and a shift start would open real terminals):
 
 ```
-make db-up && make run          # hub in another terminal
+make run                        # hub in another terminal
 uv run python scripts/runbook/expire_and_rearm.py
 ```
 
@@ -314,7 +314,7 @@ agent's project directory — and Admin → Defaults' `New lines start` setting 
 **Scripted part** (throwaway agents + a temp workdir; the settings value is restored):
 
 ```
-make db-up && make run          # hub in another terminal
+make run                        # hub in another terminal
 uv run python scripts/runbook/agents_edit.py
 ```
 

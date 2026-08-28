@@ -7,7 +7,7 @@
      real terminal window. The real-spawn check is the manual procedure in
      docs/testing-runbook.md (press the pill with a claude-code agent down).
 
-Run against a hub started with `make db-up && make run`:
+Run against a hub started with `make run`:
     uv run python scripts/runbook/shift_and_settings.py
 """
 

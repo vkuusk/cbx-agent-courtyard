@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Step-1 walkthrough: the whole domain over curl (design doc §5, plan step 1).
-# Run against a live hub:  make db-up && make run   then   ./scripts/step1-walkthrough.sh
+# Run against a live hub:  make run   then   ./scripts/step1-walkthrough.sh
 # Re-runnable: agent names get a unique suffix (registrations are never deleted).
 set -euo pipefail
 

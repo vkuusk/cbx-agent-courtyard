@@ -2,7 +2,7 @@
 
 CHROME ?= /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
 
-run:            ## start the hub in dev mode (needs db-up first)
+run: db-up      ## start the hub in dev mode (brings postgres up if needed)
 	uv run courtyard-hub
 
 run-chrome: db-up  ## app mode: hub in the background (log: sandbox/courtyard.log) + the WebUI in its own Chrome window

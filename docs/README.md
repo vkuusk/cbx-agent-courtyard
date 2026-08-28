@@ -45,7 +45,7 @@ The core ideas, each with its section in the design doc:
 
 ## Development setup
 
-The basics are in the root README (`uv sync`, `make db-up`, `make run`). The notes
+The basics are in the root README (`uv sync`, `make run` — which brings postgres up itself). The notes
 below matter once you work on the code.
 
 **The demo, in more detail.** `make demo` starts the hub (unless one is running) plus

@@ -111,9 +111,30 @@ class AppleTerminal:
 
     def spawn(self, cwd: str, command: str) -> str | None:
         line = applescript_str(shell_command(cwd, command))
+        # Cold start (found live, 2026-08-28): when Terminal.app is not running, the
+        # first `do script` launches it, and the app opens its own startup window — a
+        # bare shell the hub never recorded, so End shift left it behind. So: check
+        # `running` BEFORE the tell block (touching the app inside one launches it),
+        # and on a cold start run the first agent in that startup window instead —
+        # it becomes a normal recorded spawn. The fallback plain `do script` covers a
+        # launch that opened no window; either way exactly one window per agent.
         out = _osascript(
+            'set wasRunning to application "Terminal" is running\n'
             'tell application "Terminal"\n'
-            f"  set t to do script {line}\n"
+            "  if wasRunning then\n"
+            f"    set t to do script {line}\n"
+            "  else\n"
+            "    launch\n"
+            "    repeat 30 times\n"  # wait for the startup window (~3 s worst case)
+            "      if (count of windows) > 0 then exit repeat\n"
+            "      delay 0.1\n"
+            "    end repeat\n"
+            "    if (count of windows) > 0 then\n"
+            f"      set t to do script {line} in window 1\n"
+            "    else\n"
+            f"      set t to do script {line}\n"
+            "    end if\n"
+            "  end if\n"
             # the tab's own window, not "front window" — spawning several agents
             # back-to-back must never record a neighbour's id
             "  set w to id of (first window whose selected tab is t)\n"

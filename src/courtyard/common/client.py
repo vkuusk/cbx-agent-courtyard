@@ -124,6 +124,10 @@ class HubClient:
         )
         return Agent.model_validate(data["agent"]), data["token"]
 
+    def remove_agent(self, name: str) -> Agent:
+        """Remove a registration; its lines are archived and dropped (design §5.7)."""
+        return Agent.model_validate(self._call("DELETE", f"/api/agents/{name}"))
+
     def agents(self) -> list[Agent]:
         return [Agent.model_validate(a) for a in self._call("GET", "/api/agents")]
 
@@ -183,6 +187,20 @@ class HubClient:
 
     def release(self, line_id: UUID | str) -> Line:
         return Line.model_validate(self._call("POST", f"/api/lines/{line_id}/release"))
+
+    def link(self, a: str, b: str) -> Line:
+        """Pre-create the idle line between two agents (design §5.8, D22)."""
+        return Line.model_validate(self._call("POST", "/api/lines", {"a": a, "b": b}))
+
+    def unlink(self, line_id: UUID | str) -> Archive:
+        """Remove a line — the link itself (§5.8) — archiving its history first."""
+        return Archive.model_validate(self._call("POST", f"/api/lines/{line_id}/unlink"))
+
+    def settings(self) -> dict:
+        return self._call("GET", "/api/settings")
+
+    def patch_settings(self, patch: dict) -> dict:
+        return self._call("PATCH", "/api/settings", patch)
 
 
 class ChannelReceiver:

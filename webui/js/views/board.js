@@ -240,12 +240,48 @@ function Resizer({ which }) {
 
 const panelStyle = (which) => (store.ui.panels[which] ? `max-height:${store.ui.panels[which]}px` : "");
 
+// Manual discovery (§5.8, D22): the operator wires the team here. Collapsed to a small
+// square '+' in the bottom-left of the Lines panel (his call, 2026-08-28) — a help
+// bubble appears on hover; clicking it expands the two-agent picker in its place.
+function LinkAgents() {
+  const [open, setOpen] = useState(false);
+  const [a, setA] = useState("");
+  const [b, setB] = useState("");
+  const team = teamAgents();
+  if (team.length < 2) return null;
+  const link = () => {
+    api.linkAgents(a, b)
+      .then((line) => { setOpen(false); setA(""); setB(""); select({ kind: "line", id: line.id }); })
+      .catch((err) => alert(err.message));
+  };
+  if (!open) {
+    return html`<div class="link-corner">
+      <button class="link-add" aria-label="link two agents" onClick=${() => setOpen(true)}>+</button>
+      <span class="link-bubble">link two agents — an idle line opens between them</span>
+    </div>`;
+  }
+  const pick = (value, onChange, exclude) => html`
+    <select value=${value} onChange=${(e) => onChange(e.target.value)}>
+      <option value="" selected=${value === ""}>choose an agent…</option>
+      ${team.filter((t) => t.name !== exclude).map((t) =>
+        html`<option value=${t.name} selected=${t.name === value}>${t.name}</option>`)}
+    </select>`;
+  return html`<div class="form-row link-corner" style="margin:.3rem 0 0">
+    ${pick(a, setA, b)}
+    <span class="small muted">↔</span>
+    ${pick(b, setB, a)}
+    <button class="btn primary" disabled=${!a || !b} onClick=${link}>link</button>
+    <button class="btn" onClick=${() => setOpen(false)}>cancel</button>
+  </div>`;
+}
+
 export function Board() {
   useStore();
   const team = teamAgents();
   // D26: while any status is unverified after a hub restart, dim the Team panel — the
   // liveness claims are what's unknown; lines and history below are database truth.
   const checking = team.some((a) => a.status === "unknown");
+  const manual = store.settings?.discovery === "manual";
   // Lines of removed agents are archived (design §5.7), so every line here is live.
   const active = [...store.lines.values()]
     .filter((l) => !isOperatorLine(l) && !isInactive(l))
@@ -266,8 +302,10 @@ export function Board() {
       <div class="eyebrow">Lines</div>
       ${active.length
         ? html`<div class="lines">${active.map((l) => html`<${Wire} key=${l.id} line=${l} />`)}</div>`
-        : html`<div class="small muted" style="padding:.2rem 0 .4rem">No lines between agents yet —
-            a line appears when two agents first message each other.</div>`}
+        : html`<div class="small muted" style="padding:.2rem 0 .4rem">${manual
+            ? "No lines yet — link two agents to open a line."
+            : "No lines between agents yet — a line appears when two agents first message each other."}</div>`}
+      ${manual ? html`<${LinkAgents} />` : null}
     </div>
     <${Resizer} which="lines" />
     <${Conversation} />`;

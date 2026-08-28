@@ -73,9 +73,9 @@ class TestPlanGateDecision:
         plan = turns.plan_gate_decision(pending(M), M, None, B, "return")
         assert plan == turns.GatePlan("returned", "idle", None, None, True)
 
-    def test_reject_drops_and_notifies(self):
-        plan = turns.plan_gate_decision(pending(M), M, None, B, "reject")
-        assert plan == turns.GatePlan("rejected", "idle", None, None, True)
+    def test_drop_ends_the_exchange_and_notifies(self):
+        plan = turns.plan_gate_decision(pending(M), M, None, B, "drop")
+        assert plan == turns.GatePlan("dropped", "idle", None, None, True)
 
     def test_decision_on_non_pending_line_refused(self):
         with pytest.raises(NotPending):

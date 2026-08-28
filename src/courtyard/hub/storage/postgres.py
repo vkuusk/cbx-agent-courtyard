@@ -143,6 +143,13 @@ class PgLineRepo:
         ).fetchone()
         return Line.model_validate(row)
 
+    def get_pair_locked(self, a: UUID, b: UUID) -> Line | None:
+        a, b = sorted((a, b))
+        row = self._conn.execute(
+            "SELECT * FROM lines WHERE agent_a = %s AND agent_b = %s FOR UPDATE", (a, b)
+        ).fetchone()
+        return Line.model_validate(row) if row else None
+
     def get(self, line_id: UUID) -> Line | None:
         row = self._conn.execute(_LINE_SELECT + " WHERE l.id = %s", (line_id,)).fetchone()
         return Line.model_validate(row) if row else None

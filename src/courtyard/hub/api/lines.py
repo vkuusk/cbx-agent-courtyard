@@ -30,6 +30,11 @@ class NoteRequest(BaseModel):
     body: str
 
 
+class LinkRequest(BaseModel):
+    a: str  # agent name or id
+    b: str
+
+
 @router.post("/send", status_code=201)
 def send(
     body: SendRequest,
@@ -37,6 +42,13 @@ def send(
     board: Annotated[Board, Depends(get_board)],
 ) -> Message:
     return board.send(sender, body.to, body.body)
+
+
+@router.post("", status_code=201)
+def link(body: LinkRequest, board: Annotated[Board, Depends(get_board)]) -> Line:
+    """Operator link (design §5.8, D22): pre-create the idle line between two agents —
+    under manual discovery, the permission for them to talk."""
+    return board.link(body.a, body.b)
 
 
 @router.get("")
@@ -79,3 +91,9 @@ def release(line_id: UUID, board: Annotated[Board, Depends(get_board)]) -> Line:
 def archive(line_id: UUID, archiver: Annotated[Archiver, Depends(get_archiver)]) -> Archive:
     """Archive the history so far (design §5.7); the line continues, empty and idle."""
     return archiver.archive_line(line_id)
+
+
+@router.post("/{line_id}/unlink")
+def unlink(line_id: UUID, archiver: Annotated[Archiver, Depends(get_archiver)]) -> Archive:
+    """Remove the line — the link itself (design §5.8, D22) — archiving its history first."""
+    return archiver.unlink(line_id)

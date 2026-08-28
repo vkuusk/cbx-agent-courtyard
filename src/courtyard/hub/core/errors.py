@@ -44,6 +44,17 @@ class GatePendingBlock(DomainError):
     code = "gate_pending"
 
 
+class NotLinked(DomainError):
+    """Manual discovery (§5.8, D22): the sender has no line with that peer — the adapter
+    surfaces this as the tool result, same idiom as a turn violation."""
+
+    code = "not_linked"
+
+
+class AlreadyLinked(DomainError):
+    code = "already_linked"
+
+
 class NotPending(DomainError):
     code = "not_pending"
 

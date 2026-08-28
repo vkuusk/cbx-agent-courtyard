@@ -12,7 +12,7 @@ import logging
 from uuid import UUID, uuid4
 
 from courtyard.common.models import Archive, Line, Message
-from courtyard.hub.core.errors import ArchiveNotFound, LineNotFound
+from courtyard.hub.core.errors import ArchiveNotFound, LineNotFound, NotAllowed
 from courtyard.hub.core.events import EventBus
 from courtyard.hub.storage.repo import Storage, UnitOfWork
 
@@ -78,6 +78,21 @@ class Archiver:
         self._events.publish("archive", archive)
         self._events.publish("message", entry)
         self._events.publish("line", line)
+        return archive
+
+    def unlink(self, line_id: UUID) -> Archive:
+        """Operator action under manual discovery (§5.8, D22): remove the line — and with
+        it the permission — archiving its history first (D20's agent-removal variant).
+        Operator lines are never unlinked: the operator needs no links."""
+        with self._storage.transaction() as uow:
+            line = uow.lines.get_locked(line_id)
+            if line is None:
+                raise LineNotFound("no such line")
+            agents = (uow.agents.get(line.agent_a), uow.agents.get(line.agent_b))
+            if any(a.type == "human" for a in agents):
+                raise NotAllowed("the operator's own lines cannot be unlinked")
+            archive, _ = archive_line_in(uow, line, "unlinked", keep_line=False)
+        self._events.publish("archive", archive)
         return archive
 
     def reconcile(self) -> list[Archive]:

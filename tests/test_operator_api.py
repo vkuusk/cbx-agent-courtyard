@@ -58,7 +58,7 @@ def test_note_to_both_reaches_both_participants(client, make_agent):
     first = client.post(
         "/api/lines/send", json={"to": "bob", "body": "make the line"}, headers=auth(alice)
     ).json()
-    client.post(f"/api/gate/{first['id']}", json={"verdict": "reject"})
+    client.post(f"/api/gate/{first['id']}", json={"verdict": "drop"})
 
     resp = client.post(
         f"/api/lines/{first['line_id']}/note", json={"body": "you two: use repo X"}

@@ -17,6 +17,7 @@ export const store = {
   pending: new Map(), // messageId -> message held at the gate
   inbox: new Map(), // messageId -> message addressed to the operator
   shift: null, // ShiftStatus from the hub (design §8.1) — the Team panel pill renders it
+  settings: null, // hub Settings — the board reads discovery (§5.8) to offer link/unlink
   sse: "connecting", // connecting | live | lost
   version: 0, // bumped on every change; lets a component catch up if it subscribed late
   archiveVersion: 0, // bumped when an archive is created (the Archive page refetches)
@@ -25,7 +26,6 @@ export const store = {
     selected: null, // {kind: "agent", id} = your line with it · {kind: "line", id} = a line
     draft: "", // what is typed for the CURRENT selection (drafts holds the others)
     drafts: {}, // per-selection drafts — text stays with what it was typed for
-    noteTarget: "both", // when a line is selected: both | <participant id>
     shiftQuestionDismissed: false, // D25: "Not now" on the stale-shift question (per page load)
     collapsed: localStorage.getItem(RAIL_KEY) === "collapsed",
     showInactive: false,
@@ -73,9 +73,9 @@ const selKey = (s) => (s ? `${s.kind}:${s.id}` : "none");
 
 export function select(selected) {
   // The draft belongs to what it was typed for (feedback 9, 2026-08-24): stash it under
-  // the old selection, bring back whatever was typed for the new one, reset the target.
+  // the old selection, bring back whatever was typed for the new one.
   store.ui.drafts[selKey(store.ui.selected)] = store.ui.draft;
-  setUi({ selected, noteTarget: "both", draft: store.ui.drafts[selKey(selected)] ?? "" });
+  setUi({ selected, draft: store.ui.drafts[selKey(selected)] ?? "" });
 }
 
 export function setDraft(draft) {
@@ -235,20 +235,34 @@ export function totalUnread() {
 // ---- data loading -----------------------------------------------------------------
 
 export async function refreshSnapshot() {
-  const [agents, lines, pending, inbox, shift] = await Promise.all([
+  const [agents, lines, pending, inbox, shift, settings] = await Promise.all([
     api.agents(),
     api.lines(),
     api.pending(),
     api.operatorInbox(),
     api.shift(),
+    api.settings(),
   ]);
   store.agents = new Map(agents.map((a) => [a.id, a]));
   store.lines = new Map(lines.map((l) => [l.id, l]));
   store.pending = new Map(pending.map((m) => [m.id, m]));
   store.inbox = new Map(inbox.map((m) => [m.id, m]));
   store.shift = shift;
+  store.settings = settings;
+  // A cached transcript may belong to a line that no longer exists (unlinked, or its
+  // agent removed, while on screen) — reloading it would 404 and abort the refresh.
+  for (const id of [...store.messages.keys()]) {
+    if (!store.lines.has(id)) store.messages.delete(id);
+  }
   await Promise.all([...store.messages.keys()].map(loadMessages));
   ensureSelection();
+  notify();
+}
+
+// Settings changed in this browser (Admin's save) flow straight in; other tabs catch up
+// on their next snapshot — there is no settings SSE event, and one operator is the norm.
+export function applySettings(settings) {
+  store.settings = settings;
   notify();
 }
 

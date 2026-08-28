@@ -67,7 +67,10 @@ mcp__courtyard__courtyard_send — they are the same tools.)
 
 When you answer, answer what was asked, completely and no more: no trailing offers of \
 further work, no side questions the task does not need — each one costs the recipient a \
-full exchange under the turn rule below.
+full exchange under the turn rule below. When you asked something on someone else's \
+behalf — your operator told you to ask a peer, say — the answer you receive closes only \
+that exchange: deliver the result to whoever is waiting on it, with courtyard_send, \
+before considering the task done.
 
 The hub enforces one rule: between any pair of agents, at most one unanswered message may \
 be in flight. Sending again before the other side answers is refused with a \
@@ -387,7 +390,7 @@ class CourtyardAdapter:
         if message.status == "pending_gate":
             text = (
                 f"Held at the gate for the operator's approval (seq {message.seq}); it has "
-                f"not reached {to} yet. Wait — you will be told if it is returned or rejected."
+                f"not reached {to} yet. Wait — you will be told if it is returned or dropped."
             )
         elif message.status == "delivered":
             text = (

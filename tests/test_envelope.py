@@ -111,21 +111,31 @@ def test_a_question_carries_the_reply_footer():
     assert text.index("terragrunt") < text.index("courtyard_send")  # footer after the body
 
 
-def test_an_answer_says_no_reply_is_owed():
-    """A reply-to-the-reply is 7.1's token-burning cycle; the envelope closes the loop."""
+def test_an_answer_closes_only_the_exchange_with_its_sender():
+    """A reply-to-the-reply is 7.1's token-burning cycle; the envelope closes the loop —
+    but scoped by name (item 26): an unscoped "no reply is owed" made a relaying agent
+    stop before handing the answer back to the operator who asked for it."""
     text = render(fake_message("yes, it is in ./infra", reply_to=uuid4()))
-    assert "no reply is owed" in text
+    assert "your exchange with infra is complete" in text
+    assert "infra nothing further" in text
+    assert "someone else's behalf" in text and "courtyard_send" in text
     assert "terminal never reaches the sender" not in text
 
 
-def test_notes_and_system_messages_carry_no_footer():
-    for kind, sender, sender_type in (
-        ("operator_note", "operator", "human"),
-        ("system", None, None),
-    ):
-        text = render(fake_message("fyi", kind=kind, sender=sender, sender_type=sender_type))
-        assert "courtyard_send" not in text
-        assert "no reply is owed" not in text
+def test_operator_note_carries_the_note_footer():
+    """Item 24: a fresh session answered an operator note in its terminal transcript.
+    A note is commentary — no separate reply owed — but if it asks for something, the
+    answer must travel the reply path, and the note itself must say so."""
+    text = render(fake_message("fyi", kind="operator_note", sender="operator", sender_type="human"))
+    assert "needs no separate reply" in text
+    assert "courtyard MCP tool" in text and "courtyard_send" in text
+    assert "reaches nobody" in text
+
+
+def test_system_messages_carry_no_footer():
+    text = render(fake_message("fyi", kind="system", sender=None, sender_type=None))
+    assert "courtyard_send" not in text
+    assert "no reply is owed" not in text
 
 
 def test_body_cannot_close_or_forge_the_envelope():

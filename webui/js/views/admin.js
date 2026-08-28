@@ -5,7 +5,7 @@
 
 import { html, useEffect, useState } from "../../vendor/htm-preact-standalone.module.js";
 import { api } from "../api.js";
-import { store, isInactive, setTheme, effectiveTheme } from "../store.js";
+import { store, isInactive, setTheme, effectiveTheme, applySettings } from "../store.js";
 import { useStore } from "../ui.js";
 
 const BUILTIN_TERMINALS = ["Terminal", "iTerm2"];
@@ -83,7 +83,8 @@ function SettingsSection() {
   if (!settings) return null;
   const save = (patch) => {
     setError(null);
-    return api.patchSettings(patch).then((s) => { setSettings(s); return true; })
+    return api.patchSettings(patch)
+      .then((s) => { setSettings(s); applySettings(s); return true; })
       .catch((err) => { setError(err.message); return false; });
   };
   return html`
@@ -93,6 +94,10 @@ function SettingsSection() {
         options=${[["on_shift", "On shift"], ["always_on", "Always on (not yet available)", true]]}
         onChange=${(v) => save({ team_mode: v })}
         hint="— agents start with your shift and stop when it ends" />
+      <${Row} label="Discovery" value=${settings.discovery ?? "auto"}
+        options=${[["auto", "auto"], ["manual", "manual"]]}
+        onChange=${(v) => save({ discovery: v })}
+        hint="— manual: agents reach only whom you link; lines are created from the Lines panel" />
     </div>
     <${TerminalSection} settings=${settings} save=${save} error=${error} />
     <div class="panel"><h3>Defaults</h3>

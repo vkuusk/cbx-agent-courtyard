@@ -61,12 +61,19 @@ def create_app(config: Config | None = None) -> FastAPI:
         storage.open()
         events = EventBus()
         events.bind(asyncio.get_running_loop())
-        registry = Registry(storage, events)
+        hub_started_at = datetime.now(UTC)  # one clock for liveness judging and the shift grace
+        # The shift service owns the settings document; the services below read the
+        # operator's discovery choice (§5.8, D22) through it at call time.
+        shift = ShiftService(storage, events, cfg.heartbeat_seconds, hub_started_at=hub_started_at)
+
+        def discovery() -> str:
+            return shift.get_settings().discovery
+
+        registry = Registry(storage, events, discovery=discovery)
         registry.ensure_operator()
         archiver = Archiver(storage, events)
         archiver.reconcile()  # lines of agents removed before archiving existed
         deliverer = Deliverer(storage, events, cfg.push_timeout)
-        hub_started_at = datetime.now(UTC)  # one clock for liveness judging and the shift grace
         channels = ChannelService(
             storage,
             events,
@@ -74,9 +81,9 @@ def create_app(config: Config | None = None) -> FastAPI:
             cfg.heartbeat_seconds,
             cfg.gone_seconds,
             hub_started_at=hub_started_at,
+            discovery=discovery,
         )
         channels.reset_unverified()  # D26: stored liveness is a claim until a beat proves it
-        shift = ShiftService(storage, events, cfg.heartbeat_seconds, hub_started_at=hub_started_at)
         app.state.storage = storage
         app.state.events = events
         app.state.registry = registry
@@ -91,6 +98,7 @@ def create_app(config: Config | None = None) -> FastAPI:
             events,
             deliverer,
             default_line_mode=lambda: shift.get_settings().default_line_mode,
+            discovery=discovery,
         )
 
         async def sweep_liveness() -> None:

@@ -5,13 +5,16 @@ gate; then you play an agent yourself from a second terminal.
     make demo-stop    # stop everything the demo started
 
 Starts the hub only if one isn't already running on the configured port. Leaves hub and
-puppets running afterwards so you can explore; re-running the demo starts a fresh cast
-(unique name suffixes — history piles up on the board until `make db-nuke`).
+puppets running afterwards so you can explore. The cast cleans up after itself: both
+`--stop` and a re-run remove the previous run's puppets from the board (their lines are
+archived on removal, and those throwaway archives are deleted too) — the board looks the
+way it did before the demo.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import secrets
 import signal
@@ -22,11 +25,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from courtyard.common.client import DEFAULT_HUB_URL, HubClient
+from courtyard.common.client import DEFAULT_HUB_URL, HubClient, HubError
 
 ROOT = Path(__file__).resolve().parents[1]
 DEMO_DIR = ROOT / ".demo"
-HUB_URL = DEFAULT_HUB_URL
+HUB_URL = os.environ.get("COURTYARD_HUB_URL", DEFAULT_HUB_URL)
+CHROME = os.environ.get(
+    "COURTYARD_CHROME", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+)
+
+CAST_FILE_NAME = "cast.json"  # in DEMO_DIR: the registered puppet names of the last run
 
 OPENING = (
     "Hey bob — the payments service is ready on branch feat/payments. Can you deploy it to staging?"
@@ -67,6 +75,36 @@ def stop_puppets() -> None:
             pid_file.unlink()
 
 
+def record_cast(names: list[str]) -> None:
+    (DEMO_DIR / CAST_FILE_NAME).write_text(json.dumps(names))
+
+
+def cleanup_cast(admin: HubClient) -> None:
+    """Take the previous run's cast off the board: remove each puppet (its lines are
+    archived, design §5.7) and delete the archives the demo produced — throwaway
+    transcripts, not records anyone wants. Needs the hub up; otherwise the cast file
+    stays for the next chance."""
+    cast_file = DEMO_DIR / CAST_FILE_NAME
+    if not cast_file.exists():
+        return
+    names = set(json.loads(cast_file.read_text()))
+    if names and not hub_is_up(admin):
+        return
+    removed = 0
+    for name in sorted(names):
+        try:
+            admin.remove_agent(name)
+            removed += 1
+        except HubError:
+            pass  # already gone (db-nuke, manual removal)
+    for archive in admin.archives():
+        if archive.agent_a_name in names or archive.agent_b_name in names:
+            admin.delete_archive(archive.id)
+    cast_file.unlink()
+    if removed:
+        say(f"cleaned the previous demo cast off the board ({removed} puppets)")
+
+
 def hub_is_up(admin: HubClient) -> bool:
     try:
         return admin._call("GET", "/api/health")["status"] == "ok"
@@ -85,6 +123,15 @@ def ensure_hub(admin: HubClient) -> None:
         if time.monotonic() > deadline:
             sys.exit("hub did not become healthy; see .demo/hub.log")
         time.sleep(0.3)
+
+
+def link_supervised(admin: HubClient, a: str, b: str) -> None:
+    """The demo's pairs must talk whatever the operator's saved settings say: pre-create
+    their line (a link, design §5.8 — legal under either discovery mode) and pin it
+    supervised (the phases rely on the gate holding the opening). Without this, a dev
+    hub left on Discovery `manual` refuses the puppets' sends as `not_linked`."""
+    line = admin.link(a, b)
+    admin.set_mode(line.id, "supervised")
 
 
 def wait_for(predicate, timeout: float, what: str):
@@ -114,19 +161,37 @@ def print_transcript(admin: HubClient, line_id) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--stop", action="store_true", help="stop demo hub and puppets")
+    parser.add_argument(
+        "--chrome", action="store_true", help="open the board in its own Chrome window"
+    )
     args = parser.parse_args()
     DEMO_DIR.mkdir(exist_ok=True)
+    admin = HubClient(HUB_URL)
     if args.stop:
+        stop_puppets()
+        cleanup_cast(admin)  # while the hub, whoever started it, is still up
         stop_all()
+        admin.close()
         return
 
     stop_puppets()
-    admin = HubClient(HUB_URL)
     ensure_hub(admin)
+    cleanup_cast(admin)
+    if args.chrome:
+        try:
+            subprocess.Popen(
+                [CHROME, f"--app={HUB_URL}"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            say("\n  ▶ the board opens in its own Chrome window — watch it live\n")
+        except OSError:
+            say(f"could not launch Chrome at {CHROME!r} — open {HUB_URL}/ yourself")
+            args.chrome = False
 
     stale = admin.pending()
     for message in stale:  # a previous run's cast may have died mid-gate
-        admin.decide(message.id, "reject", "stale demo leftover, cleared on demo restart")
+        admin.decide(message.id, "drop", "stale demo leftover, cleared on demo restart")
     if stale:
         say(
             f"cleared {len(stale)} stale gate entr{'y' if len(stale) == 1 else 'ies'} "
@@ -142,8 +207,12 @@ def main() -> None:
     _, bob_token = admin.register_agent(
         bob_name, "puppet", "infra agent owning the staging and prod clusters"
     )
+    cast = [alice_name, bob_name]
+    record_cast(cast)  # incrementally: a failed run's partial cast still gets cleaned
+    link_supervised(admin, alice_name, bob_name)
 
-    say(f"\n  ▶ open {HUB_URL}/ in your browser now to watch the board live\n")
+    if not args.chrome:
+        say(f"\n  ▶ open {HUB_URL}/ in your browser now to watch the board live\n")
     say("launching them as separate processes (logs: .demo/alice.log, .demo/bob.log)")
     puppet = ["uv", "run", "courtyard-puppet", "--hub", HUB_URL, "--heartbeat", "5"]
     start_process(
@@ -207,6 +276,9 @@ def main() -> None:
         dev_name, "puppet", "dev puppet asking for risky things (gate demo)"
     )
     _, ops_token = admin.register_agent(ops_name, "puppet", "ops puppet guarding prod (gate demo)")
+    cast += [dev_name, ops_name]
+    record_cast(cast)
+    link_supervised(admin, dev_name, ops_name)
     start_process(
         "ops",
         [
@@ -241,16 +313,14 @@ on a SUPERVISED line: every message now waits for you in the browser.
 
   {HUB_URL}/  — their wire turns amber, "held at the gate": click it
 
-Things to try, in any order — the puppets react to your verdicts (type a note in the
-box at the bottom first and it rides along with the verdict):
+Things to try, in any order — the puppets react to your verdicts (the comment field
+sits right under the held message; what you type rides along with the verdict):
 
-  · approve with a note      — your note is delivered to the recipient as an operator note
+  · approve with a comment   — it is delivered to the recipient as an operator note
   · return with a comment    — {dev_name} is scripted to send a REVISED request
-  · reject with a reason     — {dev_name} is scripted to back off politely
+  · drop with a reason       — {dev_name} is scripted to back off politely
   · "switch to auto-pass"    — in the pane header, flips the line mid-conversation (and back)
   · watch the tab title      — "(N) Agent Courtyard" whenever something awaits you
-  · with their line selected, the box at the bottom sends a note (click "note → both"
-    to pick one side) — then `tail .demo/dev.log .demo/ops.log` to see it arrive
 """)
 
     # -- phase 3: the architect plays an agent ---------------------------------------
@@ -259,6 +329,9 @@ box at the bottom first and it rides along with the verdict):
     _, concierge_token = admin.register_agent(
         concierge_name, "puppet", "echo puppet that acknowledges everything"
     )
+    cast += [guest_name, concierge_name]
+    record_cast(cast)
+    link_supervised(admin, guest_name, concierge_name)
     start_process(
         "concierge",
         [*puppet, "--name", concierge_name, "--token", concierge_token, "--behavior", "echo"],

@@ -63,7 +63,7 @@ def plan_message_send(line: TurnState, sender: UUID, recipient: UUID) -> SendPla
 
 @dataclass(frozen=True)
 class GatePlan:
-    message_status: str  # queued | returned | rejected
+    message_status: str  # queued | returned | dropped
     line_state: str
     awaiting_from: UUID | None
     in_flight_msg: UUID | None
@@ -85,7 +85,7 @@ def plan_gate_decision(
         return GatePlan("queued", "awaiting_reply", message_recipient, message_id, False)
     if verdict == "return":
         return GatePlan("returned", "idle", None, None, True)
-    return GatePlan("rejected", "idle", None, None, True)
+    return GatePlan("dropped", "idle", None, None, True)
 
 
 def plan_release(line: TurnState) -> None:

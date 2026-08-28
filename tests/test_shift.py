@@ -430,6 +430,7 @@ class TestShiftApi:
             "terminal_app": "Terminal",
             "custom_terminals": [],
             "default_line_mode": "supervised",
+            "discovery": "auto",
         }
         resp = client.patch("/api/settings", json={"terminal_app": "iTerm2"})
         assert resp.status_code == 200
@@ -437,6 +438,11 @@ class TestShiftApi:
         resp = client.patch("/api/settings", json={"default_line_mode": "auto_pass"})
         assert resp.status_code == 200
         assert resp.json()["default_line_mode"] == "auto_pass"
+        resp = client.patch("/api/settings", json={"discovery": "manual"})
+        assert resp.status_code == 200
+        assert resp.json()["discovery"] == "manual"
+        assert client.patch("/api/settings", json={"discovery": "open"}).status_code == 422
+        client.patch("/api/settings", json={"discovery": "auto"})
         resp = client.patch("/api/settings", json={"terminal_app": "xterm"})
         assert resp.status_code == 422  # not defined (item 20: definable under custom terminals)
         assert client.patch("/api/settings", json={"default_line_mode": "yolo"}).status_code == 422

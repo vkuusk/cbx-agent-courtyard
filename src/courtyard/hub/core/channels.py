@@ -9,6 +9,7 @@ turn state are never touched by it.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
 from uuid import UUID, uuid4
@@ -48,10 +49,13 @@ class ChannelService:
         heartbeat_seconds: float,
         gone_seconds: float,
         hub_started_at: datetime | None = None,
+        discovery: Callable[[], str] | None = None,
     ):
         self._storage = storage
         self._events = events
         self._deliverer = deliverer
+        # §5.8 (D22): under manual discovery the attach-summary roster narrows to linked agents.
+        self._discovery = discovery or (lambda: "auto")
         self._stale_after = 3 * heartbeat_seconds  # 3 missed beats (design §6.3)
         self._gone_after = gone_seconds
         # D26: `unknown` agents are judged only after this — one heartbeat interval plus
@@ -233,9 +237,15 @@ class ChannelService:
         return published
 
     def _build_summary(self, uow: UnitOfWork, agent: Agent) -> AttachSummary:
-        peers = roster(uow.agents.list(), agent)  # reachable first, like `GET /peers`
+        my_lines = uow.lines.list_for_agent(agent.id)
+        linked = None
+        if self._discovery() == "manual":  # §5.8: the roster follows the lines
+            linked = {
+                line.agent_b if line.agent_a == agent.id else line.agent_a for line in my_lines
+            }
+        peers = roster(uow.agents.list(), agent, linked)  # reachable first, like `GET /peers`
         lines = []
-        for line in uow.lines.list_for_agent(agent.id):
+        for line in my_lines:
             peer_id = line.agent_b if line.agent_a == agent.id else line.agent_a
             peer = uow.agents.get(peer_id)
             your_turn = line.state == "awaiting_reply" and line.awaiting_from == agent.id

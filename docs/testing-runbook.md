@@ -36,7 +36,7 @@ uv run python scripts/runbook/envelope_and_peers.py
    the body — and, on a question, a second `────` divider with the **reply footer**
    (WP‑C, item 16): "To answer, use the courtyard MCP tool `courtyard_send` … no trailing
    offers, no side questions". A message that *answers* one ends instead with "the
-   exchange is complete and no reply is owed". Notes and system messages have no footer.
+   exchange with <sender> is complete … deliver them the answer now" (scoped by name + relay clause, item 26). An operator note ends with its own footer ("needs no separate reply … tell the operator with courtyard_send", item 24); system messages have no footer.
 2. **The board view of the same message** — `body` is the plain text; `rendered` is `None`.
 3. **`courtyard_peers`** — begins `Agents on the courtyard board`, reachable agents first
    then by name, each line `name — type, status [— owns: …] [— description]`. (Any other
@@ -213,6 +213,9 @@ uv run python scripts/runbook/shift_and_settings.py
    instant.
 4. Admin → Team: `Always on` is visibly disabled; switching the terminal app persists
    across a hub restart.
+5. **Cold start (item 23):** quit Terminal.app entirely, then Start shift with N agents
+   down → exactly N windows open, no extra bare shell (the first agent runs in the
+   window Terminal opens at launch); End shift closes all N.
 
 **Expected everywhere:** nothing the shift did not open is ever closed, and a running
 agent is never spawned a second time (no "two sessions may be claiming this identity"
@@ -342,6 +345,49 @@ uv run python scripts/runbook/agents_edit.py
 
 ---
 
+## Discovery auto|manual: the operator wires the team (design §5.8, D22)
+
+**Feature under test:** the courtyard-wide **Discovery** setting — `auto` (today's
+behavior: every agent sees every other, lines form on first message) vs `manual`
+(agents see and can message only whom the operator has **linked**; a link IS a
+pre-created idle line). Unlink archives the history and removes the line; the operator
+is exempt in both directions; switching modes migrates nothing.
+
+**Scripted part** (own throwaway hub + scratch database — flipping the setting on the
+dev hub would refuse a live agent's sends mid-run):
+
+```
+make db-up
+uv run python scripts/runbook/discovery_links.py
+```
+
+**Manual part** (dev hub, two or three registered agents):
+
+1. Admin → Settings → Team: the **Discovery** pulldown reads `auto`. On the Courtyard
+   page the Lines panel has no link control and its empty text speaks of lines forming
+   on first message.
+2. Flip Discovery to **manual**. The Lines panel grows a small square **+** in its
+   bottom-left corner (a help bubble on hover; clicking it expands the two-agent picker —
+   item 25), and, when empty, says "link two agents to open a line". Ask an agent to message a peer it has
+   no line with: the tool result says it has no line with that peer and that you link
+   agents in this courtyard (`not_linked`); nothing lands on the board.
+3. `courtyard_peers` from that agent lists only linked peers plus you, and its text ends
+   "the operator manages the links".
+4. **+ link agents** → pick the two agents → an idle wire appears; its supervision dial
+   is the Defaults setting. Now the same ask goes through (gated per the dial).
+5. With the linked line selected, the pane header shows **unlink** beside archive.
+   Unlink mid-conversation: the confirm names the consequence, the wire disappears, the
+   transcript is on the Archive page with reason `unlinked`, and the pair is refused
+   again. Plain **archive** on another line keeps its old meaning — history cleared,
+   the line (= the link) stays.
+6. You still reach everyone and everyone still answers you — no links needed.
+7. Flip back to **auto**: the link control disappears and a first message between any
+   pair forms its line again. Lines created by hand under manual simply remain.
+8. Live sub-team check (the acceptance shape from §5.8): with three agents, wire A–B and
+   B–C but not A–C — A and C cannot see or reach each other while both talk to B.
+
+---
+
 ## Courtyard page layout: rail, rectangles, wires, pane, one input box
 
 **Feature under test:** the step-7 layout (design §10, D18) on Preact + htm: collapsible
@@ -368,19 +414,20 @@ make demo-stop     # afterwards
 2. **Lines** — `dev ↔ ops` with an **amber** wire, *held at the gate*, listed first;
    `alice ↔ bob` **blue**, *new since you looked* (auto-pass, their 6-message exchange).
    Lines of removed agents are not on the board at all — they are in the Archive (D20).
-3. **Gate from the pane** (WP-B) — click the amber wire: the pane shows `dev ↔ ops` with
-   the **supervised | auto-pass** switch (supervised filled amber; clicking auto-pass
-   flips the line and fills green) and the held message with
-   **approve / return to sender / reject** — the strip under the buttons names both
-   directions (`approve → ops · return / reject → dev`). The box below shows an amber
-   **gate comment** chip; its ↑ button is greyed out and Enter sends nothing — the text
-   leaves only with a verdict. Type a comment, click **approve**: the box empties, your
+3. **Gate from the pane** (WP-B, reshaped by item 24) — click the amber wire: the pane
+   shows `dev ↔ ops` with the **supervised | auto-pass** switch (supervised filled
+   amber; clicking auto-pass flips the line and fills green) and the held message
+   carrying its verdict **inline**: the message, then a plain square-cornered comment
+   field, then **approve / return to sender / drop**, the hint naming all three
+   destinations (`approve sends your comment to ops · return sends it to dev · drop
+   sends it nowhere`). There is **no box at the bottom while a line is selected** —
+   the composer belongs to direct chats only. Type a comment, click **approve**: your
    comment appears in the pane as a note `you → ops`, ops's scripted reply arrives *held
    at the gate* (supervised replies pass the gate too). Click **return to sender** with a
    comment: the message is struck through with `returned to sender: <comment>` and the
-   hub's notice to dev follows. With nothing held, the box is a note into the line and
-   its chip is a visibly clickable **note → both ▾** control (click cycles both → one
-   side → the other).
+   hub's notice to dev follows. Click **drop** with a comment: struck through with
+   `dropped: <comment>` on the board, while the hub's notice to the sender carries no
+   comment at all.
 4. **Your own line** — click the `concierge-…` rectangle, type, Enter: your bubble on the
    right, the echo reply on the left within a second; the box stays enabled. Message
    `alice-…` (scripted, no reply): the box greys out with *waiting for alice to reply — one

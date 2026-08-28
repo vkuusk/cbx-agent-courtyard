@@ -39,12 +39,12 @@ export const api = {
     call("GET", `/api/lines/${id}/messages${after ? `?after=${after}` : ""}`),
   operatorSend: (to, body) => call("POST", "/api/operator/send", { to, body }),
   operatorInbox: () => call("GET", "/api/operator/inbox"),
-  addNote: (lineId, target, body) =>
-    call("POST", `/api/lines/${lineId}/note`, { target, body }),
   pending: () => call("GET", "/api/gate/pending"),
   decide: (messageId, verdict, note) =>
     call("POST", `/api/gate/${messageId}`, { verdict, note: note || null }),
   setMode: (lineId, mode) => call("POST", `/api/lines/${lineId}/mode`, { mode }),
+  linkAgents: (a, b) => call("POST", "/api/lines", { a, b }),
+  unlinkLine: (lineId) => call("POST", `/api/lines/${lineId}/unlink`),
   release: (lineId) => call("POST", `/api/lines/${lineId}/release`),
   archiveLine: (lineId) => call("POST", `/api/lines/${lineId}/archive`),
   archives: () => call("GET", "/api/archive"),

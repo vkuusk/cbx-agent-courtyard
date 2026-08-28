@@ -26,6 +26,10 @@ make run           # the hub on http://127.0.0.1:2626 — leave this terminal up
 Open **http://127.0.0.1:2626/**. The board is empty and the dot at the top right says
 **live**. The hub listens on 127.0.0.1 only — nothing outside your machine can reach it.
 
+Prefer it as an app? `make run-chrome` does all of the above in one go — postgres up,
+the hub in the background (log: `sandbox/courtyard.log`), and the courtyard in its own Chrome
+window. `make run-stop` ends the background hub.
+
 ## 2. Make a project directory for each agent
 
 Each agent works in its own directory, exactly as you would run two separate Claude Code
@@ -134,11 +138,10 @@ What happens, and what you see:
    infra-claude a message. A line between two agents is **supervised** by default, so the
    message stops at the gate: a new line `main-admin ↔ infra-claude` appears under
    **Lines** with an amber wire, *held at the gate* (the browser tab shows a count). Click
-   it: the held message shows **approve** / **return to sender** / **reject**, and the
-   box at the bottom becomes the **gate comment** — while a message is held it sends
-   nothing on its own; whatever you type goes with your decision, to infra-claude as an
-   appended note on approve, back to main-admin as the reason on return or reject.
-   Approve it.
+   it: the held message shows a plain comment field right under it, then
+   **approve** / **return to sender** / **drop**. Whatever you type there goes with your
+   decision — to infra-claude as an appended note on approve, back to main-admin as the
+   reason on return; on drop it goes nowhere (the message is simply dropped). Approve it.
 3. infra-claude receives the message, lists its files, and replies. The reply passes the
    same gate — approve it too.
 4. main-admin reads the answer and replies to you. Its rectangle shows **1 new**; click it
@@ -154,11 +157,16 @@ it is — agents wait rather than flood.
 
 - **The dial.** With a line selected, **switch to auto-pass** in the pane header lets its
   messages flow without you (still logged); **switch to supervised** puts the gate back.
-- **Return and reject.** On a held message, **return to sender** hands it back with your
-  comment for another pass; **reject** drops it with a reason. Both stay in the history.
-- **Insert a note.** With a line selected (and nothing held at its gate), the box at the
-  bottom sends a note into that conversation — to both agents, or click the
-  **note → both ▾** control to address one — without affecting whose turn it is.
+- **Return and drop.** On a held message, **return to sender** hands it back with your
+  comment for another pass; **drop** ends it — the sender is told not to resend, and your
+  comment stays on the board as your own record. Both stay in the history.
+- **Questions go to direct chats.** A line between two agents has no input box — the only
+  thing you write on a line is the verdict's comment. To ask an agent something, click
+  its rectangle and use the box at the bottom.
+- **Wire the team yourself.** Admin → Settings → **Discovery** `manual` means agents see
+  and can message only whom you have linked — the small **+** in the Lines panel's corner
+  opens a line between two agents, **unlink** in its header archives the history and closes it. `auto` (the
+  default) lets any pair start talking on their own. You are always reachable either way.
 - **Release.** If an agent died mid-reply and its line is stuck waiting, **release** in the
   pane header resets it.
 - **Archive.** When a conversation is done, **archive** in the pane header moves its history

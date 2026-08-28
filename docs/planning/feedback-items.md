@@ -122,9 +122,17 @@ e.g. groups of agents working in separate sub-teams.
 worded by the hub, D14); lines are created automatically on first send (design §5.2 — no
 "create line" ceremony today); board and wires in the WebUI.
 
-**Status.** discussed 2026-08-24 — value confirmed (the boundary moves into the hub;
-sub-teams; a link can be a pre-created idle line) → **WP‑E**, design proposal first (D22
-candidate), awaiting the architect's go
+**Status.** design accepted 2026-08-27 → **D22 / §5.8**: setting **Discovery**
+`auto | manual` (his names; "Team mode" was rejected — taken by D23); a link is a
+pre-created idle line, unlinked sends refused `not_linked`, peers filter by line,
+unlink archives + removes, operator exempt, mode switches migrate nothing.
+**Implemented 2026-08-27** per the accepted design: `Settings.discovery`, the
+`not_linked` send guard, peers/attach-roster filtering (+ the "operator manages the
+links" regime line), `POST /api/lines` (link, 409 `already_linked`) +
+`/api/lines/{id}/unlink` (archive reason `unlinked`, migration 0013), Admin →
+Team → Discovery pulldown, Lines panel **+ link agents**, pane-header **unlink**.
+202 tests; runbook `scripts/runbook/discovery_links.py` (own throwaway hub);
+Playwright 15/15. Awaiting the architect's check (sub-team live run).
 
 ### 6. Operator note direction on a line — the "note → both" chip
 
@@ -660,6 +668,100 @@ install writes only the courtyard rule today, D21); the envelope's authority fra
 
 **Status.** open — discuss after the WP‑E design session
 
+### 23. Start shift opened one extra, empty terminal window
+
+**Observed (architect, 2026-08-28).** With two agents registered, Start shift opened
+*three* Terminal windows — two running agents and one bare shell.
+
+**Diagnosed.** The hub asks for exactly two windows (`_targets()` never spawns the
+operator — humans are excluded). The third was Terminal.app's own *startup window*: when
+Terminal is not running, the first `do script` launches the app, which opens its default
+bare window before the scripted one. It never happened in the WP‑F checks because
+Terminal was already running then; the operator runs the hub from PyCharm, so every
+Start shift was a cold start. The bare window was also unrecorded — End shift left it
+behind.
+
+**Status.** fixed 2026-08-28: on a cold start, `AppleTerminal.spawn` launches Terminal
+and runs the *first* agent in the startup window (which becomes a normal recorded spawn,
+closable by End shift); warm starts unchanged; a launch that opens no window falls back
+to plain `do script`. Either way exactly one window per agent. Warm path verified live
+(one window added, ref captured, closed); cold-start check is the architect's: quit
+Terminal, Start shift → exactly N windows, End shift closes them all.
+
+### 24. A question asked as a line note: one answer lost, and the pane misleads
+
+**Observed (architect, 2026-08-28, during the WP‑E manual-discovery check).** After
+linking two agents, the operator asked "could you please recheck now" as a **note →
+both** on the new line. `infra-agent` answered correctly (via `courtyard_send`, landing
+in its direct chat); `terraform-developer` answered **in its terminal transcript** — the
+answer never reached the hub. Both agents received the note fine.
+
+**Diagnosed.** Two layers:
+
+1. *The lost answer is item 16's failure mode surviving in the footer-less kind.*
+   WP‑C's reply footer is attached only to turn-taking `message`s (`envelope.py` —
+   notes were conceived as commentary, not questions), so the note carried no "answer
+   via `courtyard_send`; your terminal reaches nobody" line. `infra-agent` had just done
+   a footer-carrying exchange in the same session and had learned the reply path;
+   `terraform-developer` was a fresh session and answered in-transcript, exactly like
+   item 16.
+2. *The pane misleads even when it works.* A note is turn-exempt on the agents' line,
+   so an agent answering the operator does it on its **operator line** — the question
+   sits in the line pane, the answer arrives in the direct chat. The line composer looks
+   identical to a chat box, but replies never come back to that pane; nothing says so.
+
+**Proposed remedies (for discussion, not yet implemented).**
+- **R1 (hub):** an `operator_note` footer: "This is a note the operator dropped into
+  your conversation with X — no reply on this line is expected. If it asks you for
+  something, answer the operator directly with the courtyard MCP tool `courtyard_send`
+  — text printed in your terminal reaches nobody."
+- **R2 (WebUI):** make the note composer visibly not-a-chat (amber, the gate-comment
+  idiom) and say under it where replies arrive ("if the agents answer you, the replies
+  arrive in each agent's direct chat").
+- **Open design question:** should "ask both agents on a line, collect their answers"
+  be a supported gesture in its own right, or should the UI steer questions to the
+  direct chats and keep notes for commentary?
+
+**Resolution (architect, 2026-08-28).** Remove the ambiguous thing: the free-standing
+note → both leaves the UI (6a's use case dropped — not needed). A line note means one
+thing only — the verdict's comment, moved **inline** (held message → square-cornered
+comment box → verdict buttons; supervised + held only); approve → recipient, return →
+sender, reject → nowhere. Bottom composer serves direct chats only. Also reopens the
+`reject` name (3.2) — too close to "return to sender".
+
+**Status.** implemented 2026-08-28: verdict comment inline (square-cornered field
+between message and buttons; hint names all three destinations); no composer on lines;
+`reject` → **`drop`** end-to-end (status `dropped`, migration 0014; 3.2 reversed) — a
+drop's comment travels nowhere but stays on the board as the operator's record; the
+sender's "dropped (do not resend)" notice remains; delivered operator notes carry a
+reply-path footer. Decision log **D27**. Awaiting his check
+
+### 25. The link control collapses to a '+' square
+
+**Asked (architect, 2026-08-28).** Instead of the wide "+ link agents" bar with an
+always-open form, a small square **+** in the bottom-left corner of the Lines panel,
+help bubble only on hover; clicking expands the two-agent picker.
+
+**Status.** done 2026-08-28 — awaiting his look
+
+### 26. A relayed answer stopped at the relaying agent
+
+**Observed (architect, 2026-08-28).** Operator → infra-agent: "ask terraform-developer
+how many modules it has." The agent-to-agent exchange completed (both directions
+approved), infra-agent received the answer — and summarized it in its terminal instead
+of sending it back to the operator, whose line kept "owes you a reply".
+
+**Diagnosed.** The answer's closing footer said, unscoped, "the exchange is complete and
+no reply is owed" — read as "done with everything", while the obligation to the operator
+lived on a different line.
+
+**Status.** fixed 2026-08-28: the closing footer is scoped by sender name ("your
+exchange with X is complete; send X nothing further") plus a relay clause ("if you asked
+on someone else's behalf, deliver them the answer now with courtyard_send"); adapter
+INSTRUCTIONS state the same rule. Wording-first like WP‑C; if a relay still stalls, the
+escalation is a hub-side reminder listing the agent's open obligations on delivery (the
+turn machine already knows them). **Confirmed by the architect 2026-08-28** ("it worked")
+
 ---
 
 ## Work packages (discussion outcome, 2026-08-24)
@@ -675,7 +777,7 @@ that review.
 | **WP‑A** | 1, 2, 7.2 | Install also writes `.claude/settings.local.json`: `model`, a status line with the courtyard name (only if absent), `permissions.allow` for the courtyard tools; `agents.model` (migration 0009) + launch config `--model` | `hub/core/install.py`, migration, Agents form | done (2026-08-24, confirmed by the architect) |
 | **WP‑C** | 3.3, 7.1, 14, 16 | The envelope ends every question with a **reply footer** (use the courtyard MCP tool `courtyard_send`, terminal output never reaches the sender; answer what was asked — no trailing offers or side questions) and every answer with **"no reply is owed"**; adapter INSTRUCTIONS + `courtyard_send` description carry the same rules and name the `mcp__courtyard__` prefixing (item 14); test-comms message un-hinted | `hub/core/envelope.py`, `mcp_server.py`, `tests/communications/` | done 2026-08-26 (un-hinted round trip PASS on 2.1.247); **confirmed by the architect** |
 | **WP‑D** | 4, 8, 15 | Agents-page rework done 2026-08-26: add form = identity row + two multiline entries; rows = edit + remove; Edit Agent view (editable description/owns/workdir/model/colour via `PATCH /api/agents/{id}`, plus launch config + rotate token); remove dialog cleans the project directory (uninstall before delete) | `webui/js/views/agents.js`, `api/agents.py` PATCH, `registry.update` | done (runbook `agents_edit.py`; Playwright 12/12); **confirmed by the architect** |
-| **WP‑E** | 5 | Manual-links discovery mode — design section first (a link can be a pre-created idle line; `peers` filters; unlinked `send` refused) | design doc (D22 candidate), then `hub/core/peers.py` + board | awaiting design proposal |
+| **WP‑E** | 5 | Discovery `auto \| manual` (D22, §5.8): link = pre-created idle line; `not_linked` refusal; peers/roster filter; unlink archives + removes; operator exempt; no migration on mode switch | settings + `hub/core/peers.py` + board send guard + `POST /api/lines` + `/unlink` (migration 0013) + Lines panel/pane-header UI | implemented 2026-08-27 (11 new tests → 202; runbook `discovery_links.py`; Playwright 15/15); awaiting the architect's check |
 | **WP‑G** | 10 | End shift closes the books (D24): release non-idle lines + expire unfinished messages incl. gate-held (`expired` status, migration; system entries; nothing deleted); R1 re-arm delivered-but-unanswered on attach (skip `expired`) + "redelivered" note; R3 owes-you-a-reply badge on the card + real line state in the pane header | migration 0011 (`expired`), `board.py` `expire_open_work` ← shift end path, `channels.py` attach re-arm, board card + pane header | implemented 2026-08-26 (8 new tests; runbook `expire_and_rearm.py`; Playwright 8/8) — **confirmed by the architect 2026-08-26** (expiry, badge, redelivery seen live) |
 | **WP‑H** | 17 | The stale shift asks (D25): detect shift-on + grace passed + nobody connected + no live window tty; dialog with End (default) / Resume (respawn dead windows, books open, redelivery does the rest) / Start new (close books, fresh) / Not now (amber tag re-asks); `POST /api/shift/resume`, `ShiftStatus.stale`, spawner `alive()` | `hub/core/shift.py` + `spawn.py`, `/api/shift/resume`, board dialog + tag, quickstart | done 2026-08-26 (runbook `stale_shift.py`; Playwright 9/9); **confirmed by the architect** |
 | **WP‑F** | 13 | Shift + Team mode: one pill on the Courtyard page starts every registered agent not already up (terminal window + workdir + launch command, per-adapter launch recipe) and ends by closing what it started; countdown through the re-attach window before spawning; Admin gets Team mode (`On shift` v1 \| `Always on` disabled) + terminal app | design doc **§8.1** (D23), `hub/core/shift.py` + `spawn.py`, migration 0010, `/api/shift` + `/api/settings`, board pill + `■ End shift` button, Admin → Team | done (confirmed by the architect 2026-08-26: start, both-windows end, mid-conversation termination) |
@@ -687,10 +789,10 @@ that review.
 | 1 | Model choice for a Claude Code agent, settable from the hub | launch / install | WP‑A done |
 | 2 | Claude Code status line shows the registered agent's name | install | WP‑A done |
 | 3.1 | Note on a held message travels with the verdict (approve-/return-with-comment) | gate / WebUI | WP‑B done |
-| 3.2 | Rename `reject` → `drop` (maybe) | gate / vocabulary | decided: keep `reject` |
+| 3.2 | Rename `reject` → `drop` (maybe) | gate / vocabulary | reversed 2026-08-28 (item 24): renamed `drop`, end-to-end |
 | 3.3 | Agents append trailing questions that can start unrelated exchanges | envelope / model behaviour | WP‑C done, confirmed |
 | 4 | "Add an agent" form: name · type · directory · colour, then two multiline descriptions | WebUI Agents | WP‑D done, confirmed |
-| 5 | Discovery modes: auto-discovery vs manual links (sub-teams) | peers / lines | WP‑E awaiting design |
+| 5 | Discovery modes: auto vs manual links (sub-teams) | peers / lines | D22 implemented 2026-08-27; awaiting check |
 | 6a | Use case for a note to both agents on a line? | notes / WebUI | closed — use case confirmed |
 | 6b | Line chip (clickable) vs agent chip (static) look the same | WebUI composer | WP‑B done |
 | 6c | Note as the verdict's comment → destination switch unnecessary (extends 3.1) | gate / WebUI | WP‑B done |
@@ -711,3 +813,7 @@ that review.
 | 20 | Admin restructure (Status/Settings, pulldowns, custom terminal apps) + composer on Courtyard only + collapsed add form | WebUI Admin/Agents / settings | done, confirmed |
 | 21 | Lines panel must stay visible when empty | WebUI board | fixed |
 | 22 | What may an agent do on its own when a peer asks? (blocked on a Bash prompt answering a peer) | permissions / envelope | open — after WP‑E design |
+| 23 | Start shift opened one extra, empty terminal (Terminal.app cold-start window) | shift / spawn | fixed 2026-08-28; cold-start check his |
+| 24 | Question asked as a line note lost in-transcript; line pane looked like a chat | envelope / WebUI composer | implemented 2026-08-28 (D27: inline verdict comment, `drop`, note footer); awaiting check |
+| 25 | Link control → small '+' square, bottom-left of Lines, bubble on hover | WebUI board | done 2026-08-28; awaiting look |
+| 26 | Relayed answer stopped at the relaying agent (unscoped "no reply is owed") | envelope | fixed 2026-08-28 (scoped footer + relay clause); **confirmed** |

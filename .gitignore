@@ -12,3 +12,6 @@ node_modules/
 spikes/6a-delivery/stop-hook/messages.txt
 
 temp/
+# local experimentation area — only its README travels with the repo
+sandbox/*
+!sandbox/README.md

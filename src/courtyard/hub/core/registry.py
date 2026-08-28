@@ -6,6 +6,7 @@ import hashlib
 import logging
 import secrets
 from collections import Counter
+from collections.abc import Callable
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -46,9 +47,16 @@ def pick_color(agents: list[Agent]) -> str:
 
 
 class Registry:
-    def __init__(self, storage: Storage, events: EventBus):
+    def __init__(
+        self,
+        storage: Storage,
+        events: EventBus,
+        discovery: Callable[[], str] | None = None,
+    ):
         self._storage = storage
         self._events = events
+        # §5.8 (D22): under manual discovery the peers list narrows to linked agents.
+        self._discovery = discovery or (lambda: "auto")
 
     def create(
         self,
@@ -157,9 +165,17 @@ class Registry:
             return uow.agents.list()
 
     def peers(self, agent: Agent) -> PeersView:
-        """Who this agent can talk to — ranked, trimmed and rendered hub-side (D14)."""
+        """Who this agent can talk to — ranked, trimmed and rendered hub-side (D14).
+        Under manual discovery (§5.8) that is the agents it shares a line with, plus the
+        operator, who never needs a link."""
         with self._storage.transaction() as uow:
-            return peers_view(uow.agents.list(), agent)
+            linked = None
+            if self._discovery() == "manual":
+                linked = {
+                    line.agent_b if line.agent_a == agent.id else line.agent_a
+                    for line in uow.lines.list_for_agent(agent.id)
+                }
+            return peers_view(uow.agents.list(), agent, linked)
 
     def authenticate(self, token: str) -> Agent:
         with self._storage.transaction() as uow:

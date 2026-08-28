@@ -16,11 +16,13 @@ from courtyard.hub.core.deliver import Deliverer
 from courtyard.hub.core.envelope import with_rendering
 from courtyard.hub.core.errors import (
     AgentGone,
+    AlreadyLinked,
     BodyTooLarge,
     InvalidRecipient,
     LineNotFound,
     MessageNotFound,
     NotAllowed,
+    NotLinked,
 )
 from courtyard.hub.core.events import EventBus
 from courtyard.hub.core.gate import Approver
@@ -81,6 +83,7 @@ class Board:
         events: EventBus,
         deliverer: Deliverer,
         default_line_mode: Callable[[], str] | None = None,
+        discovery: Callable[[], str] | None = None,
     ):
         self._storage = storage
         self._registry = registry
@@ -90,6 +93,8 @@ class Board:
         self._deliverer = deliverer
         # 7c: what supervision dial a NEW line starts on (the operator's Admin default).
         self._default_line_mode = default_line_mode or (lambda: "supervised")
+        # §5.8 (D22): under manual discovery an agent-agent send needs an existing line.
+        self._discovery = discovery or (lambda: "auto")
 
     # -- sending -------------------------------------------------------------------
 
@@ -102,9 +107,19 @@ class Board:
                 raise InvalidRecipient("cannot send a message to yourself")
             if recipient.removed_at is not None:
                 raise AgentGone(f"agent {recipient.name!r} was removed from the courtyard")
-            line = uow.lines.get_or_create_locked(
-                sender.id, recipient.id, self._default_line_mode()
-            )
+            if self._discovery() == "manual" and "human" not in (sender.type, recipient.type):
+                # §5.8 (D22): the line IS the permission — no line, no send. Operator
+                # pairs are exempt and keep forming their line on first message below.
+                line = uow.lines.get_pair_locked(sender.id, recipient.id)
+                if line is None:
+                    raise NotLinked(
+                        f"you have no line with {recipient.name!r}; "
+                        "the operator links agents in this courtyard"
+                    )
+            else:
+                line = uow.lines.get_or_create_locked(
+                    sender.id, recipient.id, self._default_line_mode()
+                )
             if "human" in (sender.type, recipient.type) and line.mode != "auto_pass":
                 # Operator lines are never gated (design §5.6, D9). Enforced here so the
                 # invariant holds however the line was created or later toggled.
@@ -199,7 +214,11 @@ class Board:
             )
             uow.lines.set_turn(line.id, plan.line_state, plan.awaiting_from, plan.in_flight_msg)
             if plan.notify_sender and message.sender is not None:
-                notice = self._notify_sender(uow, updated, verdict, note)
+                # Item 24 (c): only a return carries the comment back — a drop sends the
+                # operator's comment nowhere (the notice itself still ends the exchange).
+                notice = self._notify_sender(
+                    uow, updated, verdict, note if verdict == "return" else None
+                )
             elif verdict == "approve" and note:
                 # An approve note rides along to the recipient as an operator note —
                 # "add, not edit" (D7): the message passes untouched, the comment is its own.
@@ -226,7 +245,7 @@ class Board:
     def _notify_sender(
         self, uow: UnitOfWork, message: Message, verdict: str, note: str | None
     ) -> Message:
-        verb = "returned to you for revision" if verdict == "return" else "rejected (do not resend)"
+        verb = "returned to you for revision" if verdict == "return" else "dropped (do not resend)"
         body = f"Your message (seq {message.seq}) to {message.recipient_name} was {verb}."
         if note:
             body += f" Gate comment: {note}"
@@ -246,6 +265,30 @@ class Board:
             return uow.messages.pending_gate()
 
     # -- line administration -------------------------------------------------------
+
+    def link(self, a: str, b: str) -> Line:
+        """Operator gesture (§5.8, D22): pre-create the idle line between two agents —
+        under manual discovery that line is what lets them reach each other. Harmless
+        under auto (the line would have formed on first message anyway)."""
+        with self._storage.transaction() as uow:
+            agents = (self._registry.resolve(uow, a), self._registry.resolve(uow, b))
+            if agents[0].id == agents[1].id:
+                raise InvalidRecipient("cannot link an agent to itself")
+            for agent in agents:
+                if agent.removed_at is not None:
+                    raise AgentGone(f"agent {agent.name!r} was removed from the courtyard")
+                if agent.type == "human":
+                    raise NotAllowed(
+                        "the operator needs no links — operator lines form on first message"
+                    )
+            if uow.lines.get_pair_locked(agents[0].id, agents[1].id) is not None:
+                raise AlreadyLinked(f"{agents[0].name} and {agents[1].name} already have a line")
+            line = uow.lines.get_or_create_locked(
+                agents[0].id, agents[1].id, self._default_line_mode()
+            )
+            line = uow.lines.get(line.id)
+        self._events.publish("line", line)
+        return line
 
     def set_mode(self, line_id: UUID, mode: str) -> Line:
         """Flip the supervision dial. Affects future sends only: a message already

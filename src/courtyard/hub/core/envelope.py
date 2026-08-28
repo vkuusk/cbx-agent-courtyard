@@ -57,15 +57,26 @@ _DOMAIN_OWNER_PREAMBLE = (
 # MCP instructions and tools ("courtyard MCP tool" + the bare name reads through any
 # `mcp__courtyard__` prefixing). Item 16's incident: a model answered a question in its
 # terminal transcript, which reaches nobody. A message that *is* the answer instead says
-# no reply is owed — an unneeded reply-to-the-reply is the token-burning cycle of 7.1.
+# the exchange with ITS SENDER is closed — scoped by name since item 26: an unscoped "no
+# reply is owed" was read as "you are done with everything" by an agent that had relayed
+# the question for its operator, and the operator's answer died in a terminal.
 _REPLY_FOOTER = (
     "To answer, use the courtyard MCP tool `courtyard_send` — text printed in your\n"
     "terminal never reaches the sender. Answer what was asked, completely and no more:\n"
     "no trailing offers, no side questions the task does not need."
 )
 _CLOSING_FOOTER = (
-    "This answers your earlier message; the exchange is complete and no reply is owed.\n"
-    "Start a new exchange (courtyard MCP tool `courtyard_send`) only if the task needs it."
+    "This answers your earlier message — your exchange with {sender} is complete; send\n"
+    "{sender} nothing further. If you asked on someone else's behalf (your operator, a\n"
+    "peer), deliver them the answer now with the courtyard MCP tool `courtyard_send` —\n"
+    "text printed in your terminal reaches nobody."
+)
+# Item 24: an operator note (today: the comment riding an approved message) is commentary,
+# not a turn — but if it asks for something, the answer must still travel the reply path.
+_NOTE_FOOTER = (
+    "This operator note rides along with the exchange — it needs no separate reply.\n"
+    "If it asks you for something, tell the operator with the courtyard MCP tool\n"
+    "`courtyard_send` — text printed in your terminal reaches nobody."
 )
 
 
@@ -130,8 +141,13 @@ def render(message: Message) -> str:
     sender = message.sender_name or "hub"
     footer = ""
     if message.kind == "message":
-        text = _REPLY_FOOTER if message.reply_to is None else _CLOSING_FOOTER
+        if message.reply_to is None:
+            text = _REPLY_FOOTER
+        else:
+            text = _CLOSING_FOOTER.format(sender=sender)
         footer = f"────\n{text}\n"
+    elif message.kind == "operator_note":
+        footer = f"────\n{_NOTE_FOOTER}\n"
     return (
         f'<{TAG} from="{sender}" authority="{authority}" kind="{message.kind}"'
         f' seq="{message.seq}" id="{message.id}">\n'

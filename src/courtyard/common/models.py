@@ -15,9 +15,15 @@ AgentStatus = Literal["invited", "connected", "stale", "gone", "unknown"]
 LineMode = Literal["supervised", "auto_pass"]
 LineState = Literal["idle", "pending_gate", "awaiting_reply"]
 MessageKind = Literal["message", "operator_note", "system"]
-MessageStatus = Literal["pending_gate", "queued", "delivered", "rejected", "returned", "expired"]
-GateVerdict = Literal["approve", "return", "reject"]
-ArchiveReason = Literal["agent_removed", "operator"]
+MessageStatus = Literal["pending_gate", "queued", "delivered", "dropped", "returned", "expired"]
+# `drop` (item 24, 2026-08-28; renames the original `reject` — too close to "return to
+# sender"): the message is dropped at the gate, and the operator's comment travels nowhere.
+GateVerdict = Literal["approve", "return", "drop"]
+ArchiveReason = Literal["agent_removed", "operator", "unlinked"]
+# Discovery (design §5.8, D22): who forms the team's wiring — `auto` lets a line form on
+# the first message between any pair; `manual` means agents reach only whom the operator
+# has linked (a link IS a pre-created idle line; its existence is the permission).
+Discovery = Literal["auto", "manual"]
 
 # The WebUI identity palette: a name, not a hex value — the UI renders a theme-appropriate tint.
 AGENT_COLORS = ("red", "orange", "yellow", "green", "teal", "blue", "purple", "pink")
@@ -213,3 +219,6 @@ class Settings(BaseModel):
     # 7c: the supervision dial a NEW line starts on (D6 kept supervised as the default;
     # this is its promised relief valve). Existing lines keep whatever they were set to.
     default_line_mode: LineMode = "supervised"
+    # §5.8 (D22): switching modes migrates nothing — under manual the lines that exist
+    # ARE the links; operator lines are exempt and keep forming on first send.
+    discovery: Discovery = "auto"

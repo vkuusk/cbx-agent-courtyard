@@ -1,10 +1,35 @@
-.PHONY: run test test-comms lint fmt demo demo-stop db-up db-down db-nuke
+.PHONY: run run-chrome run-stop test test-comms lint fmt demo demo-chrome demo-stop db-up db-down db-nuke
+
+CHROME ?= /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
 
 run:            ## start the hub in dev mode (needs db-up first)
 	uv run courtyard-hub
 
+run-chrome: db-up  ## app mode: hub in the background (log: sandbox/courtyard.log) + the WebUI in its own Chrome window
+	@mkdir -p sandbox
+	@port=$${COURTYARD_PORT:-2626}; url="http://127.0.0.1:$$port"; \
+	if curl -sf "$$url/api/health" >/dev/null 2>&1; then \
+		echo "hub already running at $$url"; \
+	else \
+		echo "starting the hub at $$url (log: sandbox/courtyard.log)"; \
+		nohup uv run courtyard-hub >> sandbox/courtyard.log 2>&1 & echo $$! > sandbox/courtyard.pid; \
+		for i in $$(seq 1 75); do curl -sf "$$url/api/health" >/dev/null 2>&1 && break; sleep 0.2; done; \
+		curl -sf "$$url/api/health" >/dev/null 2>&1 || { echo "hub did not start — see sandbox/courtyard.log"; exit 1; }; \
+	fi; \
+	"$(CHROME)" --app="$$url" >/dev/null 2>&1 &
+
+run-stop:       ## stop the hub that run-chrome started in the background
+	@if [ -f sandbox/courtyard.pid ] && kill $$(cat sandbox/courtyard.pid) 2>/dev/null; then \
+		rm -f sandbox/courtyard.pid; echo "hub stopped"; \
+	else \
+		rm -f sandbox/courtyard.pid; echo "no background hub to stop (a hub started with 'make run' stops with Ctrl+C)"; \
+	fi
+
 demo: db-up     ## step-2 demo: two scripted puppets + manual play instructions
 	uv run python scripts/demo.py
+
+demo-chrome: db-up  ## the demo, with the board opening in its own Chrome window
+	COURTYARD_CHROME="$(CHROME)" uv run python scripts/demo.py --chrome
 
 demo-stop:      ## stop the hub and puppets the demo started
 	uv run python scripts/demo.py --stop

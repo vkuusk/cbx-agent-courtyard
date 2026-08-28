@@ -7,7 +7,7 @@
 
 Manual mode is a tiny terminal client: type `peer: message` to send (bare text replies to
 whoever wrote last). Until the WebUI exists (step 3) it doubles as the operator console:
-/pending, /approve, /return, /reject, /auto, /release, /peers, /quit.
+/pending, /approve, /return, /drop, /auto, /release, /peers, /quit.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ HELP = """commands:
   /pending              messages waiting at the gate (numbered)
   /approve N [note]     gate verdicts on entry N of the last /pending list
   /return N [comment]
-  /reject N [note]
+  /drop N [note]
   /auto PEER            flip your line with PEER to auto_pass  (/supervise to flip back)
   /supervise PEER
   /release PEER         release a stuck line with PEER to idle
@@ -101,7 +101,7 @@ class OperatorConsole:
                 print("  gate is empty")
             for i, m in enumerate(self._pending, 1):
                 print(f"  {i}. {m.sender_name} → {m.recipient_name} (seq {m.seq}): {m.body[:100]}")
-        elif cmd in ("/approve", "/return", "/reject"):
+        elif cmd in ("/approve", "/return", "/drop"):
             n, _, note = rest.partition(" ")
             message = self._pending[int(n) - 1]
             updated = self._client.decide(message.id, cmd.removeprefix("/"), note.strip() or None)

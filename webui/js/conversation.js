@@ -5,36 +5,41 @@
 import { html, useEffect, useLayoutEffect, useRef, useState } from "../vendor/htm-preact-standalone.module.js";
 import { api } from "./api.js";
 import {
-  store, setDraft, selectedAgent, selectedLine, agentName, operatorId,
+  store, selectedAgent, selectedLine, agentName, operatorId,
   loadMessages, dropMessages, markLineSeen,
 } from "./store.js";
 import { useStore, fmtClock } from "./ui.js";
 
+// The verdict strip on a held message (item 24): the comment box sits INLINE, between
+// the message and the buttons — a plain square-cornered field, visually a form, not a
+// chat. The bottom composer plays no part on a line any more.
 function Decide({ message }) {
+  const [note, setNote] = useState("");
   const [error, setError] = useState(null);
   const act = (verdict) => async () => {
     try {
-      await api.decide(message.id, verdict, store.ui.draft.trim() || null);
-      setDraft("");
+      await api.decide(message.id, verdict, note.trim() || null);
     } catch (err) {
       setError(err.message);
     }
   };
-  const note = store.ui.draft.trim();
   const to = message.recipient_name ?? "the recipient";
   const from = message.sender_name ?? "the sender";
   return html`<div class="gate">
-    <button class="btn approve" onClick=${act("approve")}>approve</button>
-    <button class="btn" onClick=${act("return")}>return to sender</button>
-    <button class="btn danger" onClick=${act("reject")}>reject</button>
-    <span class="uses">${note
-      ? `— with your comment below: approve → ${to} · return / reject → ${from}`
-      : `— type below to add a comment: approve → ${to} · return / reject → ${from}`}</span>
+    <textarea class="gate-note" rows="1" placeholder="Comment for your verdict (optional)…"
+      value=${note}
+      onInput=${(e) => { setNote(e.target.value); setError(null); e.target.style.height = "auto"; e.target.style.height = `${e.target.scrollHeight}px`; }} />
+    <div class="gate-actions">
+      <button class="btn approve" onClick=${act("approve")}>approve</button>
+      <button class="btn" onClick=${act("return")}>return to sender</button>
+      <button class="btn danger" onClick=${act("drop")}>drop</button>
+      <span class="uses">approve sends your comment to ${to} · return sends it to ${from} · drop sends it nowhere</span>
+    </div>
     ${error ? html`<span class="error">${error}</span>` : null}
   </div>`;
 }
 
-const VERDICT = { approve: "approved", return: "returned to sender", reject: "rejected" };
+const VERDICT = { approve: "approved", return: "returned to sender", drop: "dropped" };
 
 export function Bubble({ m, readOnly }) {
   if (m.kind === "system") return html`<div class="msg sys">${m.body}</div>`;
@@ -44,7 +49,7 @@ export function Bubble({ m, readOnly }) {
     mine ? "you" : "",
     m.kind === "operator_note" ? "note" : "",
     m.status === "pending_gate" ? "pending" : "",
-    m.status === "returned" || m.status === "rejected" || m.status === "expired" ? "dropped" : "",
+    m.status === "returned" || m.status === "dropped" || m.status === "expired" ? "dropped" : "",
   ].join(" ");
   const target = m.kind === "operator_note" && m.recipient_name ? ` → ${m.recipient_name}` : "";
   const state =
@@ -106,6 +111,14 @@ function Header({ line }) {
   const setMode = (mode) => () => {
     if (mode !== line.mode) api.setMode(line.id, mode).catch((err) => alert(err.message));
   };
+  // Manual discovery (§5.8, D22): the line is the permission — unlinking removes both,
+  // history archived first. Plain archive keeps its meaning: history cleared, line stays.
+  const unlink = () => {
+    const pair = `${agentName(line.agent_a)} ↔ ${agentName(line.agent_b)}`;
+    if (confirm(`Unlink ${pair}? The history is archived first, then the line is removed — they can no longer message each other until you link them again.`)) {
+      api.unlinkLine(line.id).catch((err) => alert(err.message));
+    }
+  };
   return html`<div class="conv-head">
     <h2 class="mono">${agentName(line.agent_a)} ↔ ${agentName(line.agent_b)}</h2>
     <span class="meta">${supervised ? "you approve each message" : "messages flow, you watch"}</span>
@@ -116,6 +129,9 @@ function Header({ line }) {
       </span>
       ${line.state === "awaiting_reply" ? html`<button class="btn" onClick=${release}>release</button>` : null}
       <button class="btn" onClick=${archiveAction(line)}>archive</button>
+      ${store.settings?.discovery === "manual"
+        ? html`<button class="btn danger" onClick=${unlink}>unlink</button>`
+        : null}
     </span></div>`;
 }
 

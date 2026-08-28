@@ -82,15 +82,16 @@ def test_return_to_sender_flow(client, make_agent):
     assert send(client, alice, "bob", "revised question").status_code == 201
 
 
-def test_reject_flow(client, make_agent):
+def test_drop_flow(client, make_agent):
     _, alice = make_agent("alice")
     _, bob = make_agent("bob")
 
     msg = send(client, alice, "bob", "rude message").json()
-    assert decide(client, msg["id"], "reject", "not acceptable").json()["status"] == "rejected"
+    assert decide(client, msg["id"], "drop", "not acceptable").json()["status"] == "dropped"
     assert pull_inbox(client, "bob", bob) == []
     notice = pull_inbox(client, "alice", alice)[0]
-    assert "rejected" in notice["body"] and "not acceptable" in notice["body"]
+    # item 24 (c): the comment travels nowhere on a drop — only the notice itself goes
+    assert "dropped" in notice["body"] and "not acceptable" not in notice["body"]
     assert line_of(client, msg)["state"] == "idle"
 
     # a decided message cannot be decided again
@@ -103,7 +104,7 @@ def test_auto_pass_flow(client, make_agent):
     _, bob = make_agent("bob")
 
     first = send(client, alice, "bob", "make the line").json()
-    decide(client, first["id"], "reject")
+    decide(client, first["id"], "drop")
     client.post(f"/api/lines/{first['line_id']}/mode", json={"mode": "auto_pass"})
 
     msg = send(client, alice, "bob", "q").json()
@@ -113,7 +114,7 @@ def test_auto_pass_flow(client, make_agent):
     assert reply["status"] == "queued" and reply["reply_to"] == msg["id"]
     assert line_of(client, msg)["state"] == "idle"
     assert [m["body"] for m in pull_inbox(client, "bob", bob)] == ["q"]
-    # alice's pull brings the earlier reject notice plus the reply, in order
+    # alice's pull brings the earlier drop notice plus the reply, in order
     bodies = [m["kind"] for m in pull_inbox(client, "alice", alice)]
     assert bodies == ["system", "message"]
 
@@ -159,7 +160,7 @@ def test_operator_note(client, make_agent):
     make_agent("carol")
 
     first = send(client, alice, "bob", "make the line").json()
-    decide(client, first["id"], "reject")
+    decide(client, first["id"], "drop")
     line_id = first["line_id"]
 
     resp = client.post(
@@ -201,14 +202,14 @@ def test_line_history_and_after_filter(client, make_agent):
     _, bob = make_agent("bob")
 
     first = send(client, alice, "bob", "m1").json()
-    decide(client, first["id"], "reject")
+    decide(client, first["id"], "drop")
     line_id = first["line_id"]
     client.post(f"/api/lines/{line_id}/mode", json={"mode": "auto_pass"})
     send(client, bob, "alice", "m3")
     send(client, alice, "bob", "m4")
 
     history = client.get(f"/api/lines/{line_id}/messages").json()
-    assert [m["seq"] for m in history] == [1, 2, 3, 4]  # m1, reject notice, m3, m4
+    assert [m["seq"] for m in history] == [1, 2, 3, 4]  # m1, drop notice, m3, m4
     tail = client.get(f"/api/lines/{line_id}/messages", params={"after": 2}).json()
     assert [m["body"] for m in tail] == ["m3", "m4"]
 

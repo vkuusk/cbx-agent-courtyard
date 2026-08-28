@@ -58,15 +58,15 @@ def test_board_changes_stream_as_events(live_hub):
     assert tap.wait_for("line")["state"] == "pending_gate"
     assert tap.wait_for("gate")["id"] == str(sent.id)  # the approver's announcement
 
-    admin.decide(sent.id, "reject", "not like this")
+    admin.decide(sent.id, "drop", "not like this")
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline:
-        rejected = [d for t, d in tap.events if t == "message" and d["status"] == "rejected"]
+        dropped = [d for t, d in tap.events if t == "message" and d["status"] == "dropped"]
         notices = [d for t, d in tap.events if t == "message" and d["kind"] == "system"]
-        if rejected and notices:
+        if dropped and notices:
             break
         time.sleep(0.02)
-    assert rejected and rejected[0]["id"] == str(sent.id)
-    assert "rejected" in notices[0]["body"]
+    assert dropped and dropped[0]["id"] == str(sent.id)
+    assert "dropped" in notices[0]["body"]
     alice.close()
     admin.close()

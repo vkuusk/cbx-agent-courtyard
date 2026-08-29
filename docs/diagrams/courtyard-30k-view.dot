@@ -1,35 +1,36 @@
 // Agent Courtyard — 30,000 ft component view (discussion artifact).
-// Sister file: courtyard-30k-view.excalidraw (import at excalidraw.com for editing).
-// Render: dot -Tsvg courtyard-30k-view.dot -o courtyard-30k-view.svg
+// Source of truth for the picture: courtyard-30k-view.excalidraw (edited on
+// excalidraw.com); this DOT mirrors its layout for graph-based discussion.
+// Render: dot -Tsvg courtyard-30k-view.dot -o rendered.svg
+//
+// Legend (drawn as caption text in the excalidraw/PNG version):
+//   each agent = a Claude Code session in its own terminal, in its own project directory.
+//   the hub = the only communication path between agents providing discovery
+//             and conversation supervision.
 digraph courtyard_30k {
     label="Agent Courtyard — 30,000 ft";
     labelloc=t;
     fontname="Helvetica";
-    rankdir=TB;
+    rankdir=LR;
     node [fontname="Helvetica", shape=box, style=rounded];
     edge [fontname="Helvetica", fontsize=10];
 
-    operator [label="Operator\n(human)", shape=ellipse];
-    board    [label="Board (WebUI)\nserved by the hub"];
-    hub      [label="Hub\nregistry · lines · turns · gate · shift · archive",
+    // palette: green = the human · blue = agents · yellow = the hub · pink = the board
+    operator [label="Operator\n(human)", shape=ellipse, style=filled, fillcolor="#b2f2bb"];
+    board    [label="Board (WebUI)\nserved by the hub", style="rounded,filled", fillcolor="#ffc9c9"];
+    agent_a  [label="agent A (main)", style="rounded,filled", fillcolor="#a5d8ff"];
+    hub      [label="Hub\nregistry · lines · turns\ngate · shift · archive",
               style="rounded,filled", fillcolor="#ffec99"];
+    agent_b  [label="agent B", style="rounded,filled", fillcolor="#a5d8ff"];
+    agent_n  [label="agent …", style="rounded,dashed,filled", fillcolor="#d0ebff"];
 
-    subgraph cluster_agents {
-        label="agents — each a Claude Code session in its own terminal, in its own project directory";
-        fontsize=10;
-        style=dashed;
-        agent_a [label="agent A"];
-        agent_b [label="agent B"];
-        agent_n [label="agent …", style="rounded,dashed"];
-    }
+    // the spine: the operator's day-to-day path, left to right
+    operator -> agent_a [label="works in terminal"];
+    agent_a  -> hub     [dir=both, label="MCP"];
+    hub      -> agent_b [dir=both, label="MCP"];
+    hub      -> agent_n [dir=both, label="MCP"];
 
-    operator -> board  [label="watches · gate verdicts"];
-    board    -> hub    [dir=both, label="REST + SSE"];
-    agent_a  -> hub    [dir=both, label="MCP"];
-    agent_b  -> hub    [dir=both, label="MCP"];
-    agent_n  -> hub    [dir=both, label="MCP"];
-
-    // agents never talk directly: their "line" lives inside the hub
-    agent_a -> agent_b [dir=both, style=dotted, color=gray50, constraint=false,
-                        label="the hub = the only communication path between agents,\nproviding discovery and conversation supervision"];
+    // the supervision layer, arched above the spine
+    operator -> board   [label="watches · gate verdicts"];
+    board    -> hub     [dir=both, label="REST + SSE"];
 }

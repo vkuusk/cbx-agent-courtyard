@@ -9,8 +9,9 @@ One Python hub (FastAPI + Postgres) owns all state: the agent registry, the per-
 **lines**, every message, and the liveness picture. Agents connect through a small MCP
 adapter riding Claude Code's channels preview — the hub pushes deliveries into the
 agent's session and the agent answers with a `courtyard_send` tool call; nothing an
-agent prints in its terminal reaches anyone. The WebUI is a no-build Preact page served
-by the hub and fed by server-sent events.
+agent prints in its terminal reaches anyone. The operator usually works in the main
+agent's terminal, delegating through it; the board — a no-build Preact page served by
+the hub and fed by server-sent events — is where the team is watched and gated.
 
 The core ideas, each with its section in the design doc:
 

@@ -762,6 +762,28 @@ INSTRUCTIONS state the same rule. Wording-first like WP‑C; if a relay still st
 escalation is a hub-side reminder listing the agent's open obligations on delivery (the
 turn machine already knows them). **Confirmed by the architect 2026-08-28** ("it worked")
 
+### 27. Remote hub deployment (feature request)
+
+**Asked** (2026-08-29). An option to deploy the hub remotely relative to the agents:
+(a) local deployment via docker compose alone, without cloning the repo; (b) a team
+mixing agents on local machines and on remote machines. Likely path per the architect:
+switch the hub's MCP surface to the streamable_http transport and verify that Claude
+Code channels can be accessed remotely.
+
+**Why.** Personal install gets easier (pull an image, run compose) and the hub stops
+assuming the whole team lives on one laptop.
+
+**Touches.** The adapter today is a per-agent local process (`.mcp.json` launches
+`mcp_server.py` over stdio); the step-6a spike (2.1.237) recorded channels as
+**stdio-only**, which is what settled per-agent adapter vs hub-as-MCP-server, so the
+remote-channels question needs re-verification on current Claude Code. The hub's push
+targets an agent-local `ChannelReceiver` HTTP endpoint (`common/client.py`), which
+assumes the hub can reach the agent's machine; a remote hub inverts that reachability.
+Related: D16 live_mode (hub + postgres in containers), §11 localhost binding (a remote
+hub needs an authenticated non-localhost mode).
+
+**Status.** open, recorded for planning; not for v1.
+
 ---
 
 ## Work packages (discussion outcome, 2026-08-24)
@@ -817,3 +839,4 @@ that review.
 | 24 | Question asked as a line note lost in-transcript; line pane looked like a chat | envelope / WebUI composer | implemented 2026-08-28 (D27: inline verdict comment, `drop`, note footer); awaiting check |
 | 25 | Link control → small '+' square, bottom-left of Lines, bubble on hover | WebUI board | done 2026-08-28; awaiting look |
 | 26 | Relayed answer stopped at the relaying agent (unscoped "no reply is owed") | envelope | fixed 2026-08-28 (scoped footer + relay clause); **confirmed** |
+| 27 | Remote hub deployment: compose-only local install; agents local + remote; MCP over streamable_http + remote-channels check | deployment / adapter | open (post-v1) |

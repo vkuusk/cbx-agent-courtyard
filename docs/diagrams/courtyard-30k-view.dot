@@ -16,7 +16,8 @@ digraph courtyard_30k {
     edge [fontname="Helvetica", fontsize=10];
 
     // palette: green = the human · blue = agents · yellow = the hub · pink = the board
-    operator [label="Operator\n(human)", shape=ellipse, style=filled, fillcolor="#b2f2bb"];
+    // graphviz has no person/"user" shape; the emoji mirrors the excalidraw user icon
+    operator [label="👤 Operator\n(human)", shape=ellipse, style=filled, fillcolor="#b2f2bb"];
     board    [label="Board (WebUI)\nserved by the hub", style="rounded,filled", fillcolor="#ffc9c9"];
     agent_a  [label="agent A (main)", style="rounded,filled", fillcolor="#a5d8ff"];
     hub      [label="Hub\nregistry · lines · turns\ngate · shift · archive",

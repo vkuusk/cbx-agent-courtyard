@@ -49,7 +49,9 @@ The core ideas, each with its section in the design doc:
 The basics are in the root README (`uv sync`, then `make run`, which brings postgres up itself). The notes
 below matter once you work on the code.
 
-**The demo, in more detail.** `make demo` starts the hub (unless one is running) plus
+**The demo, in more detail.** The demo exists to exercise the hub end to end with
+scripted agents; the root README offers it as a preview of the gate before any real
+agents are connected. `make demo` starts the hub (unless one is running) plus
 scripted puppet agents; runtime files and process logs land in `.demo/` (gitignored).
 Each run registers a fresh cast with unique name suffixes, and the cast cleans up after
 itself: both `make demo-stop` and a re-run remove the previous cast from the WebUI and

@@ -23,7 +23,7 @@ digraph courtyard_30k {
     hub      [label="Hub\nregistry · lines · turns\ngate · shift · archive",
               style="rounded,filled", fillcolor="#ffec99"];
     agent_b  [label="agent B", style="rounded,filled", fillcolor="#a5d8ff"];
-    agent_n  [label="agent …", style="rounded,dashed,filled", fillcolor="#d0ebff"];
+    agent_n  [label="agent …", style="rounded,dashed,filled", fillcolor="#a5d8ff"];
 
     // the spine: the operator's day-to-day path, left to right
     operator -> agent_a [label="works in terminal"];
@@ -31,7 +31,11 @@ digraph courtyard_30k {
     hub      -> agent_b [dir=both, label="MCP"];
     hub      -> agent_n [dir=both, label="MCP"];
 
+    // the same operator works in any agent's terminal directly;
+    // in the excalidraw version this edge sweeps below the hub to agent B
+    operator -> agent_b [label="works in terminal (different task)", constraint=false];
+
     // the supervision layer, arched above the spine
     operator -> board   [label="watches · gate verdicts"];
-    board    -> hub     [dir=both, label="REST + SSE"];
+    board    -> hub     [dir=both];
 }

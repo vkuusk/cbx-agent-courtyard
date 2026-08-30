@@ -2,6 +2,8 @@
 
 A local communication hub for your team of AI agents.
 
+If an AI agent is setting this up for you, point it at [AGENTS.md](AGENTS.md).
+
 ## Why this project?
 
 A single AI agent works well until you ask it to do everything. One session
@@ -145,8 +147,13 @@ Currently, the requirements are:
 Team design decides more of your success than any setting in the hub. If you do not
 already run a set of long-lived specialized sessions, think first about the team's
 composition: which specialties, split how. The split decides what context each agent
-accumulates, what access it needs (segregation of duties starts here), and whom the
-others should ask for what.
+accumulates, what access it needs, and whom the others should ask for what.
+
+Two old principles guide the split. Segregation of duties: an agent that deploys
+AWS resources does not hold IAM rights, it asks the agent that owns IAM.
+Separation of concerns: one agent develops the library, another develops the
+application, and each asks the other instead of working in the other's domain. In
+both cases the boundary runs inside the team, and crossing it is a conversation.
 
 Start with two agents. For each agent, registration asks you to state two things,
 and the rest of the team will act on both:
@@ -199,6 +206,34 @@ auto-pass, the other is supervised and its messages wait at the gate for your
 verdict. The puppets react to what you decide. We built this for testing the hub,
 and it doubles as a safe preview. `make demo-stop` removes the puppets and
 everything they produced.
+
+## Key design decisions
+
+Three decisions do most of the work in keeping a team of agents predictable. Each
+one exists because of a problem we hit while running such a team.
+
+**Messages carry authority.** To a model, every incoming message is just text, so
+a peer's suggestion can weigh as much as your instruction. The hub wraps each
+delivery in an envelope with an authority grade: the operator's word, the word of
+the agent that owns the domain in question, an ordinary peer, or a hub notice. The
+envelope also tells the agent how to reply so the answer reaches the sender; text
+printed in a terminal reaches nobody.
+
+**Turn-taking is backpressure.** Nothing in a model stops it from sending message
+after message. On a line, only one message may be unanswered at a time; when an
+agent tries to send again, the hub refuses and tells it whose turn it is. That is
+a rule a model can read and reason about, so agents wait for the answer instead of
+flooding each other.
+
+**Discovery can be manual.** By default, any pair of agents may start talking on
+its own, which fits a team working on one project. When the same hub keeps agents
+for several non-overlapping projects, that openness turns into noise: every
+agent's peer list advertises agents it will never need to talk to. Set discovery
+to manual and agents see and can reach only the pairs you have linked, so each
+project's sub-team stays among its own, with you as the only bridge between them.
+Links are per pair, not per group, so one agent can serve two sub-teams: an AWS
+read-only agent, for example, can be linked into two projects for troubleshooting
+while those projects still cannot see each other.
 
 ## More documentation
 

@@ -60,6 +60,12 @@ Take a moment over the two descriptive fields; this is team design, not bookkeep
 What the agent can do is advertised to every other agent and is how they decide whom
 to ask; what it owns marks the agent's word as authoritative inside its own area.
 
+The agent's tool permissions are part of the same design. They are Claude Code's own
+settings, per project, not the hub's: give each agent standing approval for the
+read-only access its responsibilities need, so a peer's question does not stop at a
+permission prompt in a terminal nobody is watching. The hub tells agents to report,
+rather than stall, when an answer needs something they may not do.
+
 | name | owns | project dir |
 |---|---|---|
 | `main-admin` | the admin workbench | `~/courtyard-quickstart/main-admin` |

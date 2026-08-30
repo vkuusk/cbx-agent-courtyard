@@ -666,7 +666,15 @@ the trigger was a peer rather than its human.
 install writes only the courtyard rule today, D21); the envelope's authority framing
 (§7.5); possibly per-agent policy in the registry.
 
-**Status.** open — discuss after the WP‑E design session
+**Status.** resolved wording-first (2026-08-30, architect's direction). The question
+footer now adds: prefer actions that need no human approval; if blocked by a permission,
+reply saying what blocks you instead of attempting it. The adapter instructions add the
+Claude-Code-specific half (prefer Read/Grep/Glob over shell when exploring to answer).
+Team-design guidance in README + quickstart §3: standing permissions are the operator's
+per-agent call, matched to responsibilities. Rejected for v1: install-written Bash
+allowlists (security curation belongs to the operator, per agent) and hub-enforced
+policy (host permissions cannot see who triggered a turn; a PreToolUse hook asking the
+hub could — post-v1 at most, D21 stays configuration-not-behaviour).
 
 ### 23. Start shift opened one extra, empty terminal window
 
@@ -834,7 +842,7 @@ that review.
 | 19 | Re-registered workdir kept the old name in the status line (non-clobber protected our own stale line) | install | fixed, confirmed |
 | 20 | Admin restructure (Status/Settings, pulldowns, custom terminal apps) + composer on Courtyard only + collapsed add form | WebUI Admin/Agents / settings | done, confirmed |
 | 21 | Lines panel must stay visible when empty | WebUI board | fixed |
-| 22 | What may an agent do on its own when a peer asks? (blocked on a Bash prompt answering a peer) | permissions / envelope | open — after WP‑E design |
+| 22 | What may an agent do on its own when a peer asks? (blocked on a Bash prompt answering a peer) | permissions / envelope | resolved wording-first 2026-08-30 (footer + instructions + team-design guidance) |
 | 23 | Start shift opened one extra, empty terminal (Terminal.app cold-start window) | shift / spawn | fixed 2026-08-28; cold-start check his |
 | 24 | Question asked as a line note lost in-transcript; line pane looked like a chat | envelope / WebUI composer | implemented 2026-08-28 (D27: inline verdict comment, `drop`, note footer); awaiting check |
 | 25 | Link control → small '+' square, bottom-left of Lines, bubble on hover | WebUI board | done 2026-08-28; awaiting look |

@@ -163,6 +163,13 @@ and the rest of the team will act on both:
 - **its responsibilities**: what the agent owns. The hub uses it to mark the agent's
   word as authoritative inside its own area.
 
+The agent's standing tool permissions belong to this design too. Agents answer
+peers on their own, and a teammate's question should not end at a permission
+prompt in a terminal nobody is watching. Give each agent standing approval for
+the read-only access its responsibilities need, keep the risky permissions
+tight, and the agent will report through the hub when something it may not do
+blocks an answer.
+
 ### Start the hub
 
 ```sh

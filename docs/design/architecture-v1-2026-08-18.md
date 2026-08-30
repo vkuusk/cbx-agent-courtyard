@@ -628,7 +628,14 @@ both preambles.
 footer after the body. A question (no `reply_to`) says: reply with the courtyard MCP tool
 `courtyard_send` — text printed in the terminal never reaches the sender — and answer what
 was asked, completely and no more (no trailing offers or side questions; each one costs a
-full exchange). An answer (`reply_to` set) says instead: your exchange **with this
+full exchange). Since item 22 (2026-08-30 — an agent answering a peer stalled at its
+host's Bash permission prompt in an unwatched terminal) the question footer also says:
+prefer actions that need no human approval, and if the answer requires something your
+permissions do not allow, reply saying what blocks you instead of attempting it — a hard
+block becomes a message the operator can act on. The adapter instructions add the
+Claude-Code-specific half (prefer Read/Grep/Glob over shell for exploration); which
+standing permissions each agent gets remains the operator's per-agent call, made at
+team-design time (the hub writes only the courtyard rule, D21). An answer (`reply_to` set) says instead: your exchange **with this
 sender** is complete — send them nothing further; if you asked on someone else's behalf,
 deliver them the answer now (scoped by name since item 26: an unscoped "no reply is owed"
 stopped a relaying agent before it handed the answer back to its operator). An `operator_note` carries its own footer since item 24 (2026-08-28 — a fresh

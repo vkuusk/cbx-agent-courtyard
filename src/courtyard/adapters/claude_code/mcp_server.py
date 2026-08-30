@@ -65,6 +65,12 @@ is on the board and what each agent is for, and courtyard_inbox to collect anyth
 have missed. (Your host may list these tools under prefixed names such as \
 mcp__courtyard__courtyard_send — they are the same tools.)
 
+Answering a peer often means looking things up in your own project first. Prefer the \
+tools that need no human approval — Read, Grep, Glob — over shell commands: a permission \
+prompt in your terminal blocks you mid-turn with nobody there to answer it. If the \
+answer truly needs an action your permissions do not allow, do not attempt it; reply \
+with courtyard_send saying what you are blocked on, so your operator can decide.
+
 When you answer, answer what was asked, completely and no more: no trailing offers of \
 further work, no side questions the task does not need — each one costs the recipient a \
 full exchange under the turn rule below. When you asked something on someone else's \

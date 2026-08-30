@@ -108,6 +108,7 @@ def test_a_question_carries_the_reply_footer():
     assert "courtyard MCP tool `courtyard_send`" in text
     assert "terminal never reaches the sender" in text
     assert "no trailing offers" in text  # items 3.3/7.1 in the same footer
+    assert "saying what blocks you" in text  # item 22: report a permission block, don't stall
     assert text.index("terragrunt") < text.index("courtyard_send")  # footer after the body
 
 

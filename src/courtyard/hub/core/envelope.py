@@ -60,10 +60,15 @@ _DOMAIN_OWNER_PREAMBLE = (
 # the exchange with ITS SENDER is closed — scoped by name since item 26: an unscoped "no
 # reply is owed" was read as "you are done with everything" by an agent that had relayed
 # the question for its operator, and the operator's answer died in a terminal.
+# Item 22: an agent answering a peer stalled at its host's own permission prompt, in a
+# terminal nobody watches. The footer steers around the prompt (prefer actions that need
+# no approval) and turns a hard block into a reply the operator can act on.
 _REPLY_FOOTER = (
     "To answer, use the courtyard MCP tool `courtyard_send` — text printed in your\n"
     "terminal never reaches the sender. Answer what was asked, completely and no more:\n"
-    "no trailing offers, no side questions the task does not need."
+    "no trailing offers, no side questions the task does not need. Prefer actions that\n"
+    "need no human approval; if the answer requires something your permissions do not\n"
+    "allow, reply saying what blocks you instead of attempting it."
 )
 _CLOSING_FOOTER = (
     "This answers your earlier message — your exchange with {sender} is complete; send\n"

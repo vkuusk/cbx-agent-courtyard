@@ -1,4 +1,9 @@
-.PHONY: run run-chrome run-stop test test-comms lint fmt demo demo-chrome demo-stop db-up db-down db-nuke
+.PHONY: run run-chrome run-stop check test test-comms lint fmt demo demo-chrome demo-stop db-up db-down db-nuke
+
+# local overrides (copied from .env.default; gitignored); exported so the hub,
+# tests and compose all see the same values
+-include .env
+export
 
 CHROME ?= /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
 
@@ -33,6 +38,8 @@ demo-chrome: db-up  ## the demo, with the board opening in its own Chrome window
 
 demo-stop:      ## stop the hub and puppets the demo started
 	uv run python scripts/demo.py --stop
+
+check: test lint  ## the automated "done" bar: full test suite + lint
 
 test: db-up     ## run the test suite (brings postgres up if needed)
 	uv run pytest

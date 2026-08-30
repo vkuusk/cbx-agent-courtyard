@@ -168,6 +168,7 @@ and the rest of the team will act on both:
 ```sh
 git clone https://github.com/vkuusk/cbx-agent-courtyard.git
 cd cbx-agent-courtyard
+cp .env.default .env   # local settings; the defaults work unless a port is taken
 make run-chrome     # postgres + hub + the WebUI in its own Chrome window
 
 # or just `make run` and open http://127.0.0.1:2626 in any browser

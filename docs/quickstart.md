@@ -15,9 +15,17 @@ Requirements: [uv](https://docs.astral.sh/uv/), Docker with compose, and
 ```sh
 git clone https://github.com/vkuusk/cbx-agent-courtyard.git
 cd cbx-agent-courtyard
+cp .env.default .env   # local settings; see the port-collision note below
 uv sync            # creates .venv with everything, including the agent adapter
 make run           # postgres up + the hub on http://127.0.0.1:2626 (leave this terminal up)
 ```
+
+If a local postgres already holds port 5432, uncomment `COURTYARD_PG_PORT` in
+your `.env` and pick a free port (e.g. 5433); the compose postgres, the hub,
+the tests and the runbook scripts all follow it. Colima works as the container
+runtime too; be aware that older Colima versions ignore the localhost-only
+port binding and may expose the postgres port on your local network, which is
+a Colima limitation, not a courtyard setting.
 
 Open **http://127.0.0.1:2626/**. The Courtyard page is empty and the dot at the top
 right says **live**. The hub listens on 127.0.0.1 only, so nothing outside your

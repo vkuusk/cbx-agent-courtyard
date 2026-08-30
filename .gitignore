@@ -9,9 +9,12 @@ dist/
 .idea/
 .demo/
 node_modules/
-spikes/6a-delivery/stop-hook/messages.txt
+docs/archived/spikes/6a-delivery/stop-hook/messages.txt
 
 temp/
 # local experimentation area — only its README travels with the repo
 sandbox/*
 !sandbox/README.md
+.claude/settings.local.json
+.env
+docker-compose.override.yml

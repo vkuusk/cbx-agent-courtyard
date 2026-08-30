@@ -9,7 +9,12 @@ from pathlib import Path
 
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
-DEFAULT_DATABASE_URL = "postgresql://courtyard:courtyard@127.0.0.1:5432/courtyard"
+
+def default_database_url(env: Mapping[str, str]) -> str:
+    # COURTYARD_PG_PORT is the one knob shared with docker-compose.yml for machines
+    # where 5432 is taken; a full DATABASE_URL always wins over it
+    port = env.get("COURTYARD_PG_PORT", "5432")
+    return f"postgresql://courtyard:courtyard@127.0.0.1:{port}/courtyard"
 
 
 class NonLocalBindError(Exception):
@@ -45,7 +50,7 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
     return Config(
         host=host,
         port=int(env.get("COURTYARD_PORT", "2626")),
-        database_url=env.get("DATABASE_URL", DEFAULT_DATABASE_URL),
+        database_url=env.get("DATABASE_URL", default_database_url(env)),
         webui_dir=Path(env.get("COURTYARD_WEBUI_DIR", str(_default_webui_dir()))),
         max_body_bytes=int(env.get("COURTYARD_MAX_BODY_BYTES", "16384")),
         # 15 s (was 30, D23): halves how long a live agent looks down after a hub restart

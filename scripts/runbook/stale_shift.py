@@ -27,7 +27,8 @@ from courtyard.common.client import HubClient, HubError
 PORT = 3633
 HUB = f"http://127.0.0.1:{PORT}"
 DB_NAME = "courtyard_stale_rb"
-DB = f"postgresql://courtyard:courtyard@127.0.0.1:5432/{DB_NAME}"
+PG_PORT = os.environ.get("COURTYARD_PG_PORT", "5432")
+DB = f"postgresql://courtyard:courtyard@127.0.0.1:{PG_PORT}/{DB_NAME}"
 HEARTBEAT = "1"  # liveness grace = heartbeat + 5s margin -> stale flips ~6s after start
 
 

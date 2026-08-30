@@ -19,6 +19,7 @@ and Claude Code (`claude` on PATH) for the agents themselves.
 ```sh
 git clone https://github.com/vkuusk/cbx-agent-courtyard.git
 cd cbx-agent-courtyard
+cp .env.default .env   # local settings; if port 5432 is taken, set COURTYARD_PG_PORT here
 uv sync
 make run            # postgres + the hub on http://127.0.0.1:2626 (foreground)
 ```
@@ -78,8 +79,13 @@ the full walkthrough with every screen described.
 
 ## Contributing to the code
 
-- Setup: `uv sync`. Tests: `make test` (needs Docker; brings postgres up
-  itself). Lint: `make lint`, format: `make fmt`. Both must pass.
+- Setup: `uv sync`. The automated bar for any change is `make check` (test
+  suite + lint; needs Docker, brings postgres up itself). `make fmt` fixes
+  formatting.
+- The full testing workflow (which checks to run, which tests a change must
+  add, gotchas) is a skill: read
+  [.claude/skills/courtyard-testing/SKILL.md](.claude/skills/courtyard-testing/SKILL.md)
+  before testing or adding tests. Claude Code loads it by itself.
 - Every completed feature ships a manual verification procedure in
   `docs/testing-runbook.md` plus a durable script in `scripts/runbook/`;
   conventions live in `docs/developer-notes.md`.

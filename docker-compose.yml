@@ -7,7 +7,9 @@ services:
       POSTGRES_PASSWORD: courtyard
       POSTGRES_DB: courtyard
     ports:
-      - "127.0.0.1:5432:5432"
+      # host port configurable for machines where 5432 is taken (see .env.default);
+      # 127.0.0.1 (not localhost) keeps the mapping IPv4-only and deterministic
+      - "127.0.0.1:${COURTYARD_PG_PORT:-5432}:5432"
     volumes:
       - courtyard-pgdata:/var/lib/postgresql/data
     healthcheck:

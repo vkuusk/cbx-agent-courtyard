@@ -3,11 +3,28 @@
 Standing conventions for working on courtyard. These are standards, not suggestions —
 follow them unless a change is agreed with the architect.
 
+## How testing is organized
+
+Three layers, each with one entry point:
+
+- **Functional tests**: `tests/test_*.py`, run by `make test` against a dedicated
+  `courtyard_test` database in the compose postgres, so dev data is never touched.
+  Pytest discovers every `test_*.py` file automatically; there is no suite list to
+  maintain.
+- **End-to-end**: `tests/communications/`, run by `make test-comms` on demand. It
+  drives a live Claude Code session, so it needs `claude` on PATH and is not part
+  of `make test`.
+- **Manual verification**: `scripts/runbook/` scripts plus their entries in
+  [`testing-runbook.md`](testing-runbook.md), run by a human per feature (next
+  section). These show; they are not automated tests and do not live in `tests/`.
+
+`make check` runs the automated "done" bar: the functional suite plus lint.
+
 ## Every feature ships with a manual test procedure
 
 When an implementation step (or any feature that changes observable behaviour) is complete,
 add a procedure to [`testing-runbook.md`](testing-runbook.md). This is part of "done",
-alongside green `make test` and clean `make lint` — not a follow-up.
+alongside a green `make check` — not a follow-up.
 
 **Runbook entry format** (keep it terse — checkpoints, not prose):
 

@@ -115,7 +115,7 @@ function Header({ line }) {
   // history archived first. Plain archive keeps its meaning: history cleared, line stays.
   const unlink = () => {
     const pair = `${agentName(line.agent_a)} ↔ ${agentName(line.agent_b)}`;
-    if (confirm(`Unlink ${pair}? The history is archived first, then the line is removed — they can no longer message each other until you link them again.`)) {
+    if (confirm(`Unlink ${pair}? The history is archived first, then the line is removed; they can no longer message each other until you link them again.`)) {
       api.unlinkLine(line.id).catch((err) => alert(err.message));
     }
   };
@@ -174,7 +174,7 @@ export function Conversation() {
   if (!store.ui.selected) {
     body = empty(
       "Your courtyard is empty",
-      "Add an agent, let the hub write its .mcp.json, start it in its own terminal — its dot turns green here.",
+      "Add an agent, let the hub write its .mcp.json, start it in its own terminal, and its dot turns green here.",
     );
   } else if (agent && !line) {
     body = empty(null, `No messages between you and ${agent.name} yet. Write below to start the line.`);

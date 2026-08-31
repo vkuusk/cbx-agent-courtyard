@@ -18,13 +18,13 @@ function plan() {
   if (sel.kind !== "agent") return null; // a line: no box — the verdict comment is inline
 
   const agent = selectedAgent();
-  if (!agent) return off("removed", "That agent was removed — pick another");
+  if (!agent) return off("removed", "That agent was removed; pick another");
   const line = selectedLine();
   const theirTurn = line?.state === "awaiting_reply" && !isHuman(line.awaiting_from);
   return {
     chip: { dot: agent.status, text: agent.name, color: agent.color },
     placeholder: theirTurn
-      ? `waiting for ${agent.name} to reply — one message at a time on a line`
+      ? `waiting for ${agent.name} to reply; one message at a time on a line`
       : `Message ${agent.name}…`,
     disabled: theirTurn,
     hint: "Enter to send · Shift+Enter for a new line",

@@ -105,7 +105,7 @@ function StaleShiftQuestion({ onDismiss }) {
       <p>The team is offline, but the shift is still marked as running.</p>
       <div class="choice">
         <button class="btn default" ref=${focusOnce} onClick=${act(() => api.shiftEnd(true))}>■ End shift</button>
-        <span class="hint">close it and nothing more — its unfinished messages expire (kept in history);
+        <span class="hint">close it and nothing more: its unfinished messages expire (kept in history);
           start a new shift whenever you are ready</span>
       </div>
       <div class="choice">
@@ -138,7 +138,7 @@ function ShiftPill() {
   if (checkLeft || (anyUnknown && shift.state === "on")) {
     // No claims yet (D26): neither "n/n on shift" nor the stale question until verified.
     return html`<span class="shift-pill busy"
-      title="the hub just restarted — waiting one heartbeat before trusting any status">Checking the team${checkLeft ? ` · ${checkLeft}` : "…"}</span>`;
+      title="the hub just restarted; waiting one heartbeat before trusting any status">Checking the team${checkLeft ? ` · ${checkLeft}` : "…"}</span>`;
   }
 
   const targets = teamAgents().filter((a) => a.type === "claude-code" && a.workdir);
@@ -151,7 +151,7 @@ function ShiftPill() {
       await api.shiftEnd(false);
     } catch (e) {
       if (e instanceof ApiError && e.code === "shift_busy") {
-        const text = `${e.message} — end the shift anyway?\n\nUnfinished messages are closed as expired (kept in history); the lines start the next shift clear.`;
+        const text = `${e.message}. End the shift anyway?\n\nUnfinished messages are closed as expired (kept in history); the lines start the next shift clear.`;
         if (confirm(text)) await api.shiftEnd(true);
       }
     }
@@ -169,7 +169,7 @@ function ShiftPill() {
       bump((n) => n + 1);
     };
     return html`<span class="shift-group">
-      <button class="shift-pill busy" title="the team is offline but the shift was never ended — click to decide"
+      <button class="shift-pill busy" title="the team is offline but the shift was never ended; click to decide"
         onClick=${() => setDismissed(false)}>shift left open</button>
       ${dismissed ? null : html`<${StaleShiftQuestion} onDismiss=${() => setDismissed(true)} />`}
     </span>`;
@@ -257,7 +257,7 @@ function LinkAgents() {
   if (!open) {
     return html`<div class="link-corner">
       <button class="link-add" aria-label="link two agents" onClick=${() => setOpen(true)}>+</button>
-      <span class="link-bubble">link two agents — an idle line opens between them</span>
+      <span class="link-bubble">link two agents: an idle line opens between them</span>
     </div>`;
   }
   const pick = (value, onChange, exclude) => html`
@@ -303,8 +303,8 @@ export function Board() {
       ${active.length
         ? html`<div class="lines">${active.map((l) => html`<${Wire} key=${l.id} line=${l} />`)}</div>`
         : html`<div class="small muted" style="padding:.2rem 0 .4rem">${manual
-            ? "No lines yet — link two agents to open a line."
-            : "No lines between agents yet — a line appears when two agents first message each other."}</div>`}
+            ? "No lines yet. Link two agents to open a line."
+            : "No lines between agents yet; a line appears when two agents first message each other."}</div>`}
       ${manual ? html`<${LinkAgents} />` : null}
     </div>
     <${Resizer} which="lines" />

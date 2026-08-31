@@ -44,7 +44,7 @@ function TerminalSection({ settings, save, error }) {
     <${Row} label="Application" value=${settings.terminal_app}
       options=${[...BUILTIN_TERMINALS.map((a) => [a, a]), ...customs.map((t) => [t.name, t.name])]}
       onChange=${(v) => { setDraft(null); save({ terminal_app: v }); }}
-      hint="— where Start shift opens the agents' windows" />
+      hint="where Start shift opens the agents' windows" />
     ${selected
       ? html`<div class="form-row">
           <span class="small muted" style="min-width:10rem">Start string</span>
@@ -57,7 +57,7 @@ function TerminalSection({ settings, save, error }) {
             }).then((ok) => ok && setDraft(null))}>save</button>
           <button class="btn danger" onClick=${() => removeApp(selected.name)}>remove app</button>
         </div>
-        <div class="small muted" style="margin:.2rem 0 0">A custom application only opens windows —
+        <div class="small muted" style="margin:.2rem 0 0">A custom application only opens windows;
           End shift cannot close what it opened; the built-ins do both.</div>`
       : null}
     ${adding
@@ -67,7 +67,7 @@ function TerminalSection({ settings, save, error }) {
             placeholder="start string, e.g. kitty --directory {dir} sh -c {command}" />
           <button class="btn primary">add</button>
           <button type="button" class="btn" onClick=${() => setAdding(false)}>cancel</button>
-          <div class="small muted" style="flex-basis:100%">{command} is required — it becomes the agent's
+          <div class="small muted" style="flex-basis:100%">{command} is required; it becomes the agent's
             launch command as one quoted argument (most apps want it behind sh -c); {dir} is the
             agent's directory, optional.</div>
         </form>`
@@ -93,24 +93,24 @@ function SettingsSection() {
       <${Row} label="Team mode" value=${settings.team_mode}
         options=${[["on_shift", "On shift"], ["always_on", "Always on (not yet available)", true]]}
         onChange=${(v) => save({ team_mode: v })}
-        hint="— agents start with your shift and stop when it ends" />
+        hint="agents start with your shift and stop when it ends" />
       <${Row} label="Discovery" value=${settings.discovery ?? "auto"}
         options=${[["auto", "auto"], ["manual", "manual"]]}
         onChange=${(v) => save({ discovery: v })}
-        hint="— manual: agents reach only whom you link; lines are created from the Lines panel" />
+        hint="manual: agents reach only whom you link; lines are created from the Lines panel" />
     </div>
     <${TerminalSection} settings=${settings} save=${save} error=${error} />
     <div class="panel"><h3>Defaults</h3>
       <${Row} label="New lines start" value=${settings.default_line_mode}
         options=${[["supervised", "supervised"], ["auto_pass", "auto-pass"]]}
         onChange=${(v) => save({ default_line_mode: v })}
-        hint="— the dial a brand-new line starts on; each line keeps its own switch, and your own lines are never gated" />
+        hint="the dial a brand-new line starts on; each line keeps its own switch, and your own lines are never gated" />
     </div>
     <div class="panel"><h3>Appearance</h3>
       <${Row} label="Theme" value=${store.ui.theme}
         options=${[["system", "follow the system"], ["light", "light"], ["dark", "dark"]]}
         onChange=${setTheme}
-        hint=${store.ui.theme === "system" ? `— the system is ${effectiveTheme()} right now` : ""} />
+        hint=${store.ui.theme === "system" ? `the system is ${effectiveTheme()} right now` : ""} />
     </div>`;
 }
 

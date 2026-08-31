@@ -91,8 +91,8 @@ function PuppetPanel({ agent, token }) {
   return html`<div>
     <div class="form-row"><span class="small muted">behavior:</span>
       <select value=${behavior} onChange=${(e) => setBehavior(e.target.value)}>
-        <option value="manual">manual — you type the replies</option>
-        <option value="echo">echo — acknowledges everything</option>
+        <option value="manual">manual: you type the replies</option>
+        <option value="echo">echo: acknowledges everything</option>
       </select></div>
     <pre class="cmd">${cmd}</pre><${CopyButton} text=${cmd} />
   </div>`;
@@ -105,12 +105,12 @@ function ClaudePanel({ agent, token, adapterCommand }) {
   return html`<div>
     <div class="small muted">1. Save as .mcp.json in ${agent.name}'s project directory:</div>
     <pre class="cmd">${config}</pre><${CopyButton} text=${config} />
-    <div class="small muted" style="margin-top:.8rem">2. Save as .claude/settings.local.json there too — pre-approves the
+    <div class="small muted" style="margin-top:.8rem">2. Save as .claude/settings.local.json there too; it pre-approves the
       courtyard tools (no permission prompt on every send), sets the model and a status line naming the agent:</div>
     <pre class="cmd">${settings}</pre><${CopyButton} text=${settings} />
     <div class="small muted" style="margin-top:.8rem">3. Start the agent from that directory (the flag is needed while channels are in research preview):</div>
     <pre class="cmd">${launch}</pre><${CopyButton} text=${launch} />
-    <div class="small muted" style="margin-top:.8rem">…or let the hub write both files for you (dev mode — the hub must share this machine's disk):</div>
+    <div class="small muted" style="margin-top:.8rem">…or let the hub write both files for you (dev mode; the hub must share this machine's disk):</div>
     <${InstallButton} agent=${agent} />
   </div>`;
 }
@@ -119,23 +119,23 @@ function ClaudePanel({ agent, token, adapterCommand }) {
 // Opens after registration, and again any time from the list — the hub keeps the token.
 function LaunchPanel({ agent, token, note, adapterCommand, onClose }) {
   return html`<div class="panel ok">
-    <div class="panel-head"><h3>${agent.name} — launch config</h3>
+    <div class="panel-head"><h3>${agent.name} · launch config</h3>
       <button class="link" onClick=${onClose}>close</button></div>
     ${note ? html`<div class="warn" style="margin-bottom:.6rem">${note}</div>` : null}
     ${agent.type === "claude-code"
       ? html`<${ClaudePanel} agent=${agent} token=${token} adapterCommand=${adapterCommand} />`
       : html`<${PuppetPanel} agent=${agent} token=${token} />`}
-    <div class="small muted" style="margin-top:.8rem">The hub keeps this token — open this again any time with
+    <div class="small muted" style="margin-top:.8rem">The hub keeps this token; open this again any time with
       "launch config" in the list; "rotate token" replaces it.</div>
   </div>`;
 }
 
 function NoTokenPanel({ agent, onRotate, onClose }) {
   return html`<div class="panel">
-    <div class="panel-head"><h3>${agent.name} — no stored token</h3>
+    <div class="panel-head"><h3>${agent.name} · no stored token</h3>
       <button class="link" onClick=${onClose}>close</button></div>
     <div class="small" style="margin-bottom:.6rem">${agent.name} was registered before the hub kept tokens, so its
-      launch config cannot be shown. Rotate its token to get one — its running session will then need the new
+      launch config cannot be shown. Rotate its token to get one; its running session will then need the new
       .mcp.json and a restart.</div>
     <button class="btn" onClick=${() => onRotate(agent)}>rotate token</button>
   </div>`;
@@ -166,7 +166,7 @@ function AddForm({ onCreated, suggested }) {
     } catch (err) {
       setError(
         err instanceof ApiError && err.code === "name_taken"
-          ? "The name is taken — names are permanent identities (removed agents keep theirs)."
+          ? "The name is taken: names are permanent identities (removed agents keep theirs)."
           : err.message,
       );
     }
@@ -182,9 +182,9 @@ function AddForm({ onCreated, suggested }) {
         <option value="puppet">puppet</option>
       </select>
       <input name="workdir" placeholder="project directory (claude-code, optional)"
-        title="the agent's project directory — lets the hub write its config there for you" />
+        title="the agent's project directory; lets the hub write its config there for you" />
       <input name="model" placeholder="model (optional, e.g. sonnet)"
-        title="the model its runtime should use — written into .claude/settings.local.json by install, and the launch command adds --model" />
+        title="the model its runtime should use; written into .claude/settings.local.json by install, and the launch command adds --model" />
       <div class="swatches" role="radiogroup" aria-label="colour on the board">
         <span class="small muted">colour:</span>
         ${COLORS.map((c) => html`<button type="button" class="swatch ${c === color ? "selected" : ""}" data-color=${c}
@@ -193,7 +193,7 @@ function AddForm({ onCreated, suggested }) {
     </div>
     <textarea name="description" rows="2" placeholder="what is this agent for? (shown to peers)"></textarea>
     <textarea name="sme_domain" rows="2"
-      placeholder="what does it own? (e.g. the AWS estate) — raises its standing there when it messages peers"></textarea>
+      placeholder="what does it own? (e.g. the AWS estate); it raises its standing there when it messages peers"></textarea>
     <div class="form-row">
       <button class="btn primary">add agent</button>
       ${error ? html`<div class="error">${error}</div>` : null}
@@ -229,7 +229,7 @@ function EditPanel({ agent, onLaunch, onRotate, onClose }) {
     }
   };
   return html`<div class="panel ok">
-    <div class="panel-head"><h3><span class="chip" data-color=${picked}>${agent.name}</span> — edit</h3>
+    <div class="panel-head"><h3><span class="chip" data-color=${picked}>${agent.name}</span> · edit</h3>
       <button class="link" onClick=${onClose}>close</button></div>
     <form class="add-form" onSubmit=${submit}>
       <div class="form-row">
@@ -250,7 +250,7 @@ function EditPanel({ agent, onLaunch, onRotate, onClose }) {
         <button class="btn primary">save</button>
         <button type="button" class="btn" onClick=${() => onLaunch(agent)}>launch config</button>
         <button type="button" class="btn" onClick=${() => onRotate(agent)}>rotate token</button>
-        ${saved ? html`<span class="small muted">saved — model and status-line changes reach the agent at its next install + restart</span>` : null}
+        ${saved ? html`<span class="small muted">saved; model and status-line changes reach the agent at its next install + restart</span>` : null}
         ${error ? html`<div class="error">${error}</div>` : null}
       </div>
     </form>
@@ -286,11 +286,11 @@ function RemoveDialog({ agent, onClose }) {
     <div class="dialog" role="alertdialog" aria-modal="true" aria-label="Remove ${agent.name}">
       <h3>Remove ${agent.name} from the courtyard?</h3>
       <p>Its token stops working at once; its conversations move to the Archive. The name
-        stays taken — names are permanent identities.</p>
+        stays taken; names are permanent identities.</p>
       ${agent.workdir
         ? html`<label class="small" style="display:flex;gap:.5rem;align-items:baseline">
             <input type="checkbox" checked=${cleanup} onChange=${(e) => setCleanup(e.target.checked)} />
-            <span>also clean up its project directory — takes the courtyard pieces back out of
+            <span>also clean up its project directory: takes the courtyard pieces back out of
               <code>.mcp.json</code> and <code>.claude/settings.local.json</code> in ${agent.workdir}
               (a running session is not stopped; the dead token locks it out)</span></label>`
         : null}
@@ -343,7 +343,7 @@ export function Agents() {
       setPanel({
         agent: r.agent,
         token: r.token,
-        note: "Token rotated — the old one no longer works. Write the new .mcp.json and restart the agent.",
+        note: "Token rotated. The old one no longer works. Write the new .mcp.json and restart the agent.",
       });
     } catch (err) {
       alert(err.message);
@@ -385,7 +385,7 @@ export function Agents() {
         </tr>`;
       })}</tbody>
     </table>
-    <div class="small muted" style="margin:.5rem 0 0">Click an agent to select it — the Courtyard page's
+    <div class="small muted" style="margin:.5rem 0 0">Click an agent to select it; the Courtyard page's
       message box follows your selection.</div>
     ${panel?.missing
       ? html`<${NoTokenPanel} agent=${panel.agent} onRotate=${rotate} onClose=${() => setPanel(null)} />`

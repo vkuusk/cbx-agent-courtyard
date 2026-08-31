@@ -33,7 +33,7 @@ export function ArchivePage() {
   };
   const remove = async (a) => {
     const sure = confirm(
-      `Delete this archive (${a.agent_a_name} ↔ ${a.agent_b_name}, ${a.message_count} messages)?\n\nThis cannot be undone — export it first if you want to keep it.`,
+      `Delete this archive (${a.agent_a_name} ↔ ${a.agent_b_name}, ${a.message_count} messages)?\n\nThis cannot be undone; export it first if you want to keep it.`,
     );
     if (!sure) return;
     try {
@@ -48,7 +48,7 @@ export function ArchivePage() {
   if (list === null) return html`<div class="muted">Loading…</div>`;
   if (!list.length) {
     return html`<div class="empty-conv"><h3>Nothing archived yet</h3>
-      <div>Archive a conversation from its header on the Courtyard page, or remove an agent — its lines are
+      <div>Archive a conversation from its header on the Courtyard page, or remove an agent; its lines are
         archived by themselves.</div></div>`;
   }
   return html`

@@ -86,7 +86,8 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .rail { width: var(--rail-w); flex: none; background: var(--rail); border-right: 1px solid var(--border);
   display: flex; flex-direction: column; padding: .6rem .5rem; transition: width .18s ease; overflow: hidden; }
 .rail .brand { display: flex; align-items: center; gap: .55rem; padding: .35rem .45rem; margin-bottom: .6rem; }
-.rail .mark { width: 26px; height: 26px; border-radius: 8px; background: var(--text); color: var(--on-primary);
+/* white chip behind the project icon so its dark walls read in both themes */
+.rail .mark { width: 26px; height: 26px; border-radius: 8px; background: #fff;
   display: grid; place-items: center; flex: none; }
 .rail .name { font-weight: 650; white-space: nowrap; }
 .rail .toggle { margin-left: auto; width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: var(--muted); }

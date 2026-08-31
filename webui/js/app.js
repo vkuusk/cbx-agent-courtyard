@@ -45,7 +45,7 @@ function Rail({ current }) {
   const label = collapsed ? "Expand the side bar" : "Collapse the side bar";
   return html`<aside class="rail">
     <div class="brand">
-      <span class="mark"><${Icon} name="mark" size=${16} width=${2.2} /></span>
+      <span class="mark"><img src="/icon.svg" alt="" width="22" height="22" /></span>
       <span class="name">Agent Courtyard</span>
       <button class="toggle" title=${label} aria-label=${label} onClick=${() => setUi({ collapsed: !collapsed })}>
         <${Icon} name="panel" /></button>

@@ -75,9 +75,9 @@ def expect_refused(fn, code):
 psql(f"DROP DATABASE IF EXISTS {DB_NAME} WITH (FORCE)", f"CREATE DATABASE {DB_NAME}")
 hub, admin = start_hub()
 try:
-    _, alice_token = admin.register_agent("alice", "puppet")
-    _, bob_token = admin.register_agent("bob", "puppet")
-    admin.register_agent("carol", "puppet")
+    _, alice_token = admin.register_agent("alice", "dummy")
+    _, bob_token = admin.register_agent("bob", "dummy")
+    admin.register_agent("carol", "dummy")
     alice = HubClient(HUB, token=alice_token)
     bob = HubClient(HUB, token=bob_token)
 

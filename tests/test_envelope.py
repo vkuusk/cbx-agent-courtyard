@@ -18,7 +18,7 @@ def fake_message(
     body: str,
     kind: str = "message",
     sender: str = "infra",
-    sender_type: str = "puppet",
+    sender_type: str = "dummy",
     sender_sme_domain: str | None = None,
     recipient_sme_domain: str | None = None,
     reply_to=None,

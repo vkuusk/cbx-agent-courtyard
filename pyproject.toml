@@ -18,7 +18,7 @@ Repository = "https://github.com/vkuusk/cbx-agent-courtyard"
 
 [project.scripts]
 courtyard-hub = "courtyard.hub.main:cli"
-courtyard-puppet = "courtyard.puppet.main:cli"
+courtyard-dummy = "courtyard.dummy.main:cli"
 courtyard-claude-mcp = "courtyard.adapters.claude_code.mcp_server:cli"
 courtyard-invite = "courtyard.adapters.claude_code.invite:cli"
 

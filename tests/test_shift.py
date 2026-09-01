@@ -154,10 +154,10 @@ class TestShiftMachine:
         service.tick()
         assert [cwd for cwd, _ in spawner.spawned] == ["/tmp/down"]
 
-    def test_puppets_and_workdirless_agents_are_skipped(self, storage):
+    def test_dummies_and_workdirless_agents_are_skipped(self, storage):
         clock, spawner = Clock(), FakeSpawner()
         service = make_service(storage, clock, spawner, started_at=T0 - timedelta(hours=1))
-        add_agent(storage, "twin", type="puppet")
+        add_agent(storage, "twin", type="dummy")
         add_agent(storage, "homeless", workdir=None)
         service.start()
         clock.tick(21)

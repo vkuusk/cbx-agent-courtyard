@@ -54,7 +54,7 @@ def client(config):
 @pytest.fixture()
 def live_hub(config):
     """Factory for a real uvicorn hub on an ephemeral port (step-2 integration tests
-    exercise actual HTTP end-to-end: hub pushes to real puppet listeners)."""
+    exercise actual HTTP end-to-end: hub pushes to real dummy listeners)."""
     with psycopg.connect(config.database_url, autocommit=True) as conn:
         conn.execute("TRUNCATE agents, lines, messages, channels, lines_archive, settings CASCADE")
     running: list[tuple[uvicorn.Server, threading.Thread]] = []
@@ -82,7 +82,7 @@ def live_hub(config):
 
 @pytest.fixture()
 def make_agent(client):
-    def _make(name: str, type: str = "puppet", description: str | None = None):
+    def _make(name: str, type: str = "dummy", description: str | None = None):
         resp = client.post(
             "/api/agents", json={"name": name, "type": type, "description": description}
         )

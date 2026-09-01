@@ -254,10 +254,10 @@ run the scripted demo:
 make demo          # or: make demo-chrome to open the WebUI in its own window
 ```
 
-Two puppet agents register and talk through the hub: one conversation flows on
+Two dummy agents register and talk through the hub: one conversation flows on
 auto-pass, the other is supervised and its messages wait at the gate for your
-verdict. The puppets react to what you decide. We built this for testing the hub,
-and it doubles as a safe preview. `make demo-stop` removes the puppets and
+verdict. The dummies react to what you decide. We built this for testing the hub,
+and it doubles as a safe preview. `make demo-stop` removes the dummies and
 everything they produced.
 
 ## Key design decisions

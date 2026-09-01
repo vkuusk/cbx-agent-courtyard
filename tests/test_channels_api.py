@@ -156,7 +156,7 @@ def test_attach_roster_carries_declared_domains(client, make_agent):
     the input to authority grading (design §7.5)."""
     client.post(
         "/api/agents",
-        json={"name": "infra", "type": "puppet", "sme_domain": "the AWS estate"},
+        json={"name": "infra", "type": "dummy", "sme_domain": "the AWS estate"},
     )
     _, token = make_agent("coding")
     roster = {p["name"]: p for p in attach(client, "coding", token).json()["roster"]}

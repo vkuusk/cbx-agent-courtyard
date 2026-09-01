@@ -1085,6 +1085,22 @@ limitation as install, acceptable while v1 is dev-mode). Verified in the browser
 (home listing, descend, pick fills the field; zero console errors); API test in
 `test_health.py`. Awaiting his look.
 
+### 38. Rename the test-twin agent type: puppet → dummy
+
+**Asked (architect, 2026-09-01).** Cold readers kept asking "what is a puppet
+agent?" — rename to `dummy`? The senior engineer's diagnosis sharpened the case: the
+test audience is devops people, and "Puppet agent" is literally the config-management
+product's daemon term; the collision, not the metaphor, is the likely confusion.
+Renamed now while the public repo is days old and release-less.
+
+**Status.** implemented 2026-09-01: type literal, migration 0016 (constraint widened
+`puppet` → `dummy`, stored rows updated), package `courtyard.puppet` →
+`courtyard.dummy`, CLI `courtyard-puppet` → `courtyard-dummy` (clean cut, no alias),
+tests, demo, runbook scripts, WebUI option and texts, living docs (README, AGENTS.md,
+docs, design §7.4 with a rename note). History keeps the old word: the decision log,
+this file's earlier items, and the planning steps are records, not living docs.
+225 tests green. His next `make demo` is the live check of the renamed cast.
+
 ---
 
 ## Work packages (discussion outcome, 2026-08-24)
@@ -1151,3 +1167,4 @@ that review.
 | 35 | `start-with-courtyard.sh` launch wrapper written by install; docs and popup point at it | install / docs | implemented 2026-08-31 (**D31**); awaiting live check |
 | 36 | The pi adapter: one native extension file, option A of the research (sendMessage injection, no flag class) | adapters / install / shift | implemented 2026-09-01 (**D32**, §7.3) + native-surface addendum (status, /courtyard, skill, log, renderer); awaiting real-pi check |
 | 37 | Directory picker for the workdir (browse the hub's disk from the add/edit forms) | WebUI / API | implemented 2026-09-01; awaiting his look |
+| 38 | Rename puppet → dummy (the Puppet-the-product collision for devops readers) | vocabulary / everywhere living | implemented 2026-09-01 (migration 0016); demo run pending |

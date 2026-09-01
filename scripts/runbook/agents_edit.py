@@ -68,8 +68,8 @@ hr("3. DEFAULTS  (7c: the dial a NEW line starts on)")
 before = admin._call("GET", "/api/settings")["default_line_mode"]
 try:
     admin._call("PATCH", "/api/settings", {"default_line_mode": "auto_pass"})
-    a, _ = admin.register_agent(f"edit-rb-a-{tag}", "puppet")
-    _, b_token = admin.register_agent(f"edit-rb-b-{tag}", "puppet")
+    a, _ = admin.register_agent(f"edit-rb-a-{tag}", "dummy")
+    _, b_token = admin.register_agent(f"edit-rb-b-{tag}", "dummy")
     b = HubClient(HUB, f"edit-rb-b-{tag}", b_token)
     msg = b.send(a.name, "hello")
     print(f"new line under auto_pass default: message status = {msg.status} (queued = no gate)")

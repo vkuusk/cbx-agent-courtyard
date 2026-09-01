@@ -145,7 +145,7 @@ def session(live_hub):
         "coding", "claude-code", "writes the payments service", "the payments service"
     )
     _, infra_token = admin.register_agent(
-        "infra", "puppet", "the infrastructure agent", "the staging and prod clusters"
+        "infra", "dummy", "the infrastructure agent", "the staging and prod clusters"
     )
     adapter = AdapterProcess(hub, "coding", coding_token)
     yield adapter, admin, HubClient(hub, "infra", infra_token)
@@ -179,7 +179,7 @@ def test_adapter_end_to_end(session):
     assert tools == {"courtyard_send", "courtyard_inbox", "courtyard_peers", "courtyard_ack"}
 
     peers = tool_text(adapter.call_tool("courtyard_peers"))
-    assert "infra — puppet, invited — owns: the staging and prod clusters" in peers
+    assert "infra — dummy, invited — owns: the staging and prod clusters" in peers
     assert "operator" in peers
     assert "coding" not in peers  # never lists itself
 
@@ -270,8 +270,8 @@ def test_peers_puts_reachable_agents_first_and_trims_dev_clutter(live_hub):
     admin = HubClient(hub)
     _, token = admin.register_agent("coding", "claude-code")
     for i in range(30):
-        admin.register_agent(f"old-{i:02d}", "puppet", "a retired demo puppet")
-    _, live_token = admin.register_agent("infra", "puppet", "owns the clusters")
+        admin.register_agent(f"old-{i:02d}", "dummy", "a retired demo dummy")
+    _, live_token = admin.register_agent("infra", "dummy", "owns the clusters")
 
     live = AdapterProcess(hub, "infra", live_token)
     live.request("initialize", {"protocolVersion": "2025-06-18", "capabilities": {}})
@@ -282,7 +282,7 @@ def test_peers_puts_reachable_agents_first_and_trims_dev_clutter(live_hub):
     adapter.request("initialize", {"protocolVersion": "2025-06-18", "capabilities": {}})
     try:
         listing = tool_text(adapter.call_tool("courtyard_peers")).splitlines()
-        assert listing[1].startswith("infra — puppet, connected")  # reachable first
+        assert listing[1].startswith("infra — dummy, connected")  # reachable first
         assert len(listing) <= PEER_LIMIT + 2  # header + the limit + the elision line
         assert "more registrations that have not been active" in listing[-1]
     finally:

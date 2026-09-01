@@ -16,9 +16,9 @@ const claudeLaunch = (agent) =>
   "claude --dangerously-load-development-channels server:courtyard" +
   (agent.model ? ` --model ${agent.model}` : "");
 
-function puppetCommand(agent, token, behavior) {
+function dummyCommand(agent, token, behavior) {
   return [
-    "uv run courtyard-puppet \\",
+    "uv run courtyard-dummy \\",
     `  --hub ${location.origin} \\`,
     `  --name ${agent.name} \\`,
     `  --token ${token} \\`,
@@ -100,9 +100,9 @@ function InstallButton({ agent }) {
   </div>`;
 }
 
-function PuppetPanel({ agent, token }) {
+function DummyPanel({ agent, token }) {
   const [behavior, setBehavior] = useState("manual");
-  const cmd = puppetCommand(agent, token, behavior);
+  const cmd = dummyCommand(agent, token, behavior);
   return html`<div>
     <div class="form-row"><span class="small muted">behavior:</span>
       <select value=${behavior} onChange=${(e) => setBehavior(e.target.value)}>
@@ -182,7 +182,7 @@ function ClaudePanel({ agent, token, adapterCommand }) {
   </div>`;
 }
 
-// The launch config for one agent: its .mcp.json block (or puppet command) with the token.
+// The launch config for one agent: its .mcp.json block (or dummy command) with the token.
 // Opens after registration, and again any time from the list — the hub keeps the token.
 function LaunchPanel({ agent, token, note, adapterCommand, onClose }) {
   return html`<div class="panel ok">
@@ -193,7 +193,7 @@ function LaunchPanel({ agent, token, note, adapterCommand, onClose }) {
       ? html`<${ClaudePanel} agent=${agent} token=${token} adapterCommand=${adapterCommand} />`
       : agent.type === "pi"
         ? html`<${PiPanel} agent=${agent} />`
-        : html`<${PuppetPanel} agent=${agent} token=${token} />`}
+        : html`<${DummyPanel} agent=${agent} token=${token} />`}
     <div class="small muted" style="margin-top:.8rem">The hub keeps this token; open this again any time with
       "launch config" in the list; "rotate token" replaces it.</div>
   </div>`;
@@ -248,10 +248,10 @@ function AddForm({ onCreated, suggested }) {
     <div class="form-row">
       <input name="name" placeholder="name (e.g. scout)" required
         pattern="[A-Za-z0-9][A-Za-z0-9._\\-]{0,63}" title="letters, digits, dots, dashes, underscores" />
-      <select name="type" title="claude-code and pi: real agents. puppet: a fake agent for testing.">
+      <select name="type" title="claude-code and pi: real agents. dummy: a fake agent for testing.">
         <option value="claude-code">claude-code</option>
         <option value="pi">pi</option>
-        <option value="puppet">puppet</option>
+        <option value="dummy">dummy</option>
       </select>
       <input name="workdir" placeholder="project directory (optional)" value=${workdir}
         onInput=${(e) => setWorkdir(e.target.value)}
@@ -410,7 +410,7 @@ export function Agents() {
   const rotate = async (agent) => {
     const sure = confirm(
       `Rotate ${agent.name}'s token?\n\nThe old one stops working at once: its running session ` +
-        "can no longer reach the hub until you write the new .mcp.json (or restart the puppet " +
+        "can no longer reach the hub until you write the new .mcp.json (or restart the dummy " +
         "with the new command).",
     );
     if (!sure) return;

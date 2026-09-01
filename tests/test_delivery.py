@@ -13,7 +13,7 @@ from courtyard.common.client import ChannelReceiver, HubClient
 class Listener:
     """A registered, attached agent with a real receive endpoint collecting pushes."""
 
-    def __init__(self, hub_url: str, name: str, type: str = "puppet"):
+    def __init__(self, hub_url: str, name: str, type: str = "dummy"):
         admin = HubClient(hub_url)
         _agent, token = admin.register_agent(name, type)
         admin.close()

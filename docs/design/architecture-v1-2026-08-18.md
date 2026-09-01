@@ -46,7 +46,7 @@ amount of judgment per line an explicit, adjustable dial.
 5. **Zero-fork invitation**: agents join via their existing extension points (MCP servers,
    hooks, extensions) — never by modifying agent code.
 6. Operator registered as an agent: can initiate conversations and insert into lines.
-7. **Fake (puppet) agents** so hub + UI + UX can be built, tested, and *felt* before any real
+7. **Fake (dummy) agents** so hub + UI + UX can be built, tested, and *felt* before any real
    agent is wired in.
 8. **Quickstart** — a permanent part of the product, not a demo: a new operator installs and
    starts the courtyard in minutes and runs one small worked example (operator → one agent →
@@ -73,7 +73,7 @@ commit:
 | Term | Meaning |
 |---|---|
 | **Hub** | The exchange board service. One Python process. The only component that stores state. |
-| **Agent** | A registered participant. Type `claude-code`, `pi` (later), `puppet` (fake), or `human` (the operator). |
+| **Agent** | A registered participant. Type `claude-code`, `pi` (later), `dummy` (fake), or `human` (the operator). |
 | **Operator** | The human. Registered as an agent of type `human`; also the administrator and the v1 gate approver. |
 | **Line** | The single two-directional conversation board between one pair of participants. All messages between that pair, including operator insertions, are one sequential chat history. (The architect's term: "two-directional board".) |
 | **Board** | The whole exchange: all lines, as seen in the WebUI. |
@@ -90,7 +90,7 @@ commit:
 | **Launch profile** | Per-agent recipe for starting it (command, cwd, env). Launching is a convenience; it is *not* how the channel is established (§8). |
 | **Shift** | The operator's working period (§8.1, D23): Start shift brings up every registered agent not already up (one terminal window each, via its launch profile); End shift closes exactly what the shift opened. |
 | **Team mode** | Whose presence the agents' lifetimes are tied to (§8.1): `On shift` (v1) or `Always on` (future, not implemented). Changed only on the Admin page; the board's shift pill displays it. |
-| **Puppet** | A fake agent (Python) that behaves like a real adapter — scriptable or human-driven — used for tests and UX evaluation. |
+| **Dummy** | A fake agent (Python) that behaves like a real adapter — scriptable or human-driven — used for tests and UX evaluation. |
 
 ## 4. Architecture overview
 
@@ -107,7 +107,7 @@ commit:
                               │ HTTP push (token)        │ HTTP push (token)
                               ▼                          ▼
                    ┌────────────────────┐      ┌────────────────────┐
-                   │ Claude Code agent  │      │  puppet agent      │
+                   │ Claude Code agent  │      │  dummy agent      │
                    │  in its own        │      │  (fake, scripted   │
                    │  terminal window   │      │   or human-driven) │
                    │ ┌───────────────┐  │      └────────────────────┘
@@ -140,7 +140,7 @@ Key structural decisions:
 Agent {
   id:            uuid            # stable identity
   name:          str             # unique, human-chosen ("coding", "infra")
-  type:          claude-code | pi | puppet | human
+  type:          claude-code | pi | dummy | human
   description:   str | null      # operator-curated: what this agent is for — the discovery
                                  # substrate (see docs/design/use-cases-explained.md #2)
   sme_domain:    str | null      # operator-curated: the domain this agent OWNS. Short phrase;
@@ -541,7 +541,7 @@ Anything that can do these five things can join the courtyard; this is the plugg
 | `ack` | adapter → hub | `POST /api/agents/{id}/ack` — returns a delivery-check token (D30); the model's call is the end-to-end proof of hearing |
 
 A shared Python client library (`courtyard.common.client`) implements the hub side of this
-contract once; the Claude Code adapter and the puppet both use it. The pi extension
+contract once; the Claude Code adapter and the dummy both use it. The pi extension
 re-implements it in TypeScript against the same HTTP API. Everything model-facing — the
 envelope, the peers wording — is rendered by the hub, so that re-implementation is
 transport, not judgement (D14).
@@ -642,17 +642,17 @@ against a live hub — the wire-level round trip is in the automated suite even
 though pi itself is not. Deferred (item 36): a once-per-session instructions
 injection, `--model` on the pi launch command, publishing to pi.dev.
 
-### 7.4 Puppet (test twin)
+### 7.4 Dummy (test twin; renamed from *puppet*, item 38 — that name read as the config-management product's agent)
 
-`courtyard-puppet --name fake-infra --behavior echo|script:<file>|manual`:
+`courtyard-dummy --name fake-infra --behavior echo|script:<file>|manual`:
 
 - **echo** — replies to everything with a canned acknowledgment (turn-machine exercise);
 - **script** — YAML scenario: match / reply / delay steps (deterministic integration tests,
   believable UX demos);
-- **manual** — the puppet prints incoming messages to its terminal and the human types replies:
+- **manual** — the dummy prints incoming messages to its terminal and the human types replies:
   the operator can *play* an agent while evaluating the WebUI.
 
-The puppet uses the same client library and contract as real adapters — it is the reference
+The dummy uses the same client library and contract as real adapters — it is the reference
 implementation of the contract, not a mock of the hub.
 
 ### 7.5 Authority grading — how much say a message carries
@@ -790,7 +790,7 @@ therefore explicitly rejected for primary agents.
 | **L0 — manual + copy-paste** | "Add agent" in UI shows the exact launch command (env vars + `claude` invocation); operator runs it in any terminal | Zero moving parts; works everywhere; always the fallback | One manual step | **Yes — baseline** |
 | **L1 — spawn a terminal window** | Hub runs `osascript` to open Terminal.app / iTerm2 with the launch command (fire-and-forget; the terminal owns the process) | One-click "start"; agent lands in a normal window the operator can use | macOS-specific (Linux later via `gnome-terminal`/`x-terminal-emulator`); fire-and-forget = no stop/restart from hub | **v1 via the Shift** (§8.1, D23) — one gesture over the team, not a per-agent button; was parked post-v1 by D16 |
 | **L2 — tmux detached session** | `tmux new-session -d -s courtyard-<name> '<cmd>'`; operator attaches on demand | Start *and* stop/restart from hub; survives UI; works over ssh | tmux dependency; drags toward terminal management; operator must attach to interact | Deferred — revisit if L1's fire-and-forget hurts |
-| **L3 — headless subprocess / SDK** | No terminal at all | Fully automatable | Contradicts the working model (operator works *with* each agent in its terminal) | Rejected for primary agents (fine for puppets) |
+| **L3 — headless subprocess / SDK** | No terminal at all | Fully automatable | Contradicts the working model (operator works *with* each agent in its terminal) | Rejected for primary agents (fine for dummies) |
 
 **Recommendation (Decision D8, amended by D16): v1 ships L0 only** — the copy-paste launch
 command plus the 6d install button that writes `.mcp.json` for the operator. L1 is designed
@@ -831,8 +831,8 @@ in the vocabulary (§3).
 What **Start shift** does, in order:
 
 1. **Target set** = every registered agent whose type has a launch profile. v1 that is
-   `claude-code`; `human` is the operator; `puppet` agents are skipped and their cards
-   simply stay as they are (a puppet is a test twin — started by whoever is testing).
+   `claude-code`; `human` is the operator; `dummy` agents are skipped and their cards
+   simply stay as they are (a dummy is a test twin — started by whoever is testing).
    The launch profile (§3) is the per-adapter seam: the shift never knows how a
    Claude Code agent starts; it asks the agent's adapter type for a profile —
    for `claude-code`: *terminal window, `cd <workdir>`, the launch command already shown
@@ -1193,7 +1193,7 @@ against are *accidents and prompt-level attacks*, not a hostile local user.
 
 ## 12. Repository directory layout
 
-One Python package with multiple console entry points (hub, puppet, adapter pieces share
+One Python package with multiple console entry points (hub, dummy, adapter pieces share
 models and the client library; one venv, DevOps-friendly). Frontend and future TS adapter kept
 apart from Python source.
 
@@ -1202,7 +1202,7 @@ cbx-agent-courtyard/
 ├── README.md
 ├── Makefile                        # make run / test / demo / lint
 ├── pyproject.toml                  # one project; entry points:
-│                                   #   courtyard-hub, courtyard-puppet,
+│                                   #   courtyard-hub, courtyard-dummy,
 │                                   #   courtyard-claude-mcp, courtyard-invite
 ├── .gitignore                      # .venv/, __pycache__/ …
 ├── docker-compose.yml              # postgres (always) + hub (profile: live) — §9.4
@@ -1220,12 +1220,12 @@ cbx-agent-courtyard/
 │   │   └── launch/                 # post-v1 (D16): launch profiles, L1 terminal spawn
 │   ├── adapters/
 │   │   └── claude_code/            # MCP stdio server (thin, D14), courtyard-invite (6d)
-│   └── puppet/                     # fake agent (echo / script / manual)
+│   └── dummy/                     # fake agent (echo / script / manual)
 ├── webui/                          # static: index.html, style.css, js/ (Preact + htm ES modules), vendor/ (one file)
 ├── adapters-js/
 │   └── pi/                         # post-v1 (D16): pi TypeScript extension (own package.json)
-├── scripts/                        # demo scenarios (e.g. two-puppets-conversation)
-└── tests/                          # pytest: unit (core) + integration (hub+puppets over HTTP)
+├── scripts/                        # demo scenarios (e.g. two-dummies-conversation)
+└── tests/                          # pytest: unit (core) + integration (hub+dummies over HTTP)
 ```
 
 ## 13. Decision log

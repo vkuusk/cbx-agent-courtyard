@@ -1,9 +1,9 @@
-"""courtyard-puppet CLI.
+"""courtyard-dummy CLI.
 
-    courtyard-puppet --name fake-infra --token TOKEN --behavior echo
-    courtyard-puppet --name alice --token TOKEN --behavior script:alice.yaml \
+    courtyard-dummy --name fake-infra --token TOKEN --behavior echo
+    courtyard-dummy --name alice --token TOKEN --behavior script:alice.yaml \
         --open "bob: can you deploy the payments service?"
-    courtyard-puppet --name me --token TOKEN --behavior manual
+    courtyard-dummy --name me --token TOKEN --behavior manual
 
 Manual mode is a tiny terminal client: type `peer: message` to send (bare text replies to
 whoever wrote last). Until the WebUI exists (step 3) it doubles as the operator console:
@@ -21,11 +21,11 @@ import httpx
 
 from courtyard.common.client import DEFAULT_HUB_URL, HubError
 from courtyard.common.models import AttachSummary
-from courtyard.puppet.core import (
+from courtyard.dummy.core import (
     Behavior,
+    Dummy,
     EchoBehavior,
     ManualBehavior,
-    Puppet,
     ScriptBehavior,
 )
 
@@ -70,9 +70,9 @@ def print_summary(summary: AttachSummary) -> None:
 class OperatorConsole:
     """The /-commands of manual mode (v1 pre-UI operator surface)."""
 
-    def __init__(self, puppet: Puppet):
-        self._puppet = puppet
-        self._client = puppet.client
+    def __init__(self, dummy: Dummy):
+        self._dummy = dummy
+        self._client = dummy.client
         self._pending: list = []
 
     def handle(self, line: str) -> bool:
@@ -92,7 +92,7 @@ class OperatorConsole:
             print(HELP)
         elif cmd == "/peers":
             for a in self._client.agents():
-                if a.removed_at is None and a.name != self._puppet.name:
+                if a.removed_at is None and a.name != self._dummy.name:
                     desc = f" — {a.description}" if a.description else ""
                     print(f"  {a.name}  ({a.type}, {a.status}){desc}")
         elif cmd == "/pending":
@@ -122,7 +122,7 @@ class OperatorConsole:
 
     def _line_with(self, peer_name: str):
         agents = {a.id: a.name for a in self._client.agents()}
-        me = self._puppet.summary.agent.id
+        me = self._dummy.summary.agent.id
         for line in self._client.lines():
             pair = {line.agent_a, line.agent_b}
             if me in pair and peer_name in {agents.get(a) for a in pair - {me}}:
@@ -130,8 +130,8 @@ class OperatorConsole:
         raise HubError(404, "line_not_found", f"you have no line with {peer_name!r} yet")
 
 
-def manual_repl(puppet: Puppet, behavior: ManualBehavior) -> None:
-    console = OperatorConsole(puppet)
+def manual_repl(dummy: Dummy, behavior: ManualBehavior) -> None:
+    console = OperatorConsole(dummy)
     print("type `peer: message` to talk, /help for commands")
     while True:
         try:
@@ -147,15 +147,15 @@ def manual_repl(puppet: Puppet, behavior: ManualBehavior) -> None:
             continue
         peer, _, body = line.partition(":")
         if body.strip() and " " not in peer.strip():
-            puppet.say(peer.strip(), body.strip())
+            dummy.say(peer.strip(), body.strip())
         elif behavior.last_sender:
-            puppet.say(behavior.last_sender, line)
+            dummy.say(behavior.last_sender, line)
         else:
             print("  no one to reply to yet — address someone: `peer: message`")
 
 
 def cli() -> None:
-    parser = argparse.ArgumentParser(prog="courtyard-puppet", description=__doc__)
+    parser = argparse.ArgumentParser(prog="courtyard-dummy", description=__doc__)
     parser.add_argument("--hub", default=os.environ.get("COURTYARD_HUB_URL", DEFAULT_HUB_URL))
     parser.add_argument("--name", default=os.environ.get("COURTYARD_AGENT_NAME"), required=False)
     parser.add_argument("--token", default=os.environ.get("COURTYARD_TOKEN"), required=False)
@@ -172,9 +172,9 @@ def cli() -> None:
     signal.signal(signal.SIGTERM, _sigterm)
 
     behavior = build_behavior(args.behavior)
-    puppet = Puppet(args.hub, args.name, args.token, behavior, args.heartbeat)
+    dummy = Dummy(args.hub, args.name, args.token, behavior, args.heartbeat)
     try:
-        summary = puppet.start()
+        summary = dummy.start()
     except (HubError, httpx.HTTPError, OSError) as exc:
         print(f"cannot attach to the hub at {args.hub}: {exc}", file=sys.stderr)
         raise SystemExit(1) from None
@@ -183,15 +183,15 @@ def cli() -> None:
     try:
         if args.opening:
             peer, _, body = args.opening.partition(":")
-            puppet.say(peer.strip(), body.strip())
+            dummy.say(peer.strip(), body.strip())
         if isinstance(behavior, ManualBehavior):
-            manual_repl(puppet, behavior)
+            manual_repl(dummy, behavior)
         else:
-            puppet.wait()
+            dummy.wait()
     except KeyboardInterrupt:
         pass
     finally:
-        puppet.stop()
+        dummy.stop()
         print("detached.")
 
 

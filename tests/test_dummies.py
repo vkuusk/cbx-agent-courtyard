@@ -1,4 +1,4 @@
-"""Puppets end-to-end: two scripted puppets hold a full conversation through the hub over
+"""Dummies end-to-end: two scripted dummies hold a full conversation through the hub over
 real HTTP; the supervised gate holds them; violations surface as errors, not crashes."""
 
 from __future__ import annotations
@@ -11,16 +11,16 @@ import pytest
 
 from courtyard.common.client import HubClient, HubError
 from courtyard.common.models import Message
-from courtyard.puppet.core import Puppet, ScriptBehavior, ScriptStep
+from courtyard.dummy.core import Dummy, ScriptBehavior, ScriptStep
 
 
-def make_puppet(hub: str, name: str, behavior) -> Puppet:
+def make_dummy(hub: str, name: str, behavior) -> Dummy:
     admin = HubClient(hub)
-    _, token = admin.register_agent(name, "puppet")
+    _, token = admin.register_agent(name, "dummy")
     admin.close()
-    puppet = Puppet(hub, name, token, behavior, heartbeat_seconds=0.5)
-    puppet.start()
-    return puppet
+    dummy = Dummy(hub, name, token, behavior, heartbeat_seconds=0.5)
+    dummy.start()
+    return dummy
 
 
 def wait_for_messages(admin: HubClient, line_id, count: int, timeout: float = 10.0) -> list:
@@ -33,10 +33,10 @@ def wait_for_messages(admin: HubClient, line_id, count: int, timeout: float = 10
     raise AssertionError(f"only {len(messages)}/{count} messages: {[m.body for m in messages]}")
 
 
-def test_two_scripted_puppets_hold_a_full_conversation(live_hub):
+def test_two_scripted_dummies_hold_a_full_conversation(live_hub):
     hub = live_hub()
     admin = HubClient(hub)
-    alice = make_puppet(
+    alice = make_dummy(
         hub,
         "alice",
         ScriptBehavior(
@@ -46,7 +46,7 @@ def test_two_scripted_puppets_hold_a_full_conversation(live_hub):
             ]
         ),
     )
-    bob = make_puppet(
+    bob = make_dummy(
         hub,
         "bob",
         ScriptBehavior(
@@ -89,8 +89,8 @@ def test_two_scripted_puppets_hold_a_full_conversation(live_hub):
 def test_turn_violation_surfaces_as_a_machine_readable_error(live_hub):
     hub = live_hub()
     admin = HubClient(hub)
-    _, alice_token = admin.register_agent("alice", "puppet")
-    admin.register_agent("bob", "puppet")
+    _, alice_token = admin.register_agent("alice", "dummy")
+    admin.register_agent("bob", "dummy")
     alice = HubClient(hub, "alice", alice_token)
 
     alice.send("bob", "first")
@@ -110,7 +110,7 @@ def test_turn_violation_surfaces_as_a_machine_readable_error(live_hub):
 # -- script behavior unit tests (no hub) ---------------------------------------------
 
 
-class StubPuppet:
+class StubDummy:
     def __init__(self):
         self.said: list[tuple[str, str]] = []
         self.logs: list[str] = []
@@ -147,7 +147,7 @@ def test_script_steps_fire_once_in_order_and_match_case_insensitively():
             ScriptStep(match=None, reply="fallback", delay=0),
         ]
     )
-    stub = StubPuppet()
+    stub = StubDummy()
     behavior.on_message(fake_message("please DEPLOY this"), stub)
     behavior.on_message(fake_message("deploy again?"), stub)  # step 1 used; falls to step 2
     behavior.on_message(fake_message("anything"), stub)  # exhausted: silent
@@ -157,17 +157,17 @@ def test_script_steps_fire_once_in_order_and_match_case_insensitively():
 
 def test_script_never_replies_to_notes_or_system_messages():
     behavior = ScriptBehavior([ScriptStep(match=None, reply="should not fire", delay=0)])
-    stub = StubPuppet()
+    stub = StubDummy()
     behavior.on_message(fake_message("note", kind="operator_note"), stub)
     behavior.on_message(fake_message("notice", kind="system"), stub)
     assert stub.said == []
 
 
-def test_scripted_puppet_revises_after_return(live_hub):
+def test_scripted_dummy_revises_after_return(live_hub):
     """A `kind: system` script step reacts to the gate's return notice by resending."""
     hub = live_hub()
     admin = HubClient(hub)
-    alice = make_puppet(
+    alice = make_dummy(
         hub,
         "alice",
         ScriptBehavior(
@@ -181,7 +181,7 @@ def test_scripted_puppet_revises_after_return(live_hub):
             ]
         ),
     )
-    make_puppet(hub, "bob", ScriptBehavior([]))
+    make_dummy(hub, "bob", ScriptBehavior([]))
 
     first = alice.say("bob", "can I touch prod?")
     admin.decide(first.id, "return", "too vague — when, and what exactly?")

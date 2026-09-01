@@ -1,4 +1,4 @@
-"""The puppet runtime: channel receiver + worker + heartbeat around a behavior."""
+"""The dummy runtime: channel receiver + worker + heartbeat around a behavior."""
 
 from __future__ import annotations
 
@@ -15,10 +15,10 @@ from courtyard.common.models import AttachSummary, Message
 
 
 class Behavior(Protocol):
-    def on_message(self, message: Message, puppet: Puppet) -> None: ...
+    def on_message(self, message: Message, dummy: Dummy) -> None: ...
 
 
-class Puppet:
+class Dummy:
     """Attaches to the hub, receives pushes, and lets a behavior react.
 
     The channel handler only enqueues (the hub's push must return fast); a single worker
@@ -109,7 +109,7 @@ class Puppet:
             self._seen.add(message.id)
             try:
                 self.behavior.on_message(message, self)
-            except Exception as exc:  # noqa: BLE001 - a behavior bug must not kill the puppet
+            except Exception as exc:  # noqa: BLE001 - a behavior bug must not kill the dummy
                 self.log(f"behavior error on seq {message.seq}: {exc}")
 
     def _beat(self) -> None:
@@ -126,12 +126,12 @@ class Puppet:
 class EchoBehavior:
     """Acknowledge every message — the endless turn-machine exerciser."""
 
-    def on_message(self, m: Message, puppet: Puppet) -> None:
-        puppet.show(m)
+    def on_message(self, m: Message, dummy: Dummy) -> None:
+        dummy.show(m)
         if m.kind != "message":  # never auto-reply to notes or system notices
             return
         time.sleep(0.3)
-        puppet.say(m.sender_name, f"ack (echo): received your seq {m.seq}: {m.body[:120]}")
+        dummy.say(m.sender_name, f"ack (echo): received your seq {m.seq}: {m.body[:120]}")
 
 
 class ScriptStep:
@@ -156,7 +156,7 @@ class ScriptBehavior:
     matching kind whose `match` substring occurs in the body (case-insensitive; no match =
     always) fires once. Exhausted or unmatched -> stay silent.
 
-    Steps with `kind: system` let a puppet react to gate outcomes — e.g. resend a revised
+    Steps with `kind: system` let a dummy react to gate outcomes — e.g. resend a revised
     message after a return-to-sender."""
 
     def __init__(self, steps: list[ScriptStep]):
@@ -180,8 +180,8 @@ class ScriptBehavior:
         ]
         return cls(steps)
 
-    def on_message(self, m: Message, puppet: Puppet) -> None:
-        puppet.show(m)
+    def on_message(self, m: Message, dummy: Dummy) -> None:
+        dummy.show(m)
         for step in self._steps:
             if step.used or step.kind != m.kind:
                 continue
@@ -189,14 +189,14 @@ class ScriptBehavior:
                 continue
             step.used = True
             time.sleep(step.delay)
-            target = step.to or m.sender_name or puppet.last_peer
+            target = step.to or m.sender_name or dummy.last_peer
             if target is None:
-                puppet.log("(script step fired but there is no target to send to)")
+                dummy.log("(script step fired but there is no target to send to)")
                 return
-            puppet.say(target, step.reply)
+            dummy.say(target, step.reply)
             return
         if m.kind == "message":
-            puppet.log(f"(script has no reply for seq {m.seq}; staying silent)")
+            dummy.log(f"(script has no reply for seq {m.seq}; staying silent)")
 
 
 class ManualBehavior:
@@ -205,7 +205,7 @@ class ManualBehavior:
     def __init__(self) -> None:
         self.last_sender: str | None = None
 
-    def on_message(self, m: Message, puppet: Puppet) -> None:
-        puppet.show(m)
+    def on_message(self, m: Message, dummy: Dummy) -> None:
+        dummy.show(m)
         if m.kind == "message" and m.sender_name:
             self.last_sender = m.sender_name

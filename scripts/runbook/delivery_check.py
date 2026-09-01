@@ -7,10 +7,10 @@ claude-code agent) and uses a short check timeout.
 
   1. attach with channel_flag=absent -> the agent listing carries the fact
      (the board raises the "cannot hear the hub" popup on it)
-  2. verify-delivery -> the puppet receives the check envelope (printed: what a
+  2. verify-delivery -> the dummy receives the check envelope (printed: what a
      real model reads), the token is acked -> delivery_check: verified
   3. a second check, never acked -> after the timeout, delivery_check: failed
-  4. a puppet attaching while a shift is active receives a check automatically
+  4. a dummy attaching while a shift is active receives a check automatically
 
 Needs the compose postgres up (`make db-up`). Run:
     uv run python scripts/runbook/delivery_check.py
@@ -78,44 +78,44 @@ psql(f"DROP DATABASE IF EXISTS {DB_NAME}", f"CREATE DATABASE {DB_NAME}")
 proc, admin = start_hub()
 try:
     hr("1. THE CHANNEL FLAG (item 33): attach reports how the session was launched")
-    _, token = admin.register_agent("deaf-puppet", "puppet", "launched without the flag")
-    deaf = HubClient(HUB, "deaf-puppet", token)
+    _, token = admin.register_agent("deaf-dummy", "dummy", "launched without the flag")
+    deaf = HubClient(HUB, "deaf-dummy", token)
     inbox = []
     receiver = ChannelReceiver(inbox.append)
     deaf.attach(receiver.endpoint, receiver.channel_token, "absent")
-    a = row(admin, "deaf-puppet")
+    a = row(admin, "deaf-dummy")
     print(f"status: {a.status}   channel_flag: {a.channel_flag}")
     print("-> on the board this raises the 'cannot hear the hub' popup and a red card foot")
 
     hr("2. THE DELIVERY CHECK (item 34): what the model receives, and the ack")
-    admin.verify_delivery("deaf-puppet")
+    admin.verify_delivery("deaf-dummy")
     time.sleep(0.3)
     check = inbox[-1]
     print("the check envelope, as a real model reads it:\n")
     print(check.rendered)
-    print(f"\nwhile open: delivery_check = {row(admin, 'deaf-puppet').delivery_check}")
+    print(f"\nwhile open: delivery_check = {row(admin, 'deaf-dummy').delivery_check}")
     tok = re.search(r'token "([^"]+)"', check.rendered).group(1)
     print(f"acking token {tok!r} -> {deaf.ack(tok)}")
-    a = row(admin, "deaf-puppet")
+    a = row(admin, "deaf-dummy")
     print(f"after ack: delivery_check = {a.delivery_check} at {a.delivery_checked_at}")
 
     hr(f"3. TIMEOUT: an unacked check fails after {VERIFY_TIMEOUT}s")
-    admin.verify_delivery("deaf-puppet")
-    print(f"sent; delivery_check = {row(admin, 'deaf-puppet').delivery_check}")
+    admin.verify_delivery("deaf-dummy")
+    print(f"sent; delivery_check = {row(admin, 'deaf-dummy').delivery_check}")
     time.sleep(float(VERIFY_TIMEOUT) + 2)
-    print(f"after the timeout: delivery_check = {row(admin, 'deaf-puppet').delivery_check}")
+    print(f"after the timeout: delivery_check = {row(admin, 'deaf-dummy').delivery_check}")
     print("-> the card foot warns 'delivery check failed'")
 
     hr("4. AUTOMATIC CHECK: a session beginning during a shift is checked unasked")
     admin._call("POST", "/api/shift/start")
-    _, token2 = admin.register_agent("late-puppet", "puppet", "attaches mid-shift")
-    late = HubClient(HUB, "late-puppet", token2)
+    _, token2 = admin.register_agent("late-dummy", "dummy", "attaches mid-shift")
+    late = HubClient(HUB, "late-dummy", token2)
     inbox2 = []
     receiver2 = ChannelReceiver(inbox2.append)
     late.attach(receiver2.endpoint, receiver2.channel_token, "present")
     time.sleep(0.3)
     print(f"pushes received on attach: {len(inbox2)} (the delivery check, no request made)")
-    print(f"delivery_check = {row(admin, 'late-puppet').delivery_check}")
+    print(f"delivery_check = {row(admin, 'late-dummy').delivery_check}")
     admin._call("POST", "/api/shift/end", {"force": True})
 
     receiver.stop()

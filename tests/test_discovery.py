@@ -37,7 +37,7 @@ def attach(client, name, token):
 # -- the pure filter -------------------------------------------------------------------
 
 
-def _agent(name, type="puppet", status="connected"):
+def _agent(name, type="dummy", status="connected"):
     return Agent.model_construct(
         id=name,
         name=name,

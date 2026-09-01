@@ -21,7 +21,7 @@ def wait_status(admin: HubClient, name: str, status: str, timeout: float = 5.0) 
 def test_missed_heartbeats_decay_and_a_beat_revives(live_hub):
     hub = live_hub(heartbeat_seconds=0.1, gone_seconds=1.2, sweep_seconds=0.05)
     admin = HubClient(hub)
-    _, token = admin.register_agent("bob", "puppet")
+    _, token = admin.register_agent("bob", "dummy")
     bob = HubClient(hub, "bob", token)
     receiver = ChannelReceiver(lambda m: None)
     bob.attach(receiver.endpoint, receiver.channel_token)
@@ -50,7 +50,7 @@ def test_shift_start_reverifies_stored_liveness(live_hub):
     live again immediately."""
     hub = live_hub(heartbeat_seconds=0.5, gone_seconds=600, sweep_seconds=0.05)
     admin = HubClient(hub)
-    _, token = admin.register_agent("bob", "puppet")
+    _, token = admin.register_agent("bob", "dummy")
     bob = HubClient(hub, "bob", token)
     receiver = ChannelReceiver(lambda m: None)
     bob.attach(receiver.endpoint, receiver.channel_token)
@@ -78,8 +78,8 @@ def test_restart_marks_stored_liveness_unknown_then_verifies(live_hub):
     resolves the rest once the hub is past one heartbeat window (+5 s margin)."""
     hub1 = live_hub(heartbeat_seconds=0.1, gone_seconds=0.6, sweep_seconds=0.05)
     admin1 = HubClient(hub1)
-    _, bob_token = admin1.register_agent("bob", "puppet")
-    _, carol_token = admin1.register_agent("carol", "puppet")
+    _, bob_token = admin1.register_agent("bob", "dummy")
+    _, carol_token = admin1.register_agent("carol", "dummy")
     receiver = ChannelReceiver(lambda m: None)
     for name, token in (("bob", bob_token), ("carol", carol_token)):
         HubClient(hub1, name, token).attach(receiver.endpoint, receiver.channel_token)

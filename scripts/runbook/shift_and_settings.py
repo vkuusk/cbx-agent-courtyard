@@ -5,7 +5,7 @@
      stored liveness re-checks before anything spawns) -> on -> off, watched over
      GET /api/shift; connected agents gray to `unknown` briefly and their next
      heartbeat turns them green again
-  3. the throwaway agent is a puppet, so the shift SKIPS it — this script never opens a
+  3. the throwaway agent is a dummy, so the shift SKIPS it — this script never opens a
      real terminal window. The real-spawn check is the manual procedure in
      docs/testing-runbook.md (press the pill with a claude-code agent down).
 
@@ -27,8 +27,8 @@ def hr(title):
 
 admin = HubClient(HUB)
 name = f"shift-rb-{str(time.time_ns())[-7:]}"
-admin.register_agent(name, "puppet", "runbook twin", None, None)
-print(f"registered throwaway puppet {name} (the shift skips puppets — nothing will spawn)")
+admin.register_agent(name, "dummy", "runbook twin", None, None)
+print(f"registered throwaway dummy {name} (the shift skips dummies — nothing will spawn)")
 
 hr("1. SETTINGS  (GET/PATCH /api/settings)")
 settings = admin._call("GET", "/api/settings")
@@ -104,7 +104,7 @@ while status["state"] != "on" and time.time() < deadline:
     status = admin._call("GET", "/api/shift")
 print(
     f"settled       : {status['state']}   spawned: {len(status['spawns'])}"
-    f"   skipped: {status['skipped']}   <- the puppet is skipped, nothing spawned"
+    f"   skipped: {status['skipped']}   <- the dummy is skipped, nothing spawned"
 )
 try:
     status = admin._call("POST", "/api/shift/end", {"force": False})
@@ -115,4 +115,4 @@ print(f"after end     : {status['state']}")
 
 admin._call("DELETE", f"/api/agents/{name}")
 admin.close()
-print("\n(cleaned up the throwaway puppet.)")
+print("\n(cleaned up the throwaway dummy.)")

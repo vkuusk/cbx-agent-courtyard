@@ -51,8 +51,8 @@ bare `claude` session cannot hear the hub). Undo with the same command using
 `--remove` instead of `--register`.
 
 Verify the whole message path without any real agents: `make demo` runs two
-scripted puppet agents through the hub, including a supervised gate;
-`make demo-stop` removes the puppets and everything they produced.
+scripted dummy agents through the hub, including a supervised gate;
+`make demo-stop` removes the dummies and everything they produced.
 
 ## Decisions that belong to your operator
 

@@ -9,7 +9,7 @@ One stdio MCP server per agent, spawned by Claude Code from the agent's project
 * **a toolbox** — `courtyard_send` / `courtyard_inbox` / `courtyard_peers`, the agent's
   side of the adapter contract (§7.1).
 * **a hub adapter** — attaches with a channel endpoint + channel token, heartbeats, and
-  detaches at session end, exactly like the puppet has done since step 2.
+  detaches at session end, exactly like the dummy has done since step 2.
 
 It is deliberately thin (D14): the authority-graded envelope and the peers listing are
 rendered by the hub and arrive as text; this process forwards them and never re-derives

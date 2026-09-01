@@ -35,7 +35,7 @@ _, coding_token = admin.register_agent(
     coding_name, "claude-code", "writes the payments service", "the payments service"
 )
 _, infra_token = admin.register_agent(
-    infra_name, "puppet", "runs the clusters", "the AWS estate and IAM"
+    infra_name, "dummy", "runs the clusters", "the AWS estate and IAM"
 )
 
 coding = HubClient(HUB, coding_name, coding_token)

@@ -140,7 +140,7 @@ box reads *Archived conversations are read-only* on that page. Removing an agent
 Agents page makes its lines vanish from the Courtyard page and appear in the Archive.
 
 **In the browser (Agents page):** every agent row has **launch config**, **rotate token**,
-**remove**. *launch config* opens the `.mcp.json` (or puppet command) with the token and
+**remove**. *launch config* opens the `.mcp.json` (or dummy command) with the token and
 the install button — close and open it again, same content. *rotate token* asks first,
 then opens the config with the new token and a "Token rotated" note; the agent's dot goes
 grey until it is restarted with the new file. An agent registered before migration 0006
@@ -187,7 +187,7 @@ of the agent's terminal.
 on → off), the Team-mode/terminal-app settings, and the real terminal spawning.
 
 **Scripted part** (settings round trip, `always_on` refused, custom terminal apps
-added/validated/removed (item 20), the machine through a full cycle — spawns nothing: the throwaway agent is a puppet, and it refuses to run the shift
+added/validated/removed (item 20), the machine through a full cycle — spawns nothing: the throwaway agent is a dummy, and it refuses to run the shift
 if real claude-code agents are down):
 
 ```
@@ -403,13 +403,13 @@ page that addresses the selection and carries the note for gate verdicts.
 **Run:**
 
 ```
-make demo          # hub + scripted puppets; open http://127.0.0.1:2626/ when it says so
+make demo          # hub + scripted dummies; open http://127.0.0.1:2626/ when it says so
 make demo-stop     # afterwards
 ```
 
 **Expected** (in the browser, the Courtyard page):
 
-1. **Team** — one rectangle per demo puppet, each on its own colour (the hub hands out
+1. **Team** — one rectangle per demo dummy, each on its own colour (the hub hands out
    the least-used of eight; green dot = connected; `guest-…` hollow, "not started yet");
    the first one is selected (dark outline) and the box at the bottom reads
    `Message <name>…`. Team and Lines are two tinted panels that scroll independently; the

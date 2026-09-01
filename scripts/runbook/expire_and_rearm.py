@@ -2,7 +2,7 @@
 
   1. R1 re-arm: a message delivered to a previous session and never answered is flipped
      back to queued on the agent's next attach and re-delivered, with a "redelivered"
-     system entry. Self-contained: two throwaway puppets on their own line.
+     system entry. Self-contained: two throwaway dummies on their own line.
   2. Expiry: ending the shift releases the non-idle line and marks the unanswered message
      `expired` (kept in history). GUARDED — skipped unless this hub has no other non-idle
      lines (a forced end would close the books on YOUR conversations too) and no real
@@ -28,11 +28,11 @@ def hr(title):
 admin = HubClient(HUB)
 stamp = str(time.time_ns())[-7:]
 a_name, b_name = f"exp-a-{stamp}", f"exp-b-{stamp}"
-_, a_token = admin.register_agent(a_name, "puppet", "runbook sender")
-b_agent, b_token = admin.register_agent(b_name, "puppet", "runbook recipient")
+_, a_token = admin.register_agent(a_name, "dummy", "runbook sender")
+b_agent, b_token = admin.register_agent(b_name, "dummy", "runbook recipient")
 a = HubClient(HUB, name=a_name, token=a_token)
 b = HubClient(HUB, name=b_name, token=b_token)
-print(f"registered throwaway puppets {a_name} and {b_name}")
+print(f"registered throwaway dummies {a_name} and {b_name}")
 
 
 def cleanup():
@@ -40,7 +40,7 @@ def cleanup():
         client.close()
         admin._call("DELETE", f"/api/agents/{name}")
     admin.close()
-    print("\n(cleaned up the throwaway puppets; their line went to the archive.)")
+    print("\n(cleaned up the throwaway dummies; their line went to the archive.)")
 
 
 hr("1. R1 RE-ARM  (delivered to a previous session, unanswered -> requeued on attach)")

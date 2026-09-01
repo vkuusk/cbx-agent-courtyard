@@ -7,7 +7,7 @@
 Run against a hub started with `make run`:
     uv run python scripts/runbook/archive_line.py
 
-Throwaway: two puppet registrations, removed at the end; the archives it made are deleted.
+Throwaway: two dummy registrations, removed at the end; the archives it made are deleted.
 """
 
 import json
@@ -25,8 +25,8 @@ def hr(title):
 admin = HubClient(HUB)
 suffix = str(time.time_ns())[-7:]
 a_name, b_name = f"arch-a-{suffix}", f"arch-b-{suffix}"
-_, a_token = admin.register_agent(a_name, "puppet", "runbook agent A")
-_, b_token = admin.register_agent(b_name, "puppet", "runbook agent B")
+_, a_token = admin.register_agent(a_name, "dummy", "runbook agent A")
+_, b_token = admin.register_agent(b_name, "dummy", "runbook agent B")
 a, b = HubClient(HUB, name=a_name, token=a_token), HubClient(HUB, name=b_name, token=b_token)
 
 first = a.send(b_name, "shall we deploy v2 tonight?")

@@ -14,9 +14,9 @@ show() { python3 -m json.tool; }
 get()  { python3 -c "import sys,json;print(json.load(sys.stdin)$1)"; }
 post() { local path=$1; shift; curl -s -X POST "$HUB$path" -H 'content-type: application/json' "$@"; }
 
-say "register two puppet agents ($ALICE, $BOB) — tokens are shown exactly once"
-A=$(post /api/agents -d "{\"name\":\"$ALICE\",\"type\":\"puppet\",\"description\":\"coding agent - app code and tests\"}")
-B=$(post /api/agents -d "{\"name\":\"$BOB\",\"type\":\"puppet\",\"description\":\"infrastructure agent - containers, networking\"}")
+say "register two dummy agents ($ALICE, $BOB) — tokens are shown exactly once"
+A=$(post /api/agents -d "{\"name\":\"$ALICE\",\"type\":\"dummy\",\"description\":\"coding agent - app code and tests\"}")
+B=$(post /api/agents -d "{\"name\":\"$BOB\",\"type\":\"dummy\",\"description\":\"infrastructure agent - containers, networking\"}")
 TA=$(echo "$A" | get '["token"]');  TB=$(echo "$B" | get '["token"]')
 echo "$A" | get '["agent"]' >/dev/null && echo "registered $ALICE and $BOB"
 

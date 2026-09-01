@@ -1,4 +1,4 @@
-# alice — the coding puppet. Her opening move comes from the CLI (--open); these are
+# alice — the coding dummy. Her opening move comes from the CLI (--open); these are
 # her replies. Steps fire once each, first match wins (substring, case-insensitive).
 steps:
   - match: "staging"

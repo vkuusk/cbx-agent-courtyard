@@ -48,8 +48,8 @@ def test_board_changes_stream_as_events(live_hub):
     admin = HubClient(hub)
     tap = EventTap(hub)
 
-    _, alice_token = admin.register_agent("alice", "puppet")
-    admin.register_agent("bob", "puppet")
+    _, alice_token = admin.register_agent("alice", "dummy")
+    admin.register_agent("bob", "dummy")
     assert tap.wait_for("agent")["name"] == "alice"
 
     alice = HubClient(hub, "alice", alice_token)

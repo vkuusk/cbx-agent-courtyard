@@ -8,7 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-AgentType = Literal["claude-code", "pi", "puppet", "human"]
+AgentType = Literal["claude-code", "pi", "dummy", "human"]
 # `unknown` (D26): the hub restarted and has not yet verified this agent's stored
 # liveness — resolved by the first heartbeat or by the sweep once the hub is old enough.
 AgentStatus = Literal["invited", "connected", "stale", "gone", "unknown"]
@@ -202,7 +202,7 @@ class ShiftStatus(BaseModel):
     started_at: datetime | None = None
     grace_until: datetime | None = None  # while starting: judge liveness only after this
     spawns: list[ShiftSpawn] = []
-    skipped: list[str] = []  # agents the shift cannot launch (puppet, no workdir), by name
+    skipped: list[str] = []  # agents the shift cannot launch (dummy, no workdir), by name
     # D25: the shift reads on, the hub is past its liveness grace, and not one target
     # agent is connected — the working period factually ended (terminals closed by hand,
     # a reboot) without the End gesture. The UI asks what to do; the hub never decides.

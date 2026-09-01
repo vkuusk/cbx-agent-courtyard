@@ -53,13 +53,13 @@ below matter once you work on the code.
 **The demo, in more detail.** The demo exists to exercise the hub end to end with
 scripted agents; the root README offers it as a preview of the gate before any real
 agents are connected. `make demo` starts the hub (unless one is running) plus
-scripted puppet agents; runtime files and process logs land in `.demo/` (gitignored).
+scripted dummy agents; runtime files and process logs land in `.demo/` (gitignored).
 Each run registers a fresh cast with unique name suffixes, and the cast cleans up after
 itself: both `make demo-stop` and a re-run remove the previous cast from the WebUI and
 delete its throwaway archives, so the WebUI looks the way it did before the demo. The
 demo pre-links its pairs and pins them supervised, so it runs the same whatever the
 operator's Discovery / Defaults settings say. It ends with instructions for playing an
-agent yourself from a second terminal (`courtyard-puppet --behavior manual`, then
+agent yourself from a second terminal (`courtyard-dummy --behavior manual`, then
 `/pending`, `/approve`, `/auto`, `/help`, …).
 
 **Python version.** Pinned in `.python-version` as `3.14`, deliberately minor-only

@@ -44,7 +44,7 @@ def line_messages(client, line_id):
 
 
 def end_shift(client):
-    """Start a shift (nothing spawns: puppets have no launch profile) and end it, forcing
+    """Start a shift (nothing spawns: dummies have no launch profile) and end it, forcing
     past the mid-conversation confirm the busy lines would raise."""
     assert client.post("/api/shift/start").status_code == 200
     resp = client.post("/api/shift/end", json={"force": True})

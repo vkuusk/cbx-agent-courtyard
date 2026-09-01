@@ -1,12 +1,12 @@
-"""Step-2 demo: two scripted puppets converse through the hub, held and released by the
+"""Step-2 demo: two scripted dummies converse through the hub, held and released by the
 gate; then you play an agent yourself from a second terminal.
 
     make demo         # or: uv run python scripts/demo.py
     make demo-stop    # stop everything the demo started
 
 Starts the hub only if one isn't already running on the configured port. Leaves hub and
-puppets running afterwards so you can explore. The cast cleans up after itself: both
-`--stop` and a re-run remove the previous run's puppets from the board (their lines are
+dummies running afterwards so you can explore. The cast cleans up after itself: both
+`--stop` and a re-run remove the previous run's dummies from the board (their lines are
 archived on removal, and those throwaway archives are deleted too) — the board looks the
 way it did before the demo.
 """
@@ -34,7 +34,7 @@ CHROME = os.environ.get(
     "COURTYARD_CHROME", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 )
 
-CAST_FILE_NAME = "cast.json"  # in DEMO_DIR: the registered puppet names of the last run
+CAST_FILE_NAME = "cast.json"  # in DEMO_DIR: the registered dummy names of the last run
 
 OPENING = (
     "Hey bob — the payments service is ready on branch feat/payments. Can you deploy it to staging?"
@@ -67,7 +67,7 @@ def stop_all() -> None:
             pid_file.unlink()
 
 
-def stop_puppets() -> None:
+def stop_dummies() -> None:
     """Retire the previous run's cast; keep the hub."""
     for pid_file in DEMO_DIR.glob("*.pid"):
         if pid_file.stem != "hub":
@@ -80,7 +80,7 @@ def record_cast(names: list[str]) -> None:
 
 
 def cleanup_cast(admin: HubClient) -> None:
-    """Take the previous run's cast off the board: remove each puppet (its lines are
+    """Take the previous run's cast off the board: remove each dummy (its lines are
     archived, design §5.7) and delete the archives the demo produced — throwaway
     transcripts, not records anyone wants. Needs the hub up; otherwise the cast file
     stays for the next chance."""
@@ -102,7 +102,7 @@ def cleanup_cast(admin: HubClient) -> None:
             admin.delete_archive(archive.id)
     cast_file.unlink()
     if removed:
-        say(f"cleaned the previous demo cast off the board ({removed} puppets)")
+        say(f"cleaned the previous demo cast off the board ({removed} dummies)")
 
 
 def hub_is_up(admin: HubClient) -> bool:
@@ -129,7 +129,7 @@ def link_supervised(admin: HubClient, a: str, b: str) -> None:
     """The demo's pairs must talk whatever the operator's saved settings say: pre-create
     their line (a link, design §5.8 — legal under either discovery mode) and pin it
     supervised (the phases rely on the gate holding the opening). Without this, a dev
-    hub left on Discovery `manual` refuses the puppets' sends as `not_linked`."""
+    hub left on Discovery `manual` refuses the dummies' sends as `not_linked`."""
     line = admin.link(a, b)
     admin.set_mode(line.id, "supervised")
 
@@ -160,7 +160,7 @@ def print_transcript(admin: HubClient, line_id) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--stop", action="store_true", help="stop demo hub and puppets")
+    parser.add_argument("--stop", action="store_true", help="stop demo hub and dummies")
     parser.add_argument(
         "--chrome", action="store_true", help="open the board in its own Chrome window"
     )
@@ -168,13 +168,13 @@ def main() -> None:
     DEMO_DIR.mkdir(exist_ok=True)
     admin = HubClient(HUB_URL)
     if args.stop:
-        stop_puppets()
+        stop_dummies()
         cleanup_cast(admin)  # while the hub, whoever started it, is still up
         stop_all()
         admin.close()
         return
 
-    stop_puppets()
+    stop_dummies()
     ensure_hub(admin)
     cleanup_cast(admin)
     if args.chrome:
@@ -200,12 +200,12 @@ def main() -> None:
 
     suffix = secrets.token_hex(2)
     alice_name, bob_name = f"alice-{suffix}", f"bob-{suffix}"
-    say(f"\nregistering two puppets: {alice_name} (coding) and {bob_name} (infra)")
+    say(f"\nregistering two dummies: {alice_name} (coding) and {bob_name} (infra)")
     _, alice_token = admin.register_agent(
-        alice_name, "puppet", "coding agent working on the payments service"
+        alice_name, "dummy", "coding agent working on the payments service"
     )
     _, bob_token = admin.register_agent(
-        bob_name, "puppet", "infra agent owning the staging and prod clusters"
+        bob_name, "dummy", "infra agent owning the staging and prod clusters"
     )
     cast = [alice_name, bob_name]
     record_cast(cast)  # incrementally: a failed run's partial cast still gets cleaned
@@ -214,11 +214,11 @@ def main() -> None:
     if not args.chrome:
         say(f"\n  ▶ open {HUB_URL}/ in your browser now to watch the board live\n")
     say("launching them as separate processes (logs: .demo/alice.log, .demo/bob.log)")
-    puppet = ["uv", "run", "courtyard-puppet", "--hub", HUB_URL, "--heartbeat", "5"]
+    dummy = ["uv", "run", "courtyard-dummy", "--hub", HUB_URL, "--heartbeat", "5"]
     start_process(
         "bob",
         [
-            *puppet,
+            *dummy,
             "--name",
             bob_name,
             "--token",
@@ -231,7 +231,7 @@ def main() -> None:
     start_process(
         "alice",
         [
-            *puppet,
+            *dummy,
             "--name",
             alice_name,
             "--token",
@@ -273,16 +273,16 @@ def main() -> None:
     # -- phase 2: the supervised experience — the architect works the gate ------------
     dev_name, ops_name = f"dev-{suffix}", f"ops-{suffix}"
     _, dev_token = admin.register_agent(
-        dev_name, "puppet", "dev puppet asking for risky things (gate demo)"
+        dev_name, "dummy", "dev dummy asking for risky things (gate demo)"
     )
-    _, ops_token = admin.register_agent(ops_name, "puppet", "ops puppet guarding prod (gate demo)")
+    _, ops_token = admin.register_agent(ops_name, "dummy", "ops dummy guarding prod (gate demo)")
     cast += [dev_name, ops_name]
     record_cast(cast)
     link_supervised(admin, dev_name, ops_name)
     start_process(
         "ops",
         [
-            *puppet,
+            *dummy,
             "--name",
             ops_name,
             "--token",
@@ -295,7 +295,7 @@ def main() -> None:
     start_process(
         "dev",
         [
-            *puppet,
+            *dummy,
             "--name",
             dev_name,
             "--token",
@@ -313,7 +313,7 @@ on a SUPERVISED line: every message now waits for you in the browser.
 
   {HUB_URL}/  — their wire turns amber, "held at the gate": click it
 
-Things to try, in any order — the puppets react to your verdicts (the comment field
+Things to try, in any order — the dummies react to your verdicts (the comment field
 sits right under the held message; what you type rides along with the verdict):
 
   · approve with a comment   — it is delivered to the recipient as an operator note
@@ -325,16 +325,16 @@ sits right under the held message; what you type rides along with the verdict):
 
     # -- phase 3: the architect plays an agent ---------------------------------------
     guest_name, concierge_name = f"guest-{suffix}", f"concierge-{suffix}"
-    _, guest_token = admin.register_agent(guest_name, "puppet", "played live by the operator")
+    _, guest_token = admin.register_agent(guest_name, "dummy", "played live by the operator")
     _, concierge_token = admin.register_agent(
-        concierge_name, "puppet", "echo puppet that acknowledges everything"
+        concierge_name, "dummy", "echo dummy that acknowledges everything"
     )
     cast += [guest_name, concierge_name]
     record_cast(cast)
     link_supervised(admin, guest_name, concierge_name)
     start_process(
         "concierge",
-        [*puppet, "--name", concierge_name, "--token", concierge_token, "--behavior", "echo"],
+        [*dummy, "--name", concierge_name, "--token", concierge_token, "--behavior", "echo"],
     )
 
     say(f"""{"─" * 72}
@@ -346,7 +346,7 @@ Phase 3 — you as a participant, straight from the browser:
 
 Or play a full agent from a second terminal instead:
 
-  uv run courtyard-puppet --name {guest_name} --token {guest_token} --behavior manual
+  uv run courtyard-dummy --name {guest_name} --token {guest_token} --behavior manual
 
 Everything keeps running for exploring; `make demo-stop` shuts it all down.""")
     admin.close()

@@ -384,7 +384,7 @@ class ShiftService:
 
     def _targets(self) -> tuple[list[Agent], list[str]]:
         """(launchable agents, skipped names). claude-code and pi have launch profiles
-        (D32); a puppet is a test twin, started by whoever is testing."""
+        (D32); a dummy is a test twin, started by whoever is testing."""
         launchable: list[Agent] = []
         skipped: list[str] = []
         with self._storage.transaction() as uow:

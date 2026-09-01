@@ -1,4 +1,4 @@
-# bob — the infra puppet. Purely reactive; replies once per matching step.
+# bob — the infra dummy. Purely reactive; replies once per matching step.
 steps:
   - match: "deploy"
     delay: 1.0

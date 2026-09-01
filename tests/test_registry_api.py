@@ -19,7 +19,7 @@ def test_create_get_by_name_and_id(client, make_agent):
 def test_description_round_trip(client):
     resp = client.post(
         "/api/agents",
-        json={"name": "infra", "type": "puppet", "description": "terraform, k8s, home-lab DNS"},
+        json={"name": "infra", "type": "dummy", "description": "terraform, k8s, home-lab DNS"},
     )
     assert resp.status_code == 201
     assert resp.json()["agent"]["description"] == "terraform, k8s, home-lab DNS"
@@ -30,7 +30,7 @@ def test_description_round_trip(client):
 
 def test_model_round_trip(client):
     """The declared model (feedback 1, WP-A) is stored and listed; omitted = null."""
-    resp = client.post("/api/agents", json={"name": "infra", "type": "puppet", "model": "sonnet"})
+    resp = client.post("/api/agents", json={"name": "infra", "type": "dummy", "model": "sonnet"})
     assert resp.status_code == 201
     assert resp.json()["agent"]["model"] == "sonnet"
     listed = {a["name"]: a for a in client.get("/api/agents").json()}
@@ -48,7 +48,7 @@ def test_tokens_never_appear_in_listings(client, make_agent):
 
 
 def test_agent_colour_chosen_or_assigned(client, make_agent):
-    chosen = client.post("/api/agents", json={"name": "alice", "type": "puppet", "color": "teal"})
+    chosen = client.post("/api/agents", json={"name": "alice", "type": "dummy", "color": "teal"})
     assert chosen.json()["agent"]["color"] == "teal"
     first, _ = make_agent("bob")  # no colour given: the least-used one, palette order on ties
     assert first["color"] == "red"
@@ -58,7 +58,7 @@ def test_agent_colour_chosen_or_assigned(client, make_agent):
 
 
 def test_invalid_colour_rejected(client):
-    resp = client.post("/api/agents", json={"name": "alice", "type": "puppet", "color": "beige"})
+    resp = client.post("/api/agents", json={"name": "alice", "type": "dummy", "color": "beige"})
     assert resp.status_code == 422
 
 
@@ -112,13 +112,13 @@ def test_registration_from_before_stored_tokens_says_rotate(client, make_agent, 
 
 def test_duplicate_name_refused(client, make_agent):
     make_agent("alice")
-    resp = client.post("/api/agents", json={"name": "alice", "type": "puppet"})
+    resp = client.post("/api/agents", json={"name": "alice", "type": "dummy"})
     assert resp.status_code == 409
     assert resp.json()["error"]["code"] == "name_taken"
 
 
 def test_invalid_name_rejected(client):
-    resp = client.post("/api/agents", json={"name": "bad name!", "type": "puppet"})
+    resp = client.post("/api/agents", json={"name": "bad name!", "type": "dummy"})
     assert resp.status_code == 422
 
 
@@ -162,7 +162,7 @@ def test_sme_domain_is_registered_and_listed(client):
         "/api/agents",
         json={
             "name": "infra",
-            "type": "puppet",
+            "type": "dummy",
             "description": "the infrastructure agent",
             "sme_domain": "the AWS estate and IAM",
         },
@@ -172,7 +172,7 @@ def test_sme_domain_is_registered_and_listed(client):
     assert client.get("/api/agents/infra").json()["sme_domain"] == "the AWS estate and IAM"
 
     # ownership is optional: an agent may be described without owning anything
-    plain = client.post("/api/agents", json={"name": "scout", "type": "puppet"})
+    plain = client.post("/api/agents", json={"name": "scout", "type": "dummy"})
     assert plain.json()["agent"]["sme_domain"] is None
 
 
@@ -205,7 +205,7 @@ def test_peers_excludes_self_and_removed_and_ranks_reachable_first(client, make_
         headers=auth(carol),
     )
     client.post(
-        "/api/agents", json={"name": "infra", "type": "puppet", "sme_domain": "the AWS estate"}
+        "/api/agents", json={"name": "infra", "type": "dummy", "sme_domain": "the AWS estate"}
     )
 
     view = peers_of(client, "alice", alice).json()
@@ -214,9 +214,9 @@ def test_peers_excludes_self_and_removed_and_ranks_reachable_first(client, make_
     assert view["total"] == 4
     lines = view["rendered"].splitlines()
     assert lines[0].startswith("Agents on the courtyard board")
-    assert lines[1].startswith("carol — puppet, connected")
-    assert "bob — puppet, invited — deploys things" in lines
-    assert "infra — puppet, invited — owns: the AWS estate" in lines
+    assert lines[1].startswith("carol — dummy, connected")
+    assert "bob — dummy, invited — deploys things" in lines
+    assert "infra — dummy, invited — owns: the AWS estate" in lines
     assert "more registrations" not in view["rendered"]
 
 

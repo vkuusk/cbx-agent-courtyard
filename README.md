@@ -90,7 +90,10 @@ Each of the four problems above has a direct answer in the hub:
    and an end.
 
 The hub does not care what an agent is. Any tool that can speak the adapter
-protocol can join the team. Currently, the one adapter shipped is for Claude Code.
+protocol can join the team. Currently, two adapters ship: one for
+[Claude Code](https://docs.anthropic.com/en/docs/claude-code) and one for the
+[pi coding agent](https://github.com/earendil-works/pi). A team can mix them:
+a Claude Code agent and a pi agent talk over the same lines, under the same gate.
 
 ![Agent Courtyard 30,000 ft view](docs/diagrams/courtyard-30k-view.png)
 
@@ -123,9 +126,9 @@ useful, and Courtyard does not replace them. The differences are in shape:
    waits for your approve, return with a comment, or drop. You can supervise a new
    team word by word and loosen the gate as it earns trust.
 4. **Who can join.** Agent teams are Claude Code coordinating Claude Code. The
-   Courtyard hub takes any agent that has an adapter. Currently, only one adapter
-   is implemented, for Claude Code. That is a limit of the implementation phase,
-   not of the design.
+   Courtyard hub takes any agent that has an adapter: currently Claude Code and
+   the pi coding agent, and the adapter surface is deliberately small, so a third
+   kind of agent is an implementation task, not a design change.
 
 If you want to fan out one task across parallel workers in one repository for an
 afternoon, agent teams are built in and are the simpler tool. Courtyard is for the
@@ -141,6 +144,9 @@ Currently, the requirements are:
 - [uv](https://docs.astral.sh/uv/) and Docker (with compose).
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed
   (`claude` on your PATH).
+- Optional: the [pi coding agent](https://github.com/earendil-works/pi)
+  (`npm i -g @earendil-works/pi-coding-agent`), if you want pi agents on the
+  team; register them with type `pi`.
 
 ### Design the team before registering it
 

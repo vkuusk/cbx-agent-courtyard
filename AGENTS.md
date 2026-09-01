@@ -14,7 +14,9 @@ message between agents, with a WebUI for the human operator. The hub binds to
 ## Install and start the hub
 
 Requirements: macOS, [uv](https://docs.astral.sh/uv/), Docker with compose,
-and Claude Code (`claude` on PATH) for the agents themselves.
+and Claude Code (`claude` on PATH) for the agents themselves. Agents of type `pi`
+additionally need the pi coding agent installed
+(`npm i -g @earendil-works/pi-coding-agent`).
 
 ```sh
 git clone https://github.com/vkuusk/cbx-agent-courtyard.git

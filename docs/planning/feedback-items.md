@@ -1036,9 +1036,8 @@ PiPanel; shift launches pi agents plainly. Written as plain JS in a `.ts` file s
 against a live hub: the full wire round trip (attach + flag, push as
 `customType: "courtyard"` with `triggerTurn`/`followUp`, reply, turn violation
 verbatim, delivery check acked, detach) is in the automated suite — pi itself is
-not needed for it. 10 new tests (224 total). Awaiting the live check with a real pi
-session (runbook manual steps; needs pi installed); the README's "one adapter"
-wording waits for that check.
+not needed for it. 10 new tests (224 total). Live check passed 2026-09-01 (see the
+addendum below); the README now names both adapters and the optional pi requirement.
 
 **Addendum (architect, 2026-09-01): use pi's native surface to the fullest.** His
 question — is the plumbing token-free? — is satisfied by construction (heartbeat,

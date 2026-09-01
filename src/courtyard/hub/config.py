@@ -32,6 +32,7 @@ class Config:
     gone_seconds: float  # no heartbeat for this long -> liveness `gone`
     sweep_seconds: float  # how often the hub re-evaluates liveness
     push_timeout: float  # hub -> channel endpoint HTTP timeout
+    verify_timeout: float  # unacked delivery check (item 34) fails after this
 
 
 def _default_webui_dir() -> Path:
@@ -59,4 +60,5 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
         gone_seconds=float(env.get("COURTYARD_GONE_SECONDS", "600")),
         sweep_seconds=float(env.get("COURTYARD_SWEEP_SECONDS", "10")),
         push_timeout=float(env.get("COURTYARD_PUSH_TIMEOUT", "3")),
+        verify_timeout=float(env.get("COURTYARD_VERIFY_TIMEOUT_SECONDS", "60")),
     )

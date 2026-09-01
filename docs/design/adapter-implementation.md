@@ -68,7 +68,19 @@ Claude Code keeps each session's stderr in `~/.claude/debug/`. Every delivery
 and every skipped channel registration is logged there; it is the only ground
 truth when a session ACKs pushes but shows nothing (items 11 and 16).
 
-## 8. The launch flag
+## 8. The channel-flag probe and the ack tool (D29/D30)
+
+At startup the adapter walks its process ancestry (`ps`, at most 5 levels), skips
+shell wrappers that name the adapter itself, and judges the claude launch command:
+channels flag present, absent, or unknown when nothing readable names claude. The
+verdict rides the attach call; `absent` is the deterministic tell for a session
+whose channel events Claude Code silently drops. The `courtyard_ack` tool is the
+other half: the hub's delivery check hands the model a token, and returning it is
+the only end-to-end proof that pushes actually reach the model. Both exist because
+the adapter cannot see whether Claude Code forwards its notifications; ACKing a
+push proves nothing past the adapter.
+
+## 9. The launch flag
 
 `claude --dangerously-load-development-channels server:courtyard`, the
 2.1.245-verified form. The flag contract has drifted twice; after any Claude

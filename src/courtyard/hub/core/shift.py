@@ -45,8 +45,12 @@ SHIFT_KEY = "shift"  # the shift state document (survives hub restarts)
 CLAUDE_LAUNCH = "claude --dangerously-load-development-channels server:courtyard"
 
 
+def launch_command_text(model: str | None) -> str:
+    return CLAUDE_LAUNCH + (f" --model {model}" if model else "")
+
+
 def launch_command(agent: Agent) -> str:
-    return CLAUDE_LAUNCH + (f" --model {agent.model}" if agent.model else "")
+    return launch_command_text(agent.model)
 
 
 def _now() -> datetime:

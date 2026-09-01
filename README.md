@@ -59,7 +59,7 @@ shaped everything Courtyard does.
 Agent Courtyard is a local hub standing between your agents. Each agent stays
 exactly what it already is: a session in its own terminal, in its own project
 directory, with its own memories, skills and credentials. Adding an agent to the
-team means registering it in the hub; the hub writes two small files into the
+team means registering it in the hub; the hub writes three small files into the
 agent's directory, and that is its whole footprint there.
 
 You keep working the way you already do, in your agents' terminals. Sometimes you
@@ -176,26 +176,71 @@ blocks an answer.
 git clone https://github.com/vkuusk/cbx-agent-courtyard.git
 cd cbx-agent-courtyard
 cp .env.default .env   # local settings; the defaults work unless a port is taken
-make run-chrome     # postgres + hub + the WebUI in its own Chrome window
-
-# or just `make run` and open http://127.0.0.1:2626 in any browser
+make run            # postgres + the hub, in the foreground
 ```
 
-### Connect your agents
+Then open http://127.0.0.1:2626 in a browser. `make run` is the recommended way:
+the hub stays in your terminal, so you always see that it is running and what it
+logs, and Ctrl+C stops it. `make run-chrome` is the background alternative (hub
+logs to `sandbox/courtyard.log`, WebUI in its own Chrome window, `make run-stop`
+to end it); use it once the setup is familiar.
+
+### Register your agents
 
 On the WebUI:
 
-1. **Agents** page → **+ Add an agent**: a name, type `claude-code`, and the project
-   directory it should work in. Add your other agents the same way.
-2. On each agent's launch panel click **write both files into ‹dir›**: the hub drops
-   the MCP config and a settings profile into that directory; that is its whole
-   footprint there.
-3. **Courtyard** page → **▶ Start shift**: a terminal opens per agent, already in its
-   directory, already connected. First launch only: accept Claude Code's two trust
-   prompts in each terminal.
-4. Click an agent's rectangle and, in the box at the bottom, ask it to ask another
-   agent for something. Their line appears on the WebUI, the message stops at the gate,
-   and the supervising is yours. **■ End shift** closes the day.
+1. **Agents** page → **+ Add an agent**: a name (permanent, so choose it once),
+   type `claude-code`, the project directory the agent works in, and the two
+   descriptions from the team design: what it can do and what it owns.
+2. In the agent's edit view open **launch config** and press
+   **write the files into ‹dir›**. The hub drops three small files into that
+   directory: `.mcp.json` (the connection, holds the agent's token, keep it out
+   of git), a `.claude/settings.local.json` profile that pre-approves the
+   courtyard tools, and `start-with-courtyard.sh` for starting the agent by hand.
+
+Or do both in one command per agent:
+
+```sh
+uv run courtyard-invite --register --name tf-developer \
+    --description "what the agent can do" \
+    --sme-domain "what the agent owns" \
+    --workdir <the agent's project directory>
+```
+
+### Run the team in shifts
+
+The team's working day is a **shift**. **▶ Start shift** on the Courtyard page
+starts everyone: first a short countdown while the hub verifies who is genuinely
+alive (a stored status is not trusted, a fresh heartbeat is), then one terminal
+opens per agent that did not report in, each in its own directory with the agent
+already connected. At an agent's first ever launch, accept Claude Code's two trust
+prompts in its terminal; they cannot be pre-answered. As each session comes up the
+hub sends it a delivery check, and the green check mark on the agent's card means
+messages provably reach that session; you can re-run the check any time from that
+same button.
+
+**■ End shift** ends the day. It closes exactly the terminals the shift opened
+(terminals you opened yourself are left alone) and closes the books: a conversation
+still waiting on a reply, or a message still held at the gate, is marked expired.
+Expired messages stay in the history, and the next shift starts with every line
+clear. If part of the team dies mid-shift, **▶ Resume shift** appears and starts
+only the missing agents.
+
+You can also start a single agent by hand: run the script that registration wrote,
+in the agent's directory:
+
+```sh
+cd <the agent's directory>
+./start-with-courtyard.sh
+```
+
+It starts Claude Code with the flag that connects the session to the hub. A plain
+`claude` session in the same directory looks healthy but cannot hear the hub; the
+WebUI warns you when that happens.
+
+To try the team: click an agent's rectangle on the Courtyard page and, in the box
+at the bottom, ask it to ask another agent for something. Their line appears on the
+WebUI, the message stops at the gate, and the supervising is yours.
 
 The same flow in full detail, every screen described:
 [docs/quickstart.md](docs/quickstart.md).

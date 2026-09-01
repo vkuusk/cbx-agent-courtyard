@@ -176,7 +176,7 @@ def test_adapter_end_to_end(session):
 
     # --- tools ------------------------------------------------------------------------
     tools = {t["name"] for t in adapter.request("tools/list")["tools"]}
-    assert tools == {"courtyard_send", "courtyard_inbox", "courtyard_peers"}
+    assert tools == {"courtyard_send", "courtyard_inbox", "courtyard_peers", "courtyard_ack"}
 
     peers = tool_text(adapter.call_tool("courtyard_peers"))
     assert "infra — puppet, invited — owns: the staging and prod clusters" in peers
@@ -330,3 +330,17 @@ def test_adapter_attaches_when_the_hub_arrives_late(live_hub, config):
         if server is not None:
             server.should_exit = True
         admin.close()
+
+
+def test_judge_channel_flag_from_process_ancestry():
+    """Item 33 (D29): the launch flag is the deterministic tell for channel-less
+    sessions; wrappers around the adapter itself must not be mistaken for claude."""
+    from courtyard.adapters.claude_code.mcp_server import judge_channel_flag
+
+    flagged = "claude --dangerously-load-development-channels server:courtyard --model haiku"
+    assert judge_channel_flag([flagged]) == "present"
+    assert judge_channel_flag(["claude"]) == "absent"
+    assert judge_channel_flag(["/bin/zsh -c courtyard-claude-mcp", flagged]) == "present"
+    assert judge_channel_flag(["sh -c courtyard-claude-mcp", "claude --model haiku"]) == "absent"
+    assert judge_channel_flag(["/usr/bin/login", "-zsh"]) == "unknown"
+    assert judge_channel_flag([]) == "unknown"

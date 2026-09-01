@@ -449,3 +449,39 @@ make demo-stop     # afterwards
 7. **Themes** — with macOS in dark mode the page opens dark; the sun/moon item at the
    bottom of the side bar switches to the other theme and the choice survives a reload;
    Admin → Appearance → "follow the system" returns to the system's theme.
+
+---
+
+## The channel flag and the delivery check (design §6.3, D29/D30)
+
+**Feature under test:** detecting a session that cannot hear the hub. Two layers: the
+adapter reports whether its claude session was launched with the channels flag
+(item 33 — `absent` raises a board popup + red card foot), and the delivery check
+proves end to end that a channel push reaches the model (item 34 — a hub-notice with
+a token the model must return via `courtyard_ack`; ack = verified, timeout = failed).
+
+**Scripted part** (own throwaway hub; prints the check envelope, the ack round trip,
+the timeout verdict, and the automatic check on attach-during-shift):
+
+```
+uv run python scripts/runbook/delivery_check.py
+```
+
+**Manual part — real sessions:**
+
+1. With a shift running, open a spare terminal in an agent's workdir and start a bare
+   `claude` (no channel flag). Within seconds the board raises "**<agent> cannot hear
+   the hub**" with the restart remedy, and the card foot reads *started without the
+   channel* in red. (The bare session steals the agent's channel — this is the exact
+   item-30/31 situation, now labeled instead of silent.)
+2. Close that session, then End shift / Start shift. As each fresh session attaches,
+   the hub sends it a delivery check automatically: the card foot shows *checking
+   delivery…*, then the small chip on the card turns into a green **✓** as the model
+   calls `courtyard_ack` (its terminal shows the tool call). No popup, no red.
+3. **On demand:** hover a connected agent's card — the **✓?** chip; click it and watch
+   the same pending → ✓ cycle. Hovering the green ✓ shows when delivery was last
+   verified.
+4. **The failure verdict:** repeat step 1's bare session and click its card's **✓?**.
+   After the timeout (60 s) the foot turns to *delivery check failed* (the flag warning
+   outranks it when both apply). Expected everywhere: the check never appears in any
+   line history or archive.

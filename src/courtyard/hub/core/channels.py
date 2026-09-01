@@ -9,13 +9,15 @@ turn state are never touched by it.
 from __future__ import annotations
 
 import logging
+import secrets
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
-from courtyard.common.models import Agent, AttachSummary, LineSummary
+from courtyard.common.models import Agent, AttachSummary, LineSummary, Message
 from courtyard.hub.core.deliver import Deliverer
+from courtyard.hub.core.envelope import delivery_check_body, with_rendering
 from courtyard.hub.core.errors import InvalidEndpoint, NotAttached
 from courtyard.hub.core.events import EventBus
 from courtyard.hub.core.peers import roster
@@ -50,12 +52,17 @@ class ChannelService:
         gone_seconds: float,
         hub_started_at: datetime | None = None,
         discovery: Callable[[], str] | None = None,
+        shift_active: Callable[[], bool] | None = None,
+        verify_timeout: float = 60.0,
     ):
         self._storage = storage
         self._events = events
         self._deliverer = deliverer
         # §5.8 (D22): under manual discovery the attach-summary roster narrows to linked agents.
         self._discovery = discovery or (lambda: "auto")
+        # Item 34 (D30): attaches during an active shift trigger a delivery check.
+        self._shift_active = shift_active
+        self._verify_timeout = verify_timeout
         self._heartbeat = heartbeat_seconds
         self._stale_after = 3 * heartbeat_seconds  # 3 missed beats (design §6.3)
         self._gone_after = gone_seconds
@@ -107,13 +114,22 @@ class ChannelService:
 
     # -- the adapter contract (attach / heartbeat / detach) --------------------------
 
-    def attach(self, agent: Agent, endpoint: str, channel_token: str) -> AttachSummary:
+    def attach(
+        self,
+        agent: Agent,
+        endpoint: str,
+        channel_token: str,
+        channel_flag: str = "unknown",
+    ) -> AttachSummary:
         """Register the agent's receive endpoint; last attach wins. Returns the catch-up
-        summary; the caller then pushes the queued backlog."""
+        summary; the caller then pushes the queued backlog. `channel_flag` is the
+        adapter's report on its parent claude process's launch flag (item 33, D29):
+        `absent` means Claude Code will silently drop every channel event — stored so
+        the UI can say so instead of showing a healthy green."""
         _check_endpoint(endpoint)
         with self._storage.transaction() as uow:
             previous = uow.channels.get(agent.id)
-            uow.channels.upsert(agent.id, endpoint, channel_token)
+            uow.channels.upsert(agent.id, endpoint, channel_token, channel_flag)
             uow.agents.set_status(agent.id, "connected")
             uow.agents.touch(agent.id)
             updated = uow.agents.get(agent.id)
@@ -131,6 +147,14 @@ class ChannelService:
             with self._storage.transaction() as uow:
                 line = uow.lines.get(line_id)
             self._events.publish("line", line)  # its queued counter changed
+        # Item 34 (D30): every session that begins while a shift is active gets a
+        # delivery check — shift-start spawns, Resume respawns, manual mid-shift
+        # restarts, re-attach after a hub restart. Off-shift attaches stay quiet.
+        if agent.type != "human" and self._shift_active is not None and self._shift_active():
+            try:
+                self.begin_delivery_check(updated)
+            except Exception:  # a failed check must never break attach
+                logger.exception("delivery check on attach failed for %s", agent.name)
         return summary
 
     def deliver_backlog(self, agent_id: UUID) -> int:
@@ -159,6 +183,60 @@ class ChannelService:
             uow.agents.set_status(agent.id, "gone")
             updated = uow.agents.get(agent.id)
         self._events.publish("agent", updated)
+
+    # -- delivery verification (item 34, D30) ------------------------------------------
+
+    def begin_delivery_check(self, agent: Agent) -> None:
+        """Push a delivery check through the agent's channel: a nonce the model must
+        return via the courtyard_ack tool. The only end-to-end proof that channel
+        events reach the model (the adapter ACKs pushes even when Claude Code drops
+        them). Ack -> verified; timeout (the sweep) or a refused push -> failed."""
+        token = secrets.token_urlsafe(9)
+        with self._storage.transaction() as uow:
+            channel = uow.channels.get(agent.id)
+            if channel is None:
+                raise NotAttached(f"agent {agent.name!r} has no attached channel")
+            uow.channels.begin_verify(agent.id, token)
+            updated = uow.agents.get(agent.id)
+        self._events.publish("agent", updated)
+        message = with_rendering(self._check_message(agent.id, token))
+        if not self._deliverer.push_raw(channel, message):
+            with self._storage.transaction() as uow:
+                uow.channels.fail_verify(agent.id)
+                updated = uow.agents.get(agent.id)
+            self._events.publish("agent", updated)
+            logger.info("delivery check for %s: push refused -> failed", agent.name)
+        else:
+            logger.info("delivery check for %s: token sent", agent.name)
+
+    def ack_delivery(self, agent: Agent, token: str) -> bool:
+        """The model returned a check token. False when it matches no open check
+        (timed out, or a newer check superseded it) — not an error: the model has
+        nothing further to do either way."""
+        with self._storage.transaction() as uow:
+            channel = uow.channels.ack_verify(agent.id, token.strip())
+            updated = uow.agents.get(agent.id)
+        if channel is None:
+            return False
+        self._events.publish("agent", updated)
+        logger.info("delivery check for %s: verified", agent.name)
+        return True
+
+    def _check_message(self, agent_id: UUID, token: str) -> Message:
+        """A synthetic, storage-less message: it rides the normal push payload, so any
+        adapter version forwards it like real mail. Never enters history."""
+        body = delivery_check_body(token)
+        return Message(
+            id=uuid4(),
+            line_id=uuid4(),  # no line: the check exists only in flight
+            seq=0,
+            sender=None,
+            recipient=agent_id,
+            kind="system",
+            body=body,
+            status="delivered",
+            created_at=datetime.now(UTC),
+        )
 
     # -- liveness sweep (advisory; run periodically by the hub) ----------------------
 
@@ -193,8 +271,18 @@ class ChannelService:
                 if target is not None:
                     uow.agents.set_status(agent.id, target)
                     changed.append(uow.agents.get(agent.id))
+            # Item 34 (D30): a delivery check nobody acked in time is a failed check —
+            # the session's adapter is alive, but the model never heard the message.
+            timed_out = [
+                agent
+                for agent_id in uow.channels.expire_verifies(self._verify_timeout)
+                if (agent := uow.agents.get(agent_id)) is not None
+            ]
         for agent in changed:
             logger.info("liveness: %s -> %s", agent.name, agent.status)
+        for agent in timed_out:
+            logger.info("delivery check for %s: timed out", agent.name)
+        for agent in changed + timed_out:
             self._events.publish("agent", agent)
         return changed
 

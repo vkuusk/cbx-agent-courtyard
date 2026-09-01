@@ -12,6 +12,12 @@ AgentType = Literal["claude-code", "pi", "puppet", "human"]
 # `unknown` (D26): the hub restarted and has not yet verified this agent's stored
 # liveness — resolved by the first heartbeat or by the sweep once the hub is old enough.
 AgentStatus = Literal["invited", "connected", "stale", "gone", "unknown"]
+# Item 33 (D29): whether the adapter found the channels flag on its parent claude
+# process — `absent` means Claude Code silently drops every channel event.
+ChannelFlag = Literal["present", "absent", "unknown"]
+# Item 34 (D30): the delivery-verification check — a nonce pushed through the channel
+# that the model must ack with the courtyard_ack tool.
+DeliveryCheck = Literal["pending", "verified", "failed"]
 LineMode = Literal["supervised", "auto_pass"]
 LineState = Literal["idle", "pending_gate", "awaiting_reply"]
 MessageKind = Literal["message", "operator_note", "system"]
@@ -45,6 +51,10 @@ class Agent(BaseModel):
     created_at: datetime
     last_seen_at: datetime | None = None
     removed_at: datetime | None = None
+    # session-channel facts, joined from the channel record (items 33/34; None = no channel)
+    channel_flag: ChannelFlag | None = None
+    delivery_check: DeliveryCheck | None = None
+    delivery_checked_at: datetime | None = None
 
 
 class Line(BaseModel):
@@ -124,6 +134,12 @@ class Channel(BaseModel):
     last_heartbeat: datetime
     # measured by the database clock at read time (liveness sweep input)
     heartbeat_age_seconds: float | None = None
+    # items 33/34: the adapter's launch-flag report and the delivery-check state
+    channel_flag: ChannelFlag = "unknown"
+    verify_token: str | None = None
+    verify_sent_at: datetime | None = None
+    verified_at: datetime | None = None
+    verify_failed_at: datetime | None = None
 
 
 class PeerInfo(BaseModel):

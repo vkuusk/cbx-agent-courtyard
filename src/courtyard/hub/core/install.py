@@ -33,12 +33,16 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from courtyard.hub.core.errors import MalformedMcpJson, NothingToUninstall, WorkdirNotFound
+from courtyard.hub.core.shift import launch_command_text
 
 MCP_FILENAME = ".mcp.json"
 BACKUP_SUFFIX = ".courtyard-bak"
 SERVER_KEY = "courtyard"
 SETTINGS_DIR = ".claude"
 SETTINGS_FILENAME = "settings.local.json"
+# Item 35: the human-facing wrapper — nobody should have to remember the channel flag.
+SCRIPT_FILENAME = "start-with-courtyard.sh"
+SCRIPT_MARK = "Written by the courtyard"  # first comment line; uninstall keys on it
 ALLOW_RULE = f"mcp__{SERVER_KEY}"  # pre-approves every courtyard tool (docs-verified form)
 STATUS_MARK = "· courtyard'"  # a status-line command ending like this is ours (uninstall)
 
@@ -82,6 +86,20 @@ def merge(existing: dict | None, block: dict) -> dict:
     return doc
 
 
+def start_script(agent_name: str, model: str | None) -> str:
+    """Item 35: `start-with-courtyard.sh` — the one thing a human is told to run when
+    starting an agent by hand. Carries the channel flag (whose absence is exactly the
+    deaf-session failure of items 30/33) and the agent's model; regenerated on every
+    install, so a model change or a flag-contract drift follows a re-register."""
+    return (
+        "#!/bin/sh\n"
+        f"# {SCRIPT_MARK} for agent '{agent_name}'. Starts this agent's Claude Code\n"
+        "# session connected to the courtyard hub (the channel flag included).\n"
+        "# Regenerated on every install; extra arguments are passed through to claude.\n"
+        f'cd "$(dirname "$0")" && exec {launch_command_text(model)} "$@"\n'
+    )
+
+
 def status_line(agent_name: str) -> dict:
     """A status line that answers "which agent is this terminal?" (feedback item 2)."""
     return {"type": "command", "command": f"echo '⏺ {agent_name} · courtyard'", "padding": 0}
@@ -119,6 +137,8 @@ class InstallResult:
     replaced_server: bool  # a previous `courtyard` server entry was replaced
     settings_path: str  # `.claude/settings.local.json` — allow rule, model, status line
     settings_backed_up: str | None
+    script_path: str  # `start-with-courtyard.sh` — the human launch wrapper (item 35)
+    script_backed_up: str | None  # only a file that was NOT ours gets backed up
     warning: str
 
 
@@ -183,8 +203,27 @@ def install(
     settings_doc = merge_settings(s_existing, agent_name, model)
     settings_target.write_text(json.dumps(settings_doc, indent=2) + "\n")
 
+    # Item 35: the launch wrapper. Ours is regenerated in place; a file of this name
+    # that is NOT ours is backed up first — and never rotated away by re-installs,
+    # unlike the json backups (their flaw is recorded in feedback item 28).
+    script_target = directory / SCRIPT_FILENAME
+    script_backed_up: str | None = None
+    if script_target.exists() and SCRIPT_MARK not in script_target.read_text():
+        script_backup = directory / (SCRIPT_FILENAME + BACKUP_SUFFIX)
+        script_backup.write_text(script_target.read_text())
+        script_backed_up = str(script_backup)
+    script_target.write_text(start_script(agent_name, model))
+    os.chmod(script_target, 0o755)
+
     return InstallResult(
-        str(target), backed_up, replaced, str(settings_target), settings_backed_up, WARNING
+        str(target),
+        backed_up,
+        replaced,
+        str(settings_target),
+        settings_backed_up,
+        str(script_target),
+        script_backed_up,
+        WARNING,
     )
 
 
@@ -195,6 +234,8 @@ class UninstallResult:
     removed_server: bool  # our server key was dropped from a file we did not back up
     settings_restored: bool  # settings.local.json put back from its backup
     settings_cleaned: bool  # our allow rule / status line removed from it
+    script_restored: bool  # start-with-courtyard.sh put back from its backup
+    script_removed: bool  # our wrapper script deleted (a foreign one is never touched)
 
 
 def _uninstall_settings(directory: Path) -> tuple[bool, bool]:
@@ -239,12 +280,30 @@ def _uninstall_settings(directory: Path) -> tuple[bool, bool]:
     return False, cleaned
 
 
+def _uninstall_script(directory: Path) -> tuple[bool, bool]:
+    """Reverse the wrapper: restore a backed-up foreign script, else delete the file
+    only when it is recognisably ours (`SCRIPT_MARK`). Returns (restored, removed)."""
+    target = directory / SCRIPT_FILENAME
+    backup = directory / (SCRIPT_FILENAME + BACKUP_SUFFIX)
+    if backup.exists():
+        target.write_text(backup.read_text())
+        os.chmod(target, 0o755)
+        backup.unlink()
+        return True, False
+    if target.exists() and SCRIPT_MARK in target.read_text():
+        target.unlink()
+        return False, True
+    return False, False
+
+
 def uninstall(workdir: str) -> UninstallResult:
     """Reverse an install: restore the backups if present, else drop just what we added."""
     directory = Path(workdir).expanduser()
     target = directory / MCP_FILENAME
     backup = directory / (MCP_FILENAME + BACKUP_SUFFIX)
     settings_restored, settings_cleaned = _uninstall_settings(directory)
+    script_restored, script_removed = _uninstall_script(directory)
+    side_effects = settings_restored or settings_cleaned or script_restored or script_removed
 
     if backup.exists():
         target.write_text(backup.read_text())
@@ -256,18 +315,22 @@ def uninstall(workdir: str) -> UninstallResult:
             removed_server=False,
             settings_restored=settings_restored,
             settings_cleaned=settings_cleaned,
+            script_restored=script_restored,
+            script_removed=script_removed,
         )
 
     existing, _ = _read_existing(target)
     servers = (existing or {}).get("mcpServers") or {}
     if SERVER_KEY not in servers:
-        if settings_restored or settings_cleaned:
+        if side_effects:
             return UninstallResult(
                 str(target),
                 restored_from_backup=False,
                 removed_server=False,
                 settings_restored=settings_restored,
                 settings_cleaned=settings_cleaned,
+                script_restored=script_restored,
+                script_removed=script_removed,
             )
         raise NothingToUninstall(f"no courtyard entry and no backup at {target} — nothing to undo.")
     del servers[SERVER_KEY]
@@ -283,4 +346,6 @@ def uninstall(workdir: str) -> UninstallResult:
         removed_server=True,
         settings_restored=settings_restored,
         settings_cleaned=settings_cleaned,
+        script_restored=script_restored,
+        script_removed=script_removed,
     )

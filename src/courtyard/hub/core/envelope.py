@@ -167,3 +167,15 @@ def render(message: Message) -> str:
 def with_rendering(message: Message) -> Message:
     """The message as an agent receives it: the same record, plus `rendered`."""
     return message.model_copy(update={"rendered": render(message)})
+
+
+def delivery_check_body(token: str) -> str:
+    """Item 34 (D30): the delivery check — the one message whose only job is to prove,
+    end to end, that channel pushes actually reach the model. Hub-worded (D14)."""
+    return (
+        "Delivery check: the courtyard hub is verifying that its messages reach this "
+        "session. Confirm receipt by calling the courtyard MCP tool `courtyard_ack` "
+        f'(it may appear as mcp__courtyard__courtyard_ack) with token "{token}". '
+        "Do nothing else: no reply to anyone, no other action — the single tool call "
+        "completes the check."
+    )

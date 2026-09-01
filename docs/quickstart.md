@@ -116,6 +116,15 @@ pre-answered, and they are its only questions since the settings profile already
 pre-approved the courtyard tools. Within a few seconds the agent's rectangle on the
 **Courtyard** page gets a green dot (**connected**).
 
+Each session that starts during a shift also gets a **delivery check**: the hub sends
+it a message that only asks the agent to confirm receipt with a tool call. The card
+shows "checking delivery…" and then a small green check mark, which means messages
+provably reach that session. You can re-run the check any time from the small button
+on a connected agent's card. If a card instead warns "started without the channel"
+(with a popup explaining it), that session was started without the channel flag: it
+looks healthy but cannot hear the hub. Close it and run `./start-with-courtyard.sh`
+in the agent's directory, or press End shift and Start shift.
+
 When the day is done, press **■ End shift** (the square button beside the status
 pill). It closes exactly the terminals it opened (terminals you opened yourself are
 left alone) and closes the books: any conversation still waiting on a reply, or a
@@ -123,18 +132,19 @@ message still held at the gate, is marked **expired**. Expired messages stay in 
 history, but the next shift starts with every line clear. If something still matters
 tomorrow, just send it again.
 
-You can always start an agent by hand instead: one terminal, its directory, the flag
-that enables the channel (Claude Code's channels are a research preview):
+You can always start an agent by hand instead: one terminal, the agent's directory,
+and the wrapper script that registration wrote there. It runs Claude Code with the
+flag that enables the channel (a research preview flag, long and easy to forget,
+which is exactly why the script exists):
 
 ```sh
 cd ~/courtyard-quickstart/main-admin
-claude --dangerously-load-development-channels server:courtyard
+./start-with-courtyard.sh
 ```
 
-```sh
-cd ~/courtyard-quickstart/infra-claude
-claude --dangerously-load-development-channels server:courtyard
-```
+Starting a plain `claude` in an agent's directory works as a normal session but
+cannot hear the hub; the board will warn you about it (a popup and a red note on the
+agent's card).
 
 If messages stop arriving after a Claude Code auto-update ("Restart to update" in the
 terminal), restart the agents. If they still do not arrive, run

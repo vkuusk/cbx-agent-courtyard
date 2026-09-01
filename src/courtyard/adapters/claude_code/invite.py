@@ -77,6 +77,11 @@ def cli(argv: list[str] | None = None) -> None:
         print(f"courtyard-invite: wrote {result['path']}")
         if result["backed_up"]:
             print(f"  (backed up the previous file to {result['backed_up']})")
+        if result.get("script_path"):
+            print(f"  also wrote {result['script_path']}")
+            print("  To start this agent by hand, run ./start-with-courtyard.sh in its directory.")
+            print("  If a Claude Code session is already running there, close it first;")
+            print("  a session started plainly (bare `claude`) cannot hear the hub.")
         print(f"  {result['warning']}")
     except HubError as exc:
         print(f"courtyard-invite: hub refused: {exc}", file=sys.stderr)

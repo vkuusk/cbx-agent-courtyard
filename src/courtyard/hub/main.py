@@ -82,6 +82,9 @@ def create_app(config: Config | None = None) -> FastAPI:
             cfg.gone_seconds,
             hub_started_at=hub_started_at,
             discovery=discovery,
+            # item 34 (D30): a session beginning during an active shift gets a delivery check
+            shift_active=lambda: shift.status().state in ("starting", "on"),
+            verify_timeout=cfg.verify_timeout,
         )
         channels.begin_verification()  # D26: stored liveness is a claim until a beat proves it
         shift.bind_verifier(channels.begin_verification)  # D28: shift start re-verifies too

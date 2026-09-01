@@ -71,13 +71,19 @@ class HubClient:
 
     # -- the adapter contract --------------------------------------------------------
 
-    def attach(self, endpoint: str, channel_token: str) -> AttachSummary:
+    def attach(
+        self, endpoint: str, channel_token: str, channel_flag: str = "unknown"
+    ) -> AttachSummary:
         data = self._call(
             "POST",
             f"/api/agents/{self.name}/attach",
-            {"endpoint": endpoint, "channel_token": channel_token},
+            {"endpoint": endpoint, "channel_token": channel_token, "channel_flag": channel_flag},
         )
         return AttachSummary.model_validate(data)
+
+    def ack(self, token: str) -> bool:
+        """Return a delivery-check token (item 34). False = no open check matched."""
+        return bool(self._call("POST", f"/api/agents/{self.name}/ack", {"token": token})["ok"])
 
     def send(self, to: str, body: str) -> Message:
         return Message.model_validate(
@@ -130,6 +136,10 @@ class HubClient:
 
     def agents(self) -> list[Agent]:
         return [Agent.model_validate(a) for a in self._call("GET", "/api/agents")]
+
+    def verify_delivery(self, name: str) -> None:
+        """Push a delivery check to the agent (item 34): the on-demand card button."""
+        self._call("POST", f"/api/agents/{name}/verify-delivery")
 
     def install(self, name: str, token: str | None = None, workdir: str | None = None) -> dict:
         """Write the agent's `.mcp.json` into its workdir (dev mode). Returns {path, ...}.

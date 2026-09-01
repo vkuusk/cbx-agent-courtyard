@@ -56,6 +56,19 @@ function claudeSettings(agent) {
   return JSON.stringify(settings, null, 2);
 }
 
+// The launch wrapper (item 35, D31) — must match install.py's start_script verbatim,
+// marker comment included, so a hand-saved copy is still recognised by uninstall.
+function claudeScript(agent) {
+  return [
+    "#!/bin/sh",
+    `# Written by the courtyard for agent '${agent.name}'. Starts this agent's Claude Code`,
+    "# session connected to the courtyard hub (the channel flag included).",
+    "# Regenerated on every install; extra arguments are passed through to claude.",
+    `cd "$(dirname "$0")" && exec ${claudeLaunch(agent)} "$@"`,
+    "",
+  ].join("\n");
+}
+
 // One-click install: ask the hub to write .mcp.json into the agent's workdir (dev mode,
 // design §8/D8, 6d). The hub keeps the token (D19), so nothing secret crosses the browser.
 function InstallButton({ agent }) {
@@ -72,13 +85,15 @@ function InstallButton({ agent }) {
   return html`<div style="margin-top:.8rem">
     <button class="btn install" data-color=${agent.color}
       disabled=${!workdir || state.busy || state.result} onClick=${run}>
-      ${workdir ? `write both files into ${workdir}` : "write the files (set a workdir first)"}</button>
+      ${workdir ? `write the files into ${workdir}` : "write the files (set a workdir first)"}</button>
     ${state.busy ? html`<div class="small muted">writing…</div>` : null}
     ${state.result
       ? html`<div class="small" style="margin-top:.4rem"><div>Wrote ${state.result.path}</div>
           ${state.result.backed_up ? html`<div class="muted">backed up to ${state.result.backed_up}</div>` : null}
           ${state.result.settings_path ? html`<div>Wrote ${state.result.settings_path}</div>` : null}
           ${state.result.settings_backed_up ? html`<div class="muted">backed up to ${state.result.settings_backed_up}</div>` : null}
+          ${state.result.script_path ? html`<div>Wrote ${state.result.script_path}</div>` : null}
+          ${state.result.script_backed_up ? html`<div class="muted">backed up to ${state.result.script_backed_up}</div>` : null}
           <div class="warn" style="margin-top:.3rem">${state.result.warning}</div></div>`
       : null}
     ${state.error ? html`<div class="error" style="margin-top:.4rem">${state.error}</div>` : null}
@@ -101,16 +116,19 @@ function PuppetPanel({ agent, token }) {
 function ClaudePanel({ agent, token, adapterCommand }) {
   const config = claudeConfig(agent, token, adapterCommand);
   const settings = claudeSettings(agent);
-  const launch = claudeLaunch(agent);
+  const script = claudeScript(agent);
   return html`<div>
     <div class="small muted">1. Save as .mcp.json in ${agent.name}'s project directory:</div>
     <pre class="cmd">${config}</pre><${CopyButton} text=${config} />
     <div class="small muted" style="margin-top:.8rem">2. Save as .claude/settings.local.json there too; it pre-approves the
       courtyard tools (no permission prompt on every send), sets the model and a status line naming the agent:</div>
     <pre class="cmd">${settings}</pre><${CopyButton} text=${settings} />
-    <div class="small muted" style="margin-top:.8rem">3. Start the agent from that directory (the flag is needed while channels are in research preview):</div>
-    <pre class="cmd">${launch}</pre><${CopyButton} text=${launch} />
-    <div class="small muted" style="margin-top:.8rem">…or let the hub write both files for you (dev mode; the hub must share this machine's disk):</div>
+    <div class="small muted" style="margin-top:.8rem">3. Save as start-with-courtyard.sh there too and make it
+      executable (chmod +x start-with-courtyard.sh). Starting the agent is then ./start-with-courtyard.sh; the
+      script carries the channel flag, needed while channels are in research preview (a bare claude session
+      cannot hear the hub):</div>
+    <pre class="cmd">${script}</pre><${CopyButton} text=${script} />
+    <div class="small muted" style="margin-top:.8rem">…or let the hub write all three files for you (dev mode; the hub must share this machine's disk):</div>
     <${InstallButton} agent=${agent} />
   </div>`;
 }

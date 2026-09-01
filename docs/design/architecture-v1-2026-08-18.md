@@ -467,6 +467,30 @@ shift on — shows a `Checking the team · N` countdown (`ShiftStatus.checking_u
 the stale-shift question (D25) never appears while any target is still `unknown`, so the
 board makes exactly one transition: checking → either a live team or the question.
 
+**Beyond liveness: can the model actually hear? (D29/D30, items 33/34.)** A heartbeat
+proves the *adapter* alive, not that channel events reach the model — a session
+launched without the channels flag attaches, beats and ACKs pushes while Claude Code
+silently drops every event (the item-30 blind spot, accepted in D14 as "delivered is as
+far as the hub can see"; these two decisions narrow it). Two layers:
+
+- **The channel-flag report (D29).** At startup the adapter walks its process ancestry
+  and reads the claude launch command: no channels flag = channels are off,
+  deterministically. It reports `present | absent | unknown` at attach; `absent` raises
+  a popup on the board (naming the agent and the remedy: restart with the launch
+  command, or End shift / Start shift) plus a standing red card foot. Only definite
+  absence warns — an unreadable ancestry stays `unknown` and silent.
+- **The delivery check (D30).** The only reaction the hub can observe end to end is the
+  model calling a tool. A check is a synthetic hub-notice push (never stored, rides the
+  normal push payload) carrying a nonce: "confirm by calling `courtyard_ack` with token
+  X; do nothing else". Ack → **verified** (a point-in-time fact, shown with its time);
+  no ack within `COURTYARD_VERIFY_TIMEOUT_SECONDS` (60 s, enforced by the sweep) or a
+  refused push → **failed**, warned on the card. Runs automatically on any attach while
+  a shift is active (shift-start spawns, Resume respawns, manual mid-shift restarts,
+  re-attaches after a hub restart) and on demand from the card's check button;
+  off-shift attaches are not pinged. Cost accepted: one small model turn per check.
+  Bonus: every shift start now exercises D14's open acceptance fact (a channel event
+  must start a turn on an idle session by itself).
+
 ### 6.4 Disconnect and reconnect
 
 Identity is durable; sessions are not. The agent's id + token live in its hub registration,
@@ -508,12 +532,13 @@ Anything that can do these five things can join the courtyard; this is the plugg
 
 | Duty | Direction | v1 mechanism |
 |---|---|---|
-| `attach` | adapter → hub | `POST /api/agents/{id}/attach` (bearer token) with channel endpoint + channel token |
+| `attach` | adapter → hub | `POST /api/agents/{id}/attach` (bearer token) with channel endpoint + channel token + the channel-flag report (D29) |
 | `send` | adapter → hub | `POST /api/lines/send` — returns delivered / pending-gate / turn-violation, which the adapter surfaces verbatim to its agent |
 | `receive` | hub → adapter | HTTP POST to the channel endpoint → adapter presents the hub-rendered envelope (`rendered`, §7.5) to its agent as a conversation turn |
 | `pull` (fallback) | adapter → hub | `GET /api/agents/{id}/inbox` — takes undelivered messages, rendered the same way |
 | `peers` | adapter → hub | `GET /api/agents/{id}/peers` — who the agent can talk to, ranked, trimmed and worded by the hub; the adapter forwards the text |
 | `heartbeat` / `detach` | adapter → hub | periodic POST; clean detach at session end |
+| `ack` | adapter → hub | `POST /api/agents/{id}/ack` — returns a delivery-check token (D30); the model's call is the end-to-end proof of hearing |
 
 A shared Python client library (`courtyard.common.client`) implements the hub side of this
 contract once; the Claude Code adapter and the puppet both use it. The pi extension
@@ -581,9 +606,17 @@ All through official extension points — Claude Code itself is untouched:
   the agent's declared model (§5.1), and a status line naming the agent, the last only
   when none exists. Still configuration, not behaviour — no hooks, D14 intact; the file is
   per-machine, carries no secret, and the merge preserves whatever else it holds.
-  Uninstall restores the backup, or removes exactly what install added — the model stays,
-  since it may have been retuned by hand. The one-time trust dialog for a project's
-  `.mcp.json` servers cannot be pre-approved by any setting; it remains.
+  Install's third file is **`start-with-courtyard.sh`** (D31, item 35): the human launch
+  wrapper — `cd` to its own directory, `exec` the agent's launch command (channel flag +
+  `--model`), extra arguments passed through. It exists because the flag is long,
+  unmemorable, and its absence is exactly the deaf-session failure of items 30/33; the
+  operator is told only "run this script in the agent's directory". Regenerated on every
+  install (a model change or flag drift follows a re-register); no secret inside, safe to
+  commit; a foreign file of that name is backed up once and never rotated away.
+  Uninstall restores the backups, or removes exactly what install added — our wrapper is
+  recognised by its marker comment and deleted, a hand-rewritten one is left alone; the
+  model stays, since it may have been retuned by hand. The one-time trust dialog for a
+  project's `.mcp.json` servers cannot be pre-approved by any setting; it remains.
 
 ### 7.4 Puppet (test twin)
 
@@ -1200,6 +1233,9 @@ cbx-agent-courtyard/
 | D24 | **End shift closes the books; incidents re-deliver (§8.1, §5.4 rule 7, §6.4)** — ending the shift releases every non-idle line and marks unfinished messages `expired` (the unanswered in-flight message of each awaiting line **and** gate-held messages; kept in history with a `system` entry, nothing deleted); on attach, a `delivered`-but-unanswered message acknowledged before the current attachment flips back to `queued` and is re-pushed with a "redelivered" note (R1); the board shows "owes you a reply" on the agent card + real line state in the pane header (R3) | **Accepted** (architect, 2026-08-26 — resolves feedback item 10) | The shift boundary (D23) is what item 10 lacked: normal path = the operator's explicit close-out, incident path (crash, restart mid-shift, out-of-shift agents, future `Always on`) = R1+R3. `expired` is what keeps R1 from resurrecting intentionally closed messages. Expire-not-delete follows D20's history-keeping philosophy; gate-held expiry was the architect's call (one rule — the shift closes the working period). R2 (operator supersede) dropped: little value once end-shift cleans up routinely, and it would bend §5.4 asymmetrically |
 | D22 | **Discovery: `auto` \| `manual` (§5.8)** — a courtyard-wide setting for who forms the team's wiring: `auto` (today) = every agent sees every other, lines form on first message; `manual` = agents see and can message only the agents the operator has **linked** — a link IS a pre-created idle line (no new tables; the line's existence is the permission), unlinked sends are refused with `not_linked`, peers/roster filter by line, **unlink** archives the history and removes the line; the operator is exempt (always reachable, no links needed); switching modes migrates nothing (existing lines become the links) | **Accepted** (architect, 2026-08-27 — WP‑E, feedback item 5; names his: `auto` from service-discovery vocabulary, `manual` = what the operator's hands do; "Team mode" rejected as the setting name — already taken by D23's lifecycle axis; my judgement calls accepted: operator exemption, grandfathering, unlink-archives-not-deletes) | The boundary moves into the hub — auto-discovery relied on agents knowing the interaction rules; manual makes sub-teams possible. Design written 2026-08-27; implemented the same day (migration 0013: archive reason `unlinked`) |
 | D26 | **A restarted hub verifies before it claims (§6.3)** — at startup, stored `connected`/`stale` agents flip to **`unknown`** (migration 0012); the sweep judges them only once the hub is a heartbeat interval + 5 s old (fast sweep cadence while judging), a heartbeat flips one straight to connected at any moment; UI: gray "checking…" dots, dimmed Team panel, `Checking the team · N` pill (`ShiftStatus.checking_until`); D25's question waits for every status to be verified | **Accepted** (architect, 2026-08-26 — feedback item 18: his "state unknown" flag design; my refinement, accepted: dim only what is actually unknown — liveness — while lines and history stay bright, they are database truth) | Fixes the restart flicker he watched: all green (yesterday's stored statuses) → offline (sweep) → question (grace) became a single transition: checking → live team *or* question. Generalizes D23's grace from the shift into the liveness layer itself; also removes the false-green moment on restarts with no shift |
+| D31 | **Install writes `start-with-courtyard.sh` (§7.2, item 35)** — a third install file: the human launch wrapper (`cd` to its directory, `exec` the launch command with the channel flag and `--model`, `"$@"` passed through, chmod 755). Regenerated on every install; carries no secret; a foreign file of that name is backed up once (never rotated away by re-installs); uninstall deletes ours by its marker comment, restores a backed-up foreign one, and never touches an unmarked stranger | **Accepted** (architect, 2026-08-31 — his proposal and his name: "we will tell user only 'run this script in the agent's dir'") | The channel flag is long and unmemorable, and forgetting it is exactly the deaf-session failure of items 30/33; D29's popup can now name a one-line remedy. Widens D14's footprint to three files, still configuration, not behaviour |
+| D30 | **The delivery check: prove the model can hear, not just the adapter (§6.3, item 34)** — a synthetic hub-notice push (storage-less, riding the normal push payload) carries a nonce the model must return via the new `courtyard_ack` tool; ack → agent `delivery-verified` (point-in-time, shown with its time), timeout (`COURTYARD_VERIFY_TIMEOUT_SECONDS`, 60 s, swept) or refused push → `failed`, warned on the card. Triggered on any attach during an active shift and by the card's on-demand button; off-shift attaches stay quiet | **Accepted** (architect, 2026-08-31 — layer 2 of the item-33/34 split; his ask: ping on shift start + a small card button; the attach-during-shift trigger widens shift start to every risky session beginning with one code path) | The adapter ACKs pushes even when Claude Code drops the events, so transport pings prove nothing; a tool call is the only observable model reaction. Costs one small model turn per check — accepted. Every shift start now also exercises D14's open acceptance fact (a channel event starts a turn on an idle session) |
+| D29 | **The channel-flag report: detect the deaf session deterministically (§6.3, §7.1, item 33)** — at startup the adapter walks its process ancestry (5 levels, `ps`), skips wrappers naming the adapter itself, and judges the claude launch command: flag present / absent / unknown; reported at attach, stored per channel (migration 0015), `absent` raises the board popup naming the agent and the restart remedy plus a red card foot. Only definite absence warns | **Accepted** (architect, 2026-08-31 — layer 1 of the split, from the item-30/31 post-mortem: "we did not detect that channels are not working and we did not show this to user"; popup his call) | A bare `claude` restart attaches, heartbeats and ACKs pushes while Claude Code silently discards every channel event; the launch command is the only deterministic tell, and it would have turned that day's silent failure into a labeled one at attach |
 | D28 | **Shift start verifies before it trusts (§8.1, §6.3)** — start calls the liveness layer's `begin_verification()`: stored `connected`/`stale` flip to `unknown` and the judging window reopens for one heartbeat interval + 5 s; the shift's grace runs until that verdict, so agents that prove themselves with a beat are skipped and everything unproven is spawned. The "instant start on an old hub" path is removed deliberately. Heartbeat default 15 s → 5 s (his call after the live check) so the countdown is 10 s | **Accepted** (architect, 2026-08-31 — feedback item 31, his design: "set heartbeat to off and wait for the next heartbeat before saying everything is green") | Fixes the skipped spawn he hit: agents dead since End shift kept their stored green for up to `gone_seconds` (600 s), a prompt re-start skipped them, opened nothing, and the stale-shift question fired minutes later. Extends D26 (verify before claiming) from hub startup to shift start — instant start was only ever as trustworthy as the stored claim |
 | D27 | **The verdict comment moves inline and `reject` becomes `drop` (item 24)** — a held message carries its comment field between the body and the approve / return-to-sender / drop buttons (square-cornered: a form, not a chat); a drop's comment travels nowhere (kept on the board as the operator's record); the free-standing "note → both" leaves the UI (6a's use case dropped — a note question got answered into a terminal, and even a delivered answer lands on the operator line, not the pane it was asked in); delivered operator notes gain a reply-path footer (§7.5); status `rejected` → `dropped`, migration 0014 | **Accepted** (architect's design, 2026-08-28 — his placement, box shape, and single-destination rule; `drop` reverses 3.2's "keep reject" — too close to "return to sender") | The line pane stops pretending to be a chat: the only thing the operator writes on a line is the verdict's comment, and questions belong in direct chats |
 | D25 | **The stale shift asks a question (§8.1)** — the hub reports `stale` when the shift reads on, the liveness grace has passed, no launchable agent is connected, and none of the shift's windows has a live tty; the Courtyard page then shows a dialog with two answers: **End shift** (focused default — close it, nothing more; D24 expiry) and **Start new shift** (start on a stale shift = close old books, then fresh), plus Not now (amber "shift left open" tag remains, click to re-ask). **Amended same day during his check: Resume belongs to the living shift** — with part of the team down (1 of 2 healthy), the running pill offers `▶ Resume shift` (`POST /api/shift/resume`: start only the missing agents, dead spawn records retired, live windows never doubled, books and `started_at` untouched — §6.4 re-arm redelivers); the all-dead dialog is a binary, both answers close the books | **Accepted** (architect, 2026-08-26 — feedback item 17; the dialog form and the resume option are his design, replacing my docs-only then pill-only proposals) | The operator's mental model wins: next morning there is no shift, whatever the record says — so the natural gestures (Start, or just answering a plain question) must work without understanding the bookkeeping. No hub reflex: stale is only ever *reported*; nothing closes or spawns until the operator answers. The windows-alive condition keeps a consent-stuck fresh start from reading as abandoned |

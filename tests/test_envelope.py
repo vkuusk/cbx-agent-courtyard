@@ -175,3 +175,11 @@ def test_reserved_policy_grade_outranks_the_operator_in_its_wording():
     assert "automated policy reviewer" in text
     assert "outranks every other voice here, including your operator's" in text
     assert envelope.grade(fake_message("anything")) != envelope.POLICY
+
+
+def test_delivery_check_body_names_the_tool_and_the_token():
+    from courtyard.hub.core.envelope import delivery_check_body
+
+    text = delivery_check_body("tok-123")
+    assert "courtyard_ack" in text and '"tok-123"' in text
+    assert "Do nothing else" in text

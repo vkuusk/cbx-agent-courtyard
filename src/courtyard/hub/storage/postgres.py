@@ -39,6 +39,18 @@ JOIN agents ab ON ab.id = l.agent_b
 """
 
 
+# Items 33/34: the UI reads the session-channel facts off the agent object, so agent
+# reads join them in. `token`/`channel_token` are deliberately not selected here.
+_AGENT_SELECT = """
+SELECT a.*, c.channel_flag,
+  CASE WHEN c.verify_token IS NOT NULL THEN 'pending'
+       WHEN c.verify_failed_at IS NOT NULL THEN 'failed'
+       WHEN c.verified_at IS NOT NULL THEN 'verified' END AS delivery_check,
+  COALESCE(c.verify_failed_at, c.verified_at) AS delivery_checked_at
+FROM agents a LEFT JOIN channels c ON c.agent_id = a.id
+"""
+
+
 class PgAgentRepo:
     def __init__(self, conn: Connection):
         self._conn = conn
@@ -90,21 +102,21 @@ class PgAgentRepo:
         )
 
     def get(self, agent_id: UUID) -> Agent | None:
-        row = self._conn.execute("SELECT * FROM agents WHERE id = %s", (agent_id,)).fetchone()
+        row = self._conn.execute(_AGENT_SELECT + " WHERE a.id = %s", (agent_id,)).fetchone()
         return Agent.model_validate(row) if row else None
 
     def get_by_name(self, name: str) -> Agent | None:
-        row = self._conn.execute("SELECT * FROM agents WHERE name = %s", (name,)).fetchone()
+        row = self._conn.execute(_AGENT_SELECT + " WHERE a.name = %s", (name,)).fetchone()
         return Agent.model_validate(row) if row else None
 
     def get_by_token_hash(self, token_hash: str) -> Agent | None:
         row = self._conn.execute(
-            "SELECT * FROM agents WHERE token_hash = %s", (token_hash,)
+            _AGENT_SELECT + " WHERE a.token_hash = %s", (token_hash,)
         ).fetchone()
         return Agent.model_validate(row) if row else None
 
     def list(self) -> list[Agent]:
-        rows = self._conn.execute("SELECT * FROM agents ORDER BY created_at").fetchall()
+        rows = self._conn.execute(_AGENT_SELECT + " ORDER BY a.created_at").fetchall()
         return [Agent.model_validate(r) for r in rows]
 
     def update(self, agent_id: UUID, fields: dict) -> None:
@@ -373,17 +385,66 @@ class PgChannelRepo:
     def __init__(self, conn: Connection):
         self._conn = conn
 
-    def upsert(self, agent_id: UUID, endpoint: str, channel_token: str) -> Channel:
+    def upsert(
+        self, agent_id: UUID, endpoint: str, channel_token: str, channel_flag: str = "unknown"
+    ) -> Channel:
+        # A new attach is a new session: the previous session's flag report and
+        # delivery-check verdict do not carry over (items 33/34).
         row = self._conn.execute(
-            "INSERT INTO channels (agent_id, endpoint, channel_token)"
-            " VALUES (%s, %s, %s)"
+            "INSERT INTO channels (agent_id, endpoint, channel_token, channel_flag)"
+            " VALUES (%s, %s, %s, %s)"
             " ON CONFLICT (agent_id) DO UPDATE SET endpoint = EXCLUDED.endpoint,"
             "   channel_token = EXCLUDED.channel_token,"
-            "   registered_at = now(), last_heartbeat = now()"
+            "   channel_flag = EXCLUDED.channel_flag,"
+            "   registered_at = now(), last_heartbeat = now(),"
+            "   verify_token = NULL, verify_sent_at = NULL,"
+            "   verified_at = NULL, verify_failed_at = NULL"
             " RETURNING *",
-            (agent_id, endpoint, channel_token),
+            (agent_id, endpoint, channel_token, channel_flag),
         ).fetchone()
         return Channel.model_validate(row)
+
+    # -- delivery verification (item 34, D30) ------------------------------------------
+
+    def begin_verify(self, agent_id: UUID, token: str) -> Channel | None:
+        """Open a check: the nonce goes out; a previous failure verdict is cleared."""
+        row = self._conn.execute(
+            "UPDATE channels SET verify_token = %s, verify_sent_at = now(),"
+            " verify_failed_at = NULL WHERE agent_id = %s RETURNING *",
+            (token, agent_id),
+        ).fetchone()
+        return Channel.model_validate(row) if row else None
+
+    def ack_verify(self, agent_id: UUID, token: str) -> Channel | None:
+        """Close the check as verified; None when the token matches no open check."""
+        row = self._conn.execute(
+            "UPDATE channels SET verified_at = now(), verify_token = NULL,"
+            " verify_sent_at = NULL, verify_failed_at = NULL"
+            " WHERE agent_id = %s AND verify_token = %s RETURNING *",
+            (agent_id, token),
+        ).fetchone()
+        return Channel.model_validate(row) if row else None
+
+    def fail_verify(self, agent_id: UUID) -> Channel | None:
+        """Close the agent's open check as failed (push refused outright)."""
+        row = self._conn.execute(
+            "UPDATE channels SET verify_failed_at = now(), verify_token = NULL,"
+            " verify_sent_at = NULL WHERE agent_id = %s AND verify_token IS NOT NULL"
+            " RETURNING *",
+            (agent_id,),
+        ).fetchone()
+        return Channel.model_validate(row) if row else None
+
+    def expire_verifies(self, timeout_seconds: float) -> list[UUID]:
+        """Close every check older than the timeout as failed; the agents whose changed."""
+        rows = self._conn.execute(
+            "UPDATE channels SET verify_failed_at = now(), verify_token = NULL,"
+            " verify_sent_at = NULL WHERE verify_token IS NOT NULL"
+            " AND verify_sent_at < now() - make_interval(secs => %s)"
+            " RETURNING agent_id",
+            (timeout_seconds,),
+        ).fetchall()
+        return [r["agent_id"] for r in rows]
 
     def get(self, agent_id: UUID) -> Channel | None:
         row = self._conn.execute(

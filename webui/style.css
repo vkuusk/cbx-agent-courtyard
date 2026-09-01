@@ -187,6 +187,14 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .agent .badge ~ .badge { margin-left: .35rem; }
 .agent .foot { color: var(--muted); font-size: .78rem; margin-top: .2rem; }
 .agent .foot.warn { color: var(--red); }
+/* item 34: the delivery-check control — a small button (his call: visibly clickable),
+   green check once verified */
+.agent .check { margin-left: auto; font-size: .72rem; color: var(--muted);
+  border: 1px solid var(--border-strong); border-radius: 6px; padding: .12rem .5rem;
+  background: var(--surface); line-height: 1.2; }
+.agent .check:hover { color: var(--text); border-color: var(--text); }
+.agent .check.ok { color: var(--green); }
+.agent .badge ~ .check { margin-left: .35rem; }
 .agent.add { border-style: dashed; color: var(--muted); justify-content: center; align-items: center; min-width: 9rem; gap: .3rem; background: transparent; }
 .agent.add:hover { color: var(--text); }
 .agent.add .plus { font-size: 1.3rem; line-height: 1; }

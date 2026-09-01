@@ -224,3 +224,58 @@ def test_reinstall_under_a_new_name_updates_our_status_line(tmp_path):
     install.install(str(tmp_path), "cmd", "http://127.0.0.1:2626", "new-name", "tok-2")
     doc = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
     assert doc["statusLine"]["command"] == "echo '⏺ new-name · courtyard'"
+
+
+class TestStartScript:
+    """Item 35: `start-with-courtyard.sh` — the human launch wrapper."""
+
+    def test_install_writes_an_executable_wrapper_with_flag_and_model(self, tmp_path):
+        result = install.install(str(tmp_path), CMD, HUB, "coding", "tok", model="haiku")
+        script = tmp_path / "start-with-courtyard.sh"
+        assert result.script_path == str(script)
+        assert result.script_backed_up is None
+        text = script.read_text()
+        assert text.startswith("#!/bin/sh\n")
+        assert "--dangerously-load-development-channels server:courtyard" in text
+        assert "--model haiku" in text
+        assert '"$@"' in text  # extra flags pass through
+        assert mode(script) & 0o111  # executable
+
+    def test_reinstall_regenerates_our_script_without_backing_it_up(self, tmp_path):
+        install.install(str(tmp_path), CMD, HUB, "coding", "tok", model="haiku")
+        install.install(str(tmp_path), CMD, HUB, "coding", "tok", model="opus")
+        script = tmp_path / "start-with-courtyard.sh"
+        assert "--model opus" in script.read_text()  # follows the model change
+        assert not (tmp_path / "start-with-courtyard.sh.courtyard-bak").exists()
+
+    def test_a_foreign_script_of_that_name_is_backed_up_and_survives_reinstalls(self, tmp_path):
+        theirs = tmp_path / "start-with-courtyard.sh"
+        theirs.write_text("#!/bin/sh\necho my own thing\n")
+        install.install(str(tmp_path), CMD, HUB, "coding", "tok")
+        backup = tmp_path / "start-with-courtyard.sh.courtyard-bak"
+        assert backup.read_text() == "#!/bin/sh\necho my own thing\n"
+        install.install(str(tmp_path), CMD, HUB, "coding", "tok")  # again: backup untouched
+        assert backup.read_text() == "#!/bin/sh\necho my own thing\n"
+
+    def test_uninstall_removes_our_script(self, tmp_path):
+        install.install(str(tmp_path), CMD, HUB, "coding", "tok")
+        result = install.uninstall(str(tmp_path))
+        assert result.script_removed is True and result.script_restored is False
+        assert not (tmp_path / "start-with-courtyard.sh").exists()
+
+    def test_uninstall_restores_a_backed_up_foreign_script(self, tmp_path):
+        theirs = tmp_path / "start-with-courtyard.sh"
+        theirs.write_text("#!/bin/sh\necho my own thing\n")
+        install.install(str(tmp_path), CMD, HUB, "coding", "tok")
+        result = install.uninstall(str(tmp_path))
+        assert result.script_restored is True and result.script_removed is False
+        assert theirs.read_text() == "#!/bin/sh\necho my own thing\n"
+        assert not (tmp_path / "start-with-courtyard.sh.courtyard-bak").exists()
+
+    def test_uninstall_never_touches_a_foreign_script_without_backup(self, tmp_path):
+        install.install(str(tmp_path), CMD, HUB, "coding", "tok")
+        script = tmp_path / "start-with-courtyard.sh"
+        script.write_text("#!/bin/sh\nrewritten by hand, no courtyard marker\n")
+        result = install.uninstall(str(tmp_path))
+        assert result.script_removed is False
+        assert "rewritten by hand" in script.read_text()

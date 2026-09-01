@@ -32,6 +32,7 @@ export const api = {
   installAgent: (name, workdir) =>
     call("POST", `/api/agents/${encodeURIComponent(name)}/install`, { workdir }),
   agentToken: (name) => call("GET", `/api/agents/${encodeURIComponent(name)}/token`),
+  verifyDelivery: (id) => call("POST", `/api/agents/${id}/verify-delivery`),
   rotateToken: (name) => call("POST", `/api/agents/${encodeURIComponent(name)}/token`),
   lines: () => call("GET", "/api/lines"),
   line: (id) => call("GET", `/api/lines/${id}`),

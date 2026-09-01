@@ -151,6 +151,8 @@ class InstallResponse(BaseModel):
     replaced_server: bool
     settings_path: str  # .claude/settings.local.json: allow rule, model, status line (WP-A)
     settings_backed_up: str | None
+    script_path: str  # start-with-courtyard.sh, the human launch wrapper (item 35)
+    script_backed_up: str | None
     warning: str
 
 
@@ -195,6 +197,8 @@ class UninstallResponse(BaseModel):
     removed_server: bool
     settings_restored: bool
     settings_cleaned: bool
+    script_restored: bool
+    script_removed: bool
 
 
 @router.post("/{name_or_id}/uninstall")

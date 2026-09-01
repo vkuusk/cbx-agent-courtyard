@@ -41,18 +41,74 @@ function AgentCard({ agent }) {
   const sel = store.ui.selected;
   const selected = sel?.kind === "agent" && sel.id === agent.id;
   const unread = unreadWith(agent.id);
-  const foot = FOOT[agent.status];
   // "Owes you a reply" (design §6.4, D24 — R3): your line with this agent is waiting on it.
   const mine = operatorLineWith(agent.id);
   const owes = mine && mine.state === "awaiting_reply" && mine.awaiting_from === agent.id;
+  // Foot priority: liveness first (a dead agent's delivery state is moot), then the
+  // channel-less session (item 33, D29), then the delivery-check verdict (item 34, D30).
+  const noChannel = agent.channel_flag === "absent" && agent.status !== "gone" && agent.status !== "invited";
+  let foot = FOOT[agent.status];
+  let footCls = agent.status === "invited" || agent.status === "unknown" ? "" : "warn";
+  if (!foot && noChannel) { foot = "started without the channel"; footCls = "warn"; }
+  else if (!foot && agent.delivery_check === "failed") { foot = "delivery check failed"; footCls = "warn"; }
+  else if (!foot && agent.delivery_check === "pending") { foot = "checking delivery…"; footCls = ""; }
+  // Item 34: the on-demand delivery check — a real hub message the model must ack.
+  const ping = (e) => {
+    e.stopPropagation();
+    api.verifyDelivery(agent.id).catch((err) => alert(err.message));
+  };
+  const verified = agent.delivery_check === "verified";
+  const checkTitle = verified
+    ? `delivery verified ${fmtAgo(agent.delivery_checked_at)} · click to check again`
+    : "verify that hub messages reach this session";
   return html`<button class="agent ${selected ? "selected" : ""}" data-color=${agent.color}
       onClick=${() => select({ kind: "agent", id: agent.id })}>
     <span class="head"><span class="dot ${agent.status}" /><span class="name">${agent.name}</span>
       ${unread ? html`<span class="badge">${unread} new</span>` : null}
-      ${owes ? html`<span class="badge owes">owes you a reply</span>` : null}</span>
+      ${owes ? html`<span class="badge owes">owes you a reply</span>` : null}
+      ${agent.status === "connected" && agent.delivery_check !== "pending"
+        ? html`<span class="check ${verified ? "ok" : ""}" role="button" tabindex="0"
+            title=${checkTitle} onClick=${ping}>${verified ? "✓" : "✓?"}</span>`
+        : null}</span>
     <span class="owns">${agent.sme_domain ?? agent.description ?? agent.type}</span>
-    ${foot ? html`<span class="foot ${agent.status === "invited" || agent.status === "unknown" ? "" : "warn"}">${foot}</span>` : null}
+    ${foot ? html`<span class="foot ${footCls}">${foot}</span>` : null}
   </button>`;
+}
+
+// Item 33 (D29): a session started without the channels flag ACKs pushes while Claude
+// Code drops every event — the board would show a healthy green over a deaf agent.
+// The adapter reports the flag at attach; this says it in the operator's face, with
+// the remedy. Dismiss holds until the set of flagless agents changes.
+function NoChannelWarning() {
+  const [, bump] = useState(0);
+  const bad = teamAgents().filter(
+    (a) => a.channel_flag === "absent" && a.status !== "gone" && a.status !== "invited",
+  );
+  const key = bad.map((a) => a.name).sort().join(", ");
+  if (!bad.length) {
+    store.ui.channelWarnDismissed = "";
+    return null;
+  }
+  if (store.ui.channelWarnDismissed === key) return null;
+  const dismiss = () => {
+    store.ui.channelWarnDismissed = key;
+    bump((n) => n + 1);
+  };
+  const one = bad.length === 1;
+  return html`<div class="overlay"
+      onClick=${(e) => e.target === e.currentTarget && dismiss()}
+      onKeyDown=${(e) => e.key === "Escape" && dismiss()}>
+    <div class="dialog" role="alertdialog" aria-modal="true" aria-label="Started without the channel">
+      <h3>${one ? `${key} cannot hear the hub` : "Agents cannot hear the hub"}</h3>
+      <p><b>${key}</b> ${one ? "is" : "are"} running a Claude Code session that was started
+        without the channel flag. The session looks healthy and can send, but messages from
+        the hub never reach it.</p>
+      <p>To fix it: close that terminal's session and run <code>./start-with-courtyard.sh</code>
+        in the agent's directory (registration put it there), or press ■ End shift and
+        ▶ Start shift.</p>
+      <button class="btn default" onClick=${dismiss}>OK</button>
+    </div>
+  </div>`;
 }
 
 function Wire({ line }) {
@@ -308,5 +364,6 @@ export function Board() {
       ${manual ? html`<${LinkAgents} />` : null}
     </div>
     <${Resizer} which="lines" />
-    <${Conversation} />`;
+    <${Conversation} />
+    <${NoChannelWarning} />`;
 }

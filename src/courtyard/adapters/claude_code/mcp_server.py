@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import subprocess
 import sys
 import threading
 from collections.abc import Iterator, Mapping
@@ -125,7 +126,69 @@ TOOLS: list[dict[str, Any]] = [
         ),
         "inputSchema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "courtyard_ack",
+        "description": (
+            "Confirm a courtyard delivery check. Call this only when a hub delivery-check "
+            "message hands you a token; the single call completes the check."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "token": {
+                    "type": "string",
+                    "description": "the token quoted in the delivery-check message",
+                },
+            },
+            "required": ["token"],
+        },
+    },
 ]
+
+
+CHANNELS_FLAG = "--dangerously-load-development-channels"
+
+
+def judge_channel_flag(ancestor_cmdlines: list[str]) -> str:
+    """Item 33 (D29): decide from this process's ancestry whether the claude session
+    was launched with the channels flag. Without it, Claude Code attaches this server,
+    serves its tools and ACKs pushes — and silently drops every channel event; the
+    only deterministic tell is the launch command itself. Shell wrappers around this
+    adapter are skipped (their command line names the adapter, not the session)."""
+    for cmd in ancestor_cmdlines:
+        if "courtyard-claude-mcp" in cmd:
+            continue  # a wrapper spawning this adapter, not the claude session
+        if CHANNELS_FLAG in cmd:
+            return "present"
+        if "claude" in cmd:
+            return "absent"
+    return "unknown"
+
+
+def detect_channel_flag() -> str:
+    """Walk up the process tree (at most 5 levels) collecting command lines, then
+    judge. Anything unreadable stays `unknown` — only definite absence may warn."""
+    cmdlines: list[str] = []
+    pid = os.getppid()
+    try:
+        for _ in range(5):
+            if pid <= 1:
+                break
+            out = subprocess.run(
+                ["ps", "-o", "ppid=", "-o", "args=", "-p", str(pid)],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=True,
+            ).stdout.strip()
+            if not out:
+                break
+            parent, _, args = out.partition(" ")
+            cmdlines.append(args.strip())
+            pid = int(parent.strip() or 0)
+    except Exception as exc:  # noqa: BLE001 - detection must never break the adapter
+        logger.info("channel-flag detection stopped at pid %s: %s", pid, exc)
+    return judge_channel_flag(cmdlines)
 
 
 class ConfigError(Exception):
@@ -205,6 +268,14 @@ class CourtyardAdapter:
         self._receiver: ChannelReceiver | None = None
         self._attached = threading.Event()
         self._stop = threading.Event()
+        # Item 33 (D29): detected once — the parent's launch command does not change.
+        self._channel_flag = detect_channel_flag()
+        if self._channel_flag == "absent":
+            logger.warning(
+                "the claude session was launched WITHOUT %s — channel events will be "
+                "dropped; hub messages will not reach the model",
+                CHANNELS_FLAG,
+            )
 
     # -- lifecycle -------------------------------------------------------------------
 
@@ -238,7 +309,9 @@ class CourtyardAdapter:
         attempt = 0
         while not self._stop.is_set():
             try:
-                summary = self._client.attach(self._receiver.endpoint, self._receiver.channel_token)
+                summary = self._client.attach(
+                    self._receiver.endpoint, self._receiver.channel_token, self._channel_flag
+                )
             except (HubError, httpx.HTTPError) as exc:
                 attempt += 1
                 if attempt == 1 or attempt % 30 == 0:  # first miss, then about once a minute
@@ -282,7 +355,9 @@ class CourtyardAdapter:
         if self._receiver is None:
             return
         try:
-            self._client.attach(self._receiver.endpoint, self._receiver.channel_token)
+            self._client.attach(
+                self._receiver.endpoint, self._receiver.channel_token, self._channel_flag
+            )
         except (HubError, httpx.HTTPError) as exc:
             logger.warning("re-attach failed: %s", exc)
 
@@ -370,6 +445,7 @@ class CourtyardAdapter:
             "courtyard_send": self._tool_send,
             "courtyard_inbox": self._tool_inbox,
             "courtyard_peers": self._tool_peers,
+            "courtyard_ack": self._tool_ack,
         }
         handler = handlers.get(name)
         if handler is None:
@@ -419,6 +495,17 @@ class CourtyardAdapter:
     def _tool_peers(self, _arguments: dict) -> dict:
         # Ranked, trimmed and worded by the hub (D14); shown to the model as-is.
         return _tool_result(self._client.peers().rendered)
+
+    def _tool_ack(self, arguments: dict) -> dict:
+        token = (arguments.get("token") or "").strip()
+        if not token:
+            return _tool_result("`token` is required", is_error=True)
+        if self._client.ack(token):
+            return _tool_result("Delivery confirmed to the hub. Nothing further is needed.")
+        return _tool_result(
+            "That check is no longer open (it may have timed out or been superseded); "
+            "nothing further is needed."
+        )
 
 
 def _present(message: Message) -> str:

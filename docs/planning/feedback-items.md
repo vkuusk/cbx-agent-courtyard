@@ -796,8 +796,11 @@ hub needs an authenticated non-localhost mode).
 
 **Asked (architect, 2026-08-31).** Decide how to notify the user about the files that
 registration writes into the agent's workdir — `.mcp.json`,
-`.claude/settings.local.json` and their `.courtyard-bak` backups — and offer to add
-them to the workdir's `.gitignore`.
+`.claude/settings.local.json`, their `.courtyard-bak` backups, and (since item 35)
+`start-with-courtyard.sh` — and offer to add them to the workdir's `.gitignore`.
+(The wrapper script carries no secret and may be committed; the json backups can hold
+a previous token, and the json backup rotation loses the user's original on
+re-installs — the script's backup deliberately does not, item 35.)
 
 **Touches.** `hub/core/install.py` writes `.mcp.json` (0600, holds the token) and
 `.claude/settings.local.json`; a pre-existing file is backed up as
@@ -902,6 +905,82 @@ drift (item 11) is what makes a fallback worth discussing.
 
 **Status.** open.
 
+### 33. Detect a channel-less session by its launch flag; tell the operator in their face
+
+**Decided (architect, 2026-08-31, from the item-30/31 post-mortem).** The root cause of
+the day's bad UX: a session launched as bare `claude` attaches, heartbeats and ACKs
+pushes while Claude Code silently discards every channel event — the hub's visibility
+ends at the adapter's ACK (accepted in D14), so nothing warned anyone. Layer 1 of the
+agreed split: the adapter reads its parent process's command line at startup; if the
+channels flag is absent, channels are off, deterministically. It reports the fact at
+attach; the hub stores it per channel and the WebUI raises a **popup error** naming the
+agent and the remedy (restart the session with the launch command, or End shift / Start
+shift), plus a standing warning on the card. Definite absence only — an unreadable
+parent reads as unknown and stays silent.
+
+**Touches.** `adapters/claude_code/mcp_server.py` (parent cmdline probe, attach
+payload), `common/client.py` attach, `/api/channels/attach`, channels storage
+(migration), agent payload + SSE, WebUI dialog + card.
+
+**Status.** implemented 2026-08-31 (**D29**): `judge_channel_flag` walks the process
+ancestry (wrappers naming the adapter are skipped; only a cmdline naming claude may
+judge; anything unreadable is `unknown`); attach carries the report, migration 0015
+stores it per channel, the agent payload exposes it, the board raises the "cannot hear
+the hub" dialog plus a red card foot. Verified in the browser on a scratch hub (popup,
+foot, dismiss; zero console errors). Awaiting his live check with a real bare-`claude`
+session (runbook manual step 1).
+
+### 34. Delivery-verification ping: prove the model can hear, not just the adapter
+
+**Decided (architect, 2026-08-31, same discussion).** Layer 2: the only reaction the
+hub can observe end-to-end is the model calling a tool. A delivery check is a
+hub-notice push carrying a nonce: "confirm receipt by calling `courtyard_ack` with
+token X; do nothing else". Ack in time marks the agent **delivery-verified** (a
+point-in-time fact, shown with its time); timeout marks the check failed and warns on
+the card with the same restart remedy. Runs automatically on any attach while a shift
+is active (covers shift-start spawns, Resume respawns, manual mid-shift restarts,
+re-attach after a hub restart) and on demand from a small button on the agent card.
+Off-shift attaches are not pinged. Cost accepted: one small model turn per check.
+Bonus: every shift start now exercises D14's open acceptance fact (a channel event
+must start a turn on an idle session by itself).
+
+**Touches.** New `courtyard_ack` MCP tool + `/api/channels/ack`; envelope (check
+preamble); deliverer (synthetic push); channels service (nonce, timeout via the
+sweep); `/api/agents/{id}/verify-delivery`; agent card UI.
+
+**Status.** implemented 2026-08-31 (**D30**): synthetic hub-notice push (storage-less,
+normal push payload — old-session adapters forward it too) + `courtyard_ack` tool +
+`POST /api/agents/{id}/ack` and `/verify-delivery`; verdicts on the channel row
+(migration 0015), timeout swept (`COURTYARD_VERIFY_TIMEOUT_SECONDS`, 60 s); card chip
+`✓?` → pending → green `✓` (or "delivery check failed" foot). 6 new tests (round trip,
+timeout, attach-during-shift trigger, flag judgment, envelope), runbook
+`delivery_check.py` + manual procedure; UI cycle verified live in the browser with an
+acking puppet. Watch point for his live check: whether real models ack reliably (the
+hub-notice preamble says "not a request" while the check asks for one call). Awaiting
+the real-session check (runbook manual steps 2-4).
+
+### 35. A launch wrapper in the workdir: "run this script in the agent's dir"
+
+**Asked (architect, 2026-08-31).** The channel-enabled launch command is long and hard
+to remember; registration should also write a wrapper script into the workdir root so
+the user is told only "run this script in the agent's directory". His name (after
+discussion): **`start-with-courtyard.sh`** — reads as "start [this agent] with
+courtyard", cannot be misread as starting the hub.
+
+**Status.** implemented 2026-08-31 (**D31**, §7.2): install writes the executable
+wrapper (`cd` to its own dir, `exec` the launch command with the channel flag and
+`--model`, `"$@"` passthrough); regenerated on every install; a foreign file of that
+name is backed up once and never rotated away; uninstall removes ours by its marker
+comment, restores a backed-up foreign one, never touches an unmarked stranger. The
+D29 popup, quickstart, AGENTS.md, `courtyard-invite`'s output and the WebUI launch
+config panel (step 3 is now the script itself, copyable and marker-exact so uninstall
+recognises a hand-saved copy; the install button says "write the files" and reports
+all three) all now point at the script instead of the raw command; shift spawning
+keeps using the command directly
+(the script is for humans, and pre-upgrade registrations have no script). 6 new
+install tests. His live check: register (or re-install) an agent, run the script,
+watch the card verify.
+
 ---
 
 ## Work packages (discussion outcome, 2026-08-24)
@@ -963,3 +1042,6 @@ that review.
 | 30 | Manually restarted sessions run channel-less; hub message on how to restart with channels; close sessions after registering? | launch / docs / board | open |
 | 31 | Shift start trusted stale green statuses (skip-spawn → stale dialog); set unknown + wait for a heartbeat at shift start | shift / liveness | fixed 2026-08-31 (**D28**; heartbeat → 5 s); "checking" flip confirmed live |
 | 32 | Channels unavailable → pull from queue? Revisit queue handling (simple pub-sub container, postgres-backed) | delivery / architecture | open |
+| 33 | Channel-less session undetected: adapter reports the launch flag; popup + red foot on `absent` | adapter / attach / board | implemented 2026-08-31 (**D29**); awaiting live check |
+| 34 | Delivery-verification check: hub-notice + token, `courtyard_ack`, auto on attach-during-shift + card button | delivery / adapter / board | implemented 2026-08-31 (**D30**); awaiting live check |
+| 35 | `start-with-courtyard.sh` launch wrapper written by install; docs and popup point at it | install / docs | implemented 2026-08-31 (**D31**); awaiting live check |

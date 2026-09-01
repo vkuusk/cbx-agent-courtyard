@@ -47,18 +47,9 @@ class Deliverer:
         if channel is None or recipient.status == "gone" or recipient.removed_at is not None:
             return message
 
-        try:
-            # The push carries the authority-graded envelope (§7.5), rendered here so
-            # every adapter presents the same text (D14).
-            resp = self._http.post(
-                channel.endpoint,
-                json={"message": with_rendering(message).model_dump(mode="json")},
-                headers={CHANNEL_TOKEN_HEADER: channel.channel_token},
-            )
-            pushed = resp.is_success
-        except httpx.HTTPError as exc:
-            logger.info("push to %s (%s) failed: %s", recipient.name, channel.endpoint, exc)
-            pushed = False
+        # The push carries the authority-graded envelope (§7.5), rendered here so
+        # every adapter presents the same text (D14).
+        pushed = self.push_raw(channel, with_rendering(message))
 
         if pushed:
             return self._mark_delivered(message)
@@ -69,6 +60,21 @@ class Deliverer:
                 stale = uow.agents.get(recipient.id)
             self._events.publish("agent", stale)
         return message
+
+    def push_raw(self, channel, message: Message) -> bool:
+        """One HTTP push of an already-rendered message to a channel endpoint. Also
+        carries synthetic, storage-less messages — the delivery check (item 34) rides
+        the same payload shape, so every adapter version forwards it unchanged."""
+        try:
+            resp = self._http.post(
+                channel.endpoint,
+                json={"message": message.model_dump(mode="json")},
+                headers={CHANNEL_TOKEN_HEADER: channel.channel_token},
+            )
+            return resp.is_success
+        except httpx.HTTPError as exc:
+            logger.info("push to %s failed: %s", channel.endpoint, exc)
+            return False
 
     def deliver_backlog(self, agent_id) -> int:
         """Push the agent's queued backlog in order (re-attach catch-up, design §6.4).

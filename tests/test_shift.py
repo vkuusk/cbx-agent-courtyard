@@ -65,7 +65,7 @@ def storage(config):
 
 
 def make_service(storage, clock, spawner, heartbeat=15.0, started_at=None):
-    return ShiftService(
+    service = ShiftService(
         storage,
         EventBus(),
         heartbeat,
@@ -73,6 +73,19 @@ def make_service(storage, clock, spawner, heartbeat=15.0, started_at=None):
         spawner_factory=lambda app: spawner,
         hub_started_at=started_at or clock(),
     )
+
+    # The app binds channels.begin_verification (D28, item 31); this stub keeps the
+    # same contract: stored green flips to `unknown`, judging reopens for one
+    # heartbeat interval + margin from "now".
+    def verify() -> datetime:
+        with storage.transaction() as uow:
+            for agent in uow.agents.list():
+                if agent.removed_at is None and agent.status in ("connected", "stale"):
+                    uow.agents.set_status(agent.id, "unknown")
+        return clock() + timedelta(seconds=heartbeat + 5.0)
+
+    service.bind_verifier(verify)
+    return service
 
 
 def add_agent(storage, name, *, type="claude-code", workdir="/tmp/w", status="gone", model=None):
@@ -96,14 +109,14 @@ def add_agent(storage, name, *, type="claude-code", workdir="/tmp/w", status="go
 
 
 class TestShiftMachine:
-    def test_start_on_a_young_hub_counts_down_then_spawns(self, storage):
+    def test_start_counts_down_one_heartbeat_window_then_spawns(self, storage):
         clock, spawner = Clock(), FakeSpawner()
-        service = make_service(storage, clock, spawner)  # hub started at T0
+        service = make_service(storage, clock, spawner)
         add_agent(storage, "coder")
-        clock.tick(2)  # the hub is 2 s old; grace = 15 + 5 = 20 s
+        clock.tick(2)  # grace = one heartbeat (15) + margin (5) from pressing start
         status = service.start()
         assert status.state == "starting"
-        assert status.grace_until == T0 + timedelta(seconds=20)
+        assert status.grace_until == T0 + timedelta(seconds=22)
         assert spawner.spawned == []
         clock.tick(10)
         assert service.tick() is None  # still inside the grace window
@@ -112,20 +125,33 @@ class TestShiftMachine:
         assert len(spawner.spawned) == 1
         assert spawner.spawned[0][0] == "/tmp/w"
 
-    def test_start_on_an_old_hub_spawns_immediately(self, storage):
+    def test_start_verifies_stored_green_and_spawns_the_dead(self, storage):
+        """D28 (item 31): an agent whose session died with the last shift keeps its
+        stored `connected` for up to gone_seconds. Start must not trust it — the
+        status flips to `unknown`, and with no heartbeat during the grace the agent
+        is spawned instead of skipped."""
         clock, spawner = Clock(), FakeSpawner()
         service = make_service(storage, clock, spawner, started_at=T0 - timedelta(hours=1))
-        add_agent(storage, "coder")
+        agent = add_agent(storage, "died-yesterday", status="connected")
         status = service.start()
         assert status.state == "starting"
-        assert len(spawner.spawned) == 1
+        assert spawner.spawned == []  # even on an old hub, start is never instant now
+        with storage.transaction() as uow:
+            assert uow.agents.get(agent.id).status == "unknown"
+        clock.tick(21)  # past heartbeat (15) + margin (5)
+        service.tick()
+        assert [cwd for cwd, _ in spawner.spawned] == ["/tmp/w"]
 
-    def test_connected_agents_are_not_spawned(self, storage):
+    def test_agents_that_prove_themselves_during_grace_are_not_spawned(self, storage):
         clock, spawner = Clock(), FakeSpawner()
         service = make_service(storage, clock, spawner, started_at=T0 - timedelta(hours=1))
-        add_agent(storage, "up-already", status="connected")
+        alive = add_agent(storage, "up-already", status="connected")
         add_agent(storage, "down", workdir="/tmp/down")
         service.start()
+        with storage.transaction() as uow:
+            uow.agents.set_status(alive.id, "connected")  # its heartbeat lands mid-grace
+        clock.tick(21)
+        service.tick()
         assert [cwd for cwd, _ in spawner.spawned] == ["/tmp/down"]
 
     def test_puppets_and_workdirless_agents_are_skipped(self, storage):
@@ -133,7 +159,9 @@ class TestShiftMachine:
         service = make_service(storage, clock, spawner, started_at=T0 - timedelta(hours=1))
         add_agent(storage, "twin", type="puppet")
         add_agent(storage, "homeless", workdir=None)
-        status = service.start()
+        service.start()
+        clock.tick(21)
+        status = service.tick()
         assert spawner.spawned == []
         assert sorted(status.skipped) == ["homeless", "twin"]
 
@@ -142,6 +170,8 @@ class TestShiftMachine:
         service = make_service(storage, clock, spawner, started_at=T0 - timedelta(hours=1))
         agent = add_agent(storage, "coder")
         service.start()
+        clock.tick(21)
+        service.tick()  # grace over -> spawn
         clock.tick(3)
         assert service.tick() is None  # spawned, still waiting
         with storage.transaction() as uow:
@@ -154,6 +184,8 @@ class TestShiftMachine:
         service = make_service(storage, clock, spawner, started_at=T0 - timedelta(hours=1))
         add_agent(storage, "never-comes-up")
         service.start()
+        clock.tick(21)
+        service.tick()  # grace over -> spawn
         clock.tick(SETTLE_SECONDS + 1)
         status = service.tick()
         assert status.state == "on"
@@ -164,7 +196,9 @@ class TestShiftMachine:
         service = make_service(storage, clock, spawner, started_at=T0 - timedelta(hours=1))
         add_agent(storage, "broken", workdir="/tmp/broken")
         add_agent(storage, "fine", workdir="/tmp/fine")
-        status = service.start()
+        service.start()
+        clock.tick(21)
+        status = service.tick()
         assert [cwd for cwd, _ in spawner.spawned] == ["/tmp/fine"]
         assert status.skipped == ["broken"]
 
@@ -173,6 +207,8 @@ class TestShiftMachine:
         service = make_service(storage, clock, spawner, started_at=T0 - timedelta(hours=1))
         add_agent(storage, "coder")
         service.start()
+        clock.tick(21)
+        service.tick()
         status = service.end()
         assert status.state == "off"
         assert spawner.closed == ["ref-1"]
@@ -183,6 +219,8 @@ class TestShiftMachine:
         a = add_agent(storage, "a")
         b = add_agent(storage, "b")
         service.start()
+        clock.tick(21)
+        service.tick()  # grace over -> spawn
         with storage.transaction() as uow:
             line = uow.lines.get_or_create_locked(a.id, b.id)
             msg = uow.messages.insert(
@@ -208,6 +246,8 @@ class TestShiftMachine:
         service = make_service(storage, clock, spawner, started_at=T0 - timedelta(hours=1))
         add_agent(storage, "coder")
         service.start()
+        clock.tick(21)
+        service.tick()  # grace over -> spawn
         service.start()  # pressing the button twice
         assert len(spawner.spawned) == 1
         # A new hub process mid-shift: the persisted document knows what was spawned.
@@ -225,6 +265,8 @@ class TestShiftMachine:
         service = make_service(storage, clock, spawner, started_at=T0 - timedelta(hours=1))
         add_agent(storage, "coder", model="haiku")
         service.start()
+        clock.tick(21)
+        service.tick()
         assert spawner.spawned[0][1] == (
             "claude --dangerously-load-development-channels server:courtyard --model haiku"
         )
@@ -259,6 +301,8 @@ def make_stale(storage, clock, spawner, names=("coder",)):
     for name in names:
         add_agent(storage, name, workdir=f"/tmp/{name}")
     service.start()
+    clock.tick(21)
+    service.tick()  # verification grace over -> spawn
     clock.tick(SETTLE_SECONDS + 1)
     service.tick()  # settle timeout -> on
     return service
@@ -367,6 +411,8 @@ class TestStaleShift:
 
         assert spawner.closed == ["ref-1", "ref-2"]  # the old shift's windows
         assert status.state == "starting" and status.started_at != started_before
+        clock.tick(21)
+        service.tick()  # verification grace over -> spawn
         assert len(spawner.spawned) == 4  # a fresh spawn per agent
         with storage.transaction() as uow:
             assert uow.lines.get(line.id).state == "idle"  # books closed (D24)

@@ -42,6 +42,36 @@ def test_missed_heartbeats_decay_and_a_beat_revives(live_hub):
     bob.close()
 
 
+def test_shift_start_reverifies_stored_liveness(live_hub):
+    """D28 (item 31): Start shift must not trust stored green — an agent whose session
+    died with the last shift keeps its status for up to gone_seconds, and the shift
+    would skip spawning it. On start, statuses flip to `unknown` and STAY unknown
+    (judging reopens, the sweep leaves them alone) until a heartbeat proves the agent
+    live again immediately."""
+    hub = live_hub(heartbeat_seconds=0.5, gone_seconds=600, sweep_seconds=0.05)
+    admin = HubClient(hub)
+    _, token = admin.register_agent("bob", "puppet")
+    bob = HubClient(hub, "bob", token)
+    receiver = ChannelReceiver(lambda m: None)
+    bob.attach(receiver.endpoint, receiver.channel_token)
+    wait_status(admin, "bob", "connected", timeout=1.0)
+    time.sleep(6)  # put the hub well past its own startup judging window (0.5 + 5 s)
+    assert bob.heartbeat()["status"] == "connected"
+
+    admin._call("POST", "/api/shift/start")
+    wait_status(admin, "bob", "unknown", timeout=2.0)  # the stored green was a claim
+    time.sleep(0.5)  # many sweep passes on an old hub: judging reopened, not decayed
+    assert next(a for a in admin.agents() if a.name == "bob").status == "unknown"
+
+    assert bob.heartbeat()["status"] == "connected"  # proof wins immediately
+    wait_status(admin, "bob", "connected", timeout=1.0)
+
+    admin._call("POST", "/api/shift/end", {"force": False})
+    receiver.stop()
+    admin.close()
+    bob.close()
+
+
 def test_restart_marks_stored_liveness_unknown_then_verifies(live_hub):
     """D26: a new hub never repeats a previous life's `connected`. Stored statuses flip
     to `unknown` at startup; a heartbeat proves an agent live immediately, and the sweep

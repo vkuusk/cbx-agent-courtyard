@@ -55,7 +55,7 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
         max_body_bytes=int(env.get("COURTYARD_MAX_BODY_BYTES", "16384")),
         # 15 s (was 30, D23): halves how long a live agent looks down after a hub restart
         # and therefore the shift-start grace countdown; negligible for a handful of agents
-        heartbeat_seconds=float(env.get("COURTYARD_HEARTBEAT_SECONDS", "15")),
+        heartbeat_seconds=float(env.get("COURTYARD_HEARTBEAT_SECONDS", "5")),
         gone_seconds=float(env.get("COURTYARD_GONE_SECONDS", "600")),
         sweep_seconds=float(env.get("COURTYARD_SWEEP_SECONDS", "10")),
         push_timeout=float(env.get("COURTYARD_PUSH_TIMEOUT", "3")),

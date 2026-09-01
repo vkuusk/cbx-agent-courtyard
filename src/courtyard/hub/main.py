@@ -83,7 +83,8 @@ def create_app(config: Config | None = None) -> FastAPI:
             hub_started_at=hub_started_at,
             discovery=discovery,
         )
-        channels.reset_unverified()  # D26: stored liveness is a claim until a beat proves it
+        channels.begin_verification()  # D26: stored liveness is a claim until a beat proves it
+        shift.bind_verifier(channels.begin_verification)  # D28: shift start re-verifies too
         app.state.storage = storage
         app.state.events = events
         app.state.registry = registry

@@ -102,10 +102,13 @@ you re-run this on a hub that already has history (or wipe it with `make db-nuke
 On the **Courtyard** page, press **▶ Start shift** (top right of the Team panel). The
 courtyard opens one terminal window per agent, each already in the agent's directory
 and already running the launch command, and the pill counts the team up
-(`Starting · 1/2` → `● 2/2 on shift`). Right after a hub start it first counts down a
-few seconds ("Waiting for the team") to spot agents that are already running before
-opening anything. Which terminal app it uses (Terminal or iTerm2) is set under
-**Admin → Team**.
+(`Starting · 1/2` → `● 2/2 on shift`). It first counts down a few seconds ("Waiting
+for the team") before opening anything: every agent's status turns gray while it is
+checked, an agent that reports in turns green and keeps its terminal, and only the
+rest get new windows. The countdown is there because a stored green status can be
+left over from a session that has already ended; the courtyard trusts a fresh
+heartbeat, not the stored status. Which terminal app it uses (Terminal or iTerm2) is
+set under **Admin → Team**.
 
 The first time an agent starts, answer Claude Code's two questions in its terminal
 (trust the project's `.mcp.json`, allow the channel). Accept both; they cannot be
@@ -214,8 +217,8 @@ disagree, these are the moves; each one is safe to do at any time.
   down. It opens terminals for exactly the missing agents (the healthy ones are never
   touched), and anything the returning agents still owed is delivered again.
 - **The hub was restarted mid-shift.** Do nothing. For the first seconds the WebUI
-  says so honestly ("checking…" dots, a `Checking the team · 15` countdown), and each
-  agent turns green the moment its next heartbeat arrives (within 15 s); the
+  says so honestly ("checking…" dots, a `Checking the team · 10` countdown), and each
+  agent turns green the moment its next heartbeat arrives (within 5 s); the
   terminals own the sessions, not the hub. The WebUI never shows a status it has not
   verified.
 - **Claude Code auto-updated under running sessions** (an update banner in the

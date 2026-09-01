@@ -37,7 +37,7 @@ def test_config_requires_identity_and_token():
     assert "COURTYARD_TOKEN" in str(exc.value)
 
     config = load_config({"COURTYARD_AGENT_NAME": "coding", "COURTYARD_TOKEN": "t"})
-    assert config == AdapterConfig("http://127.0.0.1:2626", "coding", "t", 15.0)
+    assert config == AdapterConfig("http://127.0.0.1:2626", "coding", "t", 5.0)
 
 
 # -- the adapter process ----------------------------------------------------------------

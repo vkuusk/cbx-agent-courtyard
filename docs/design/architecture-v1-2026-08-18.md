@@ -438,9 +438,9 @@ Channel { agent_id, endpoint: http://127.0.0.1:<ephemeral>, channel_token, regis
 
 ### 6.3 Liveness
 
-Adapters heartbeat (default 15 s; was 30 until D23 — the shorter cadence halves how long
-a live agent looks down after a hub restart and with it the shift-start grace countdown,
-§8.1). `connected` → `stale` after 3 missed beats → `gone` after a
+Adapters heartbeat (default 5 s; 30 → 15 with D23, 15 → 5 with D28 — the shorter
+cadence shrinks how long a live agent looks down after a hub restart and with it the
+shift-start verification countdown, §8.1). `connected` → `stale` after 3 missed beats → `gone` after a
 configurable window or on clean detach. Liveness is **advisory** (drives UI badges and push
 short-circuiting); correctness never depends on it, because storage is the source of truth and
 undelivered messages re-deliver on attach.
@@ -455,7 +455,11 @@ remove) is permanent: the token is refused and sends to the agent fail with `age
 the misleading all-green-then-offline flicker the architect watched (feedback item 18).
 At startup the hub flips stored `connected`/`stale` agents to **`unknown`** (migration
 0012), and the sweep leaves them alone until the hub is one heartbeat interval + 5 s old
-— the D23 grace rule, promoted into the liveness layer. A heartbeat is proof and flips
+— the D23 grace rule, promoted into the liveness layer. The same verification
+(`begin_verification`: flip stored green to `unknown`, reopen the judging window) runs
+again at **shift start** (D28, item 31): an agent whose session died with the previous
+shift keeps its stored green for up to `gone_seconds`, and a start that trusted it
+would skip spawning the agent. A heartbeat is proof and flips
 an agent straight to `connected` at any moment; when the grace passes, the sweep (on a
 fast cadence while judging) resolves the rest to their true state in one pass. The UI
 renders `unknown` as a neutral gray "checking…" dot, dims the Team panel, and — with a
@@ -777,15 +781,21 @@ What **Start shift** does, in order:
    for `claude-code`: *terminal window, `cd <workdir>`, the launch command already shown
    in the launch config (channel flag + `--model`)*. A future headless type would return
    *background process, no terminal*.
-2. **Grace window — don't fork the living.** After a hub restart, a healthy agent looks
-   down until its adapter's next heartbeat hits `not_attached` and re-attaches (item 12
-   made this bulletproof). Spawning during that window would start a **second session on
-   the same identity** — observed in cycle 1, never again. So the shift judges liveness
-   only once the hub has been up for `heartbeat_seconds + 5 s`; if the shift starts
-   earlier, the pill counts down the remainder (15…0) and the target set is re-evaluated
-   at zero. When the hub has been up longer than one heartbeat window — the common case —
-   the countdown is skipped entirely and start is instant.
-3. **Spawn** each still-`gone` agent via its launch profile, **fire-and-forget** (§8's
+2. **Verification window — trust no stored green (D28), and don't fork the living.**
+   Stored liveness is a claim, not a fact, in both directions: an agent whose session
+   died with the previous shift keeps its stored `connected` for up to `gone_seconds`
+   (a start that trusted it skipped the spawn and the stale-shift question fired
+   minutes later — item 31), and after a hub restart a healthy agent looks *down*
+   until its adapter's next heartbeat re-attaches (item 12 made re-attach
+   bulletproof; spawning then would start a **second session on the same identity**,
+   observed in cycle 1). So start hands liveness to the channel layer
+   (`begin_verification`, §6.3): stored green flips to `unknown`, judging reopens,
+   and the pill counts down one heartbeat interval + 5 s while the cards show
+   D26's gray "checking…" dots. An agent's heartbeat during the countdown proves it
+   and flips it green; the target set is evaluated at zero. Start is never instant —
+   instant was only ever as trustworthy as the stored claim.
+3. **Spawn** each agent that did not prove itself, via its launch profile,
+   **fire-and-forget** (§8's
    principle stands: the hub never holds a PTY, never supervises, never restarts; launch
    order is irrelevant since the adapter retries attach forever). The hub records one
    thing per spawn: the terminal window/tab reference, so End shift knows what is its to
@@ -1190,6 +1200,7 @@ cbx-agent-courtyard/
 | D24 | **End shift closes the books; incidents re-deliver (§8.1, §5.4 rule 7, §6.4)** — ending the shift releases every non-idle line and marks unfinished messages `expired` (the unanswered in-flight message of each awaiting line **and** gate-held messages; kept in history with a `system` entry, nothing deleted); on attach, a `delivered`-but-unanswered message acknowledged before the current attachment flips back to `queued` and is re-pushed with a "redelivered" note (R1); the board shows "owes you a reply" on the agent card + real line state in the pane header (R3) | **Accepted** (architect, 2026-08-26 — resolves feedback item 10) | The shift boundary (D23) is what item 10 lacked: normal path = the operator's explicit close-out, incident path (crash, restart mid-shift, out-of-shift agents, future `Always on`) = R1+R3. `expired` is what keeps R1 from resurrecting intentionally closed messages. Expire-not-delete follows D20's history-keeping philosophy; gate-held expiry was the architect's call (one rule — the shift closes the working period). R2 (operator supersede) dropped: little value once end-shift cleans up routinely, and it would bend §5.4 asymmetrically |
 | D22 | **Discovery: `auto` \| `manual` (§5.8)** — a courtyard-wide setting for who forms the team's wiring: `auto` (today) = every agent sees every other, lines form on first message; `manual` = agents see and can message only the agents the operator has **linked** — a link IS a pre-created idle line (no new tables; the line's existence is the permission), unlinked sends are refused with `not_linked`, peers/roster filter by line, **unlink** archives the history and removes the line; the operator is exempt (always reachable, no links needed); switching modes migrates nothing (existing lines become the links) | **Accepted** (architect, 2026-08-27 — WP‑E, feedback item 5; names his: `auto` from service-discovery vocabulary, `manual` = what the operator's hands do; "Team mode" rejected as the setting name — already taken by D23's lifecycle axis; my judgement calls accepted: operator exemption, grandfathering, unlink-archives-not-deletes) | The boundary moves into the hub — auto-discovery relied on agents knowing the interaction rules; manual makes sub-teams possible. Design written 2026-08-27; implemented the same day (migration 0013: archive reason `unlinked`) |
 | D26 | **A restarted hub verifies before it claims (§6.3)** — at startup, stored `connected`/`stale` agents flip to **`unknown`** (migration 0012); the sweep judges them only once the hub is a heartbeat interval + 5 s old (fast sweep cadence while judging), a heartbeat flips one straight to connected at any moment; UI: gray "checking…" dots, dimmed Team panel, `Checking the team · N` pill (`ShiftStatus.checking_until`); D25's question waits for every status to be verified | **Accepted** (architect, 2026-08-26 — feedback item 18: his "state unknown" flag design; my refinement, accepted: dim only what is actually unknown — liveness — while lines and history stay bright, they are database truth) | Fixes the restart flicker he watched: all green (yesterday's stored statuses) → offline (sweep) → question (grace) became a single transition: checking → live team *or* question. Generalizes D23's grace from the shift into the liveness layer itself; also removes the false-green moment on restarts with no shift |
+| D28 | **Shift start verifies before it trusts (§8.1, §6.3)** — start calls the liveness layer's `begin_verification()`: stored `connected`/`stale` flip to `unknown` and the judging window reopens for one heartbeat interval + 5 s; the shift's grace runs until that verdict, so agents that prove themselves with a beat are skipped and everything unproven is spawned. The "instant start on an old hub" path is removed deliberately. Heartbeat default 15 s → 5 s (his call after the live check) so the countdown is 10 s | **Accepted** (architect, 2026-08-31 — feedback item 31, his design: "set heartbeat to off and wait for the next heartbeat before saying everything is green") | Fixes the skipped spawn he hit: agents dead since End shift kept their stored green for up to `gone_seconds` (600 s), a prompt re-start skipped them, opened nothing, and the stale-shift question fired minutes later. Extends D26 (verify before claiming) from hub startup to shift start — instant start was only ever as trustworthy as the stored claim |
 | D27 | **The verdict comment moves inline and `reject` becomes `drop` (item 24)** — a held message carries its comment field between the body and the approve / return-to-sender / drop buttons (square-cornered: a form, not a chat); a drop's comment travels nowhere (kept on the board as the operator's record); the free-standing "note → both" leaves the UI (6a's use case dropped — a note question got answered into a terminal, and even a delivered answer lands on the operator line, not the pane it was asked in); delivered operator notes gain a reply-path footer (§7.5); status `rejected` → `dropped`, migration 0014 | **Accepted** (architect's design, 2026-08-28 — his placement, box shape, and single-destination rule; `drop` reverses 3.2's "keep reject" — too close to "return to sender") | The line pane stops pretending to be a chat: the only thing the operator writes on a line is the verdict's comment, and questions belong in direct chats |
 | D25 | **The stale shift asks a question (§8.1)** — the hub reports `stale` when the shift reads on, the liveness grace has passed, no launchable agent is connected, and none of the shift's windows has a live tty; the Courtyard page then shows a dialog with two answers: **End shift** (focused default — close it, nothing more; D24 expiry) and **Start new shift** (start on a stale shift = close old books, then fresh), plus Not now (amber "shift left open" tag remains, click to re-ask). **Amended same day during his check: Resume belongs to the living shift** — with part of the team down (1 of 2 healthy), the running pill offers `▶ Resume shift` (`POST /api/shift/resume`: start only the missing agents, dead spawn records retired, live windows never doubled, books and `started_at` untouched — §6.4 re-arm redelivers); the all-dead dialog is a binary, both answers close the books | **Accepted** (architect, 2026-08-26 — feedback item 17; the dialog form and the resume option are his design, replacing my docs-only then pill-only proposals) | The operator's mental model wins: next morning there is no shift, whatever the record says — so the natural gestures (Start, or just answering a plain question) must work without understanding the bookkeeping. No hub reflex: stale is only ever *reported*; nothing closes or spawns until the operator answers. The windows-alive condition keeps a consent-stuck fresh start from reading as abandoned |
 | D23 | **Shift + Team mode (§8.1)** — Team mode `On shift` (v1) \| `Always on` (future, disabled), changed only in Admin; one pill on the Courtyard page starts every registered agent not already up via its launch profile (terminal window, fire-and-forget, window ref recorded) and End shift closes exactly what it started; grace countdown before spawning only while the hub is younger than one heartbeat window; settings KV table (migration 0010); heartbeat default 30 s → 15 s | **Accepted** (architect, 2026-08-25 — WP‑F, feedback item 13) | Brings parked L1 (D8/D16) back into v1 as an operator gesture over the whole team — D14 intact. "Crew" rejected (the concept is already named Team); "Single User vs Service" rejected as the setting name (audience axis = §2 non-goals; lifecycle is what the setting controls). D22 (accepted 2026-08-27) holds the manual-links discovery mode |

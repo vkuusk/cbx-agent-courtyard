@@ -56,6 +56,7 @@ class ChannelService:
         self._deliverer = deliverer
         # §5.8 (D22): under manual discovery the attach-summary roster narrows to linked agents.
         self._discovery = discovery or (lambda: "auto")
+        self._heartbeat = heartbeat_seconds
         self._stale_after = 3 * heartbeat_seconds  # 3 missed beats (design §6.3)
         self._gone_after = gone_seconds
         # D26: `unknown` agents are judged only after this — one heartbeat interval plus
@@ -66,16 +67,25 @@ class ChannelService:
 
     @property
     def judging(self) -> bool:
-        """True while the hub is too young to judge `unknown` agents (D26). The sweeper
-        runs on a fast cadence while this holds (+ one pass after), so resolution lands
-        within a second of the boundary — one transition, not a straggling second one."""
+        """True while a verification window is open (D26 at startup; reopened by
+        `begin_verification` at shift start) and `unknown` agents may not be judged
+        yet. The sweeper runs on a fast cadence while this holds (+ one pass after),
+        so resolution lands within a second of the boundary — one transition, not a
+        straggling second one."""
         return datetime.now(UTC) < self._judge_after + timedelta(seconds=1)
 
-    def reset_unverified(self) -> int:
-        """D26, called once at hub startup: stored `connected`/`stale` are claims from a
-        previous hub life — flip them to `unknown` rather than repeat them unverified.
-        The first heartbeat proves an agent live again at any moment; the sweep resolves
-        the rest once the hub is past its judging grace."""
+    def begin_verification(self) -> datetime:
+        """Stored `connected`/`stale` are claims, not facts — flip them to `unknown` and
+        (re)open the judging window, so nothing reads green again until a fresh
+        heartbeat proves it. Called at hub startup (D26: a previous hub life's
+        statuses) and at shift start (D28, item 31: an agent whose session died with
+        the last shift keeps its stored green for up to `gone_seconds`, and the shift
+        would skip spawning it). A heartbeat flips an agent straight back to connected
+        at any moment; the sweep resolves the rest once the window closes. Returns
+        when judging begins."""
+        self._judge_after = datetime.now(UTC) + timedelta(
+            seconds=self._heartbeat + JUDGE_MARGIN_SECONDS
+        )
         with self._storage.transaction() as uow:
             unverified = [
                 agent
@@ -89,11 +99,11 @@ class ChannelService:
             self._events.publish("agent", agent)
         if changed:
             logger.info(
-                "liveness: %s unverified after restart -> unknown (judging after %s)",
+                "liveness: %s unverified -> unknown (judging after %s)",
                 ", ".join(agent.name for agent in changed),
                 self._judge_after.isoformat(timespec="seconds"),
             )
-        return len(changed)
+        return self._judge_after
 
     # -- the adapter contract (attach / heartbeat / detach) --------------------------
 

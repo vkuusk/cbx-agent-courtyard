@@ -1,12 +1,15 @@
 """The Shift (design §8.1, D23): one operator gesture that starts every registered agent
 not already up, and ends by closing exactly what it started.
 
-State machine: off -> starting (grace countdown, then spawn) -> on -> off. The grace
-window exists for one reason: after a hub restart a healthy agent looks down until its
-adapter's next heartbeat re-attaches, and spawning during that window would start a
-second session on the same identity. So liveness is judged only once the hub has been up
-for one heartbeat interval (+ margin); when the hub is older than that — the common case
-— start is instant.
+State machine: off -> starting (verification grace, then spawn) -> on -> off. The grace
+window exists because stored liveness is a claim, not a fact (D28, item 31): an agent
+whose session died with the last shift keeps its stored green for up to `gone_seconds`,
+and after a hub restart a healthy agent looks down until its adapter's next heartbeat
+re-attaches — spawning on either claim gets it wrong (a skipped dead agent, or a second
+session on a living identity). So start hands liveness back to the channel layer
+(`begin_verification`: stored green flips to `unknown`) and waits one heartbeat
+interval (+ margin): agents that prove themselves with a beat are skipped, whatever
+stays unproven is spawned.
 
 The hub spawns fire-and-forget (§8): no PTY, no supervision, no restarts. It records one
 thing per spawn — the terminal window reference — so End shift knows what is its to
@@ -78,6 +81,9 @@ class ShiftService:
             )
         )
         self._hub_started_at = hub_started_at or clock()
+        # D28 (item 31): channels.begin_verification, bound by the app once both
+        # services exist (channels itself needs this service's settings for discovery).
+        self._verifier: Callable[[], datetime] | None = None
         self._lock = threading.Lock()
         # tick() publishes only transitions of the derived flags (D25 stale, D26 checking)
         self._last_on_signature: tuple[bool, bool] | None = None
@@ -133,6 +139,11 @@ class ShiftService:
 
     # -- the shift --------------------------------------------------------------------
 
+    def bind_verifier(self, verifier: Callable[[], datetime]) -> None:
+        """D28 (item 31): the liveness layer's `begin_verification` — flips stored
+        green to `unknown` and reopens judging; returns when judging begins."""
+        self._verifier = verifier
+
     def status(self) -> ShiftStatus:
         with self._lock:
             return self._status()
@@ -149,10 +160,19 @@ class ShiftService:
                     return self._status()
                 expired_lines, board_events = self._end_locked(force=True)
             now = self._clock()
+            # D28 (item 31): stored liveness may be the dead last shift's claim — ask
+            # the liveness layer to flip green to `unknown` and reopen judging; the
+            # grace runs until its verdict, so a dead agent that still *reads*
+            # connected is spawned, not skipped. Unbound (service-level tests), the
+            # hub-age grace alone remains.
+            if self._verifier is not None:
+                grace_until = self._verifier()
+            else:
+                grace_until = max(now, self._judge_after())
             self._doc = {
                 "state": "starting",
                 "started_at": now.isoformat(),
-                "grace_until": max(now, self._judge_after()).isoformat(),
+                "grace_until": grace_until.isoformat(),
                 "terminal_app": self._settings.terminal_app,
                 "spawned": False,
                 "spawns": [],

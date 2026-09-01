@@ -18,7 +18,7 @@ them. A new agent type ports the forwarding, not the judgement.
 The MCP wire protocol is JSON-RPC 2.0 over newline-delimited stdio. It is implemented
 here directly rather than through an SDK: the surface we need is five methods, and the
 channel notification is a Claude-Code-specific extension that the typed SDK unions do
-not model. **stdout carries protocol only** — all diagnostics go to stderr, where
+not model (the full reasoning: docs/design/adapter-implementation.md). **stdout carries protocol only** — all diagnostics go to stderr, where
 Claude Code records them in `~/.claude/debug/<session-id>.txt`.
 """
 
@@ -163,8 +163,8 @@ def load_config(env: Mapping[str, str] | None = None) -> AdapterConfig:
         agent=agent,
         token=token,
         heartbeat_seconds=float(
-            env.get("COURTYARD_HEARTBEAT_SECONDS", "15")
-        ),  # match the hub (D23)
+            env.get("COURTYARD_HEARTBEAT_SECONDS", "5")
+        ),  # match the hub (D23; 15 -> 5 with D28)
     )
 
 

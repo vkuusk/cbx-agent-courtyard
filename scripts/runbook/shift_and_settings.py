@@ -1,8 +1,10 @@
 """Runbook check: the shift state machine and the Team settings (design §8.1, D23).
 
   1. settings: defaults, terminal app round trip, `always_on` and junk values refused
-  2. shift: off -> starting (grace countdown after a fresh hub start; instant later)
-     -> on -> off, watched over GET /api/shift
+  2. shift: off -> starting (the verification countdown ALWAYS runs — D28, item 31:
+     stored liveness re-checks before anything spawns) -> on -> off, watched over
+     GET /api/shift; connected agents gray to `unknown` briefly and their next
+     heartbeat turns them green again
   3. the throwaway agent is a puppet, so the shift SKIPS it — this script never opens a
      real terminal window. The real-spawn check is the manual procedure in
      docs/testing-runbook.md (press the pill with a claude-code agent down).
@@ -11,11 +13,12 @@ Run against a hub started with `make run`:
     uv run python scripts/runbook/shift_and_settings.py
 """
 
+import os
 import time
 
 from courtyard.common.client import HubClient, HubError
 
-HUB = "http://127.0.0.1:2626"
+HUB = os.environ.get("COURTYARD_HUB_URL", "http://127.0.0.1:2626")
 
 
 def hr(title):
@@ -89,9 +92,10 @@ status = admin._call("POST", "/api/shift/start")
 print(
     f"after start   : {status['state']}"
     + (
-        f"   (grace countdown until {status['grace_until']} — the hub is young)"
+        f"   (verification countdown until {status['grace_until']} — D28: stored"
+        " liveness re-checks before anything spawns)"
         if status.get("grace_until")
-        else "   (no countdown — the hub has been up a while)"
+        else "   (NO countdown — that is a bug since D28: start must always verify)"
     )
 )
 deadline = time.time() + 90

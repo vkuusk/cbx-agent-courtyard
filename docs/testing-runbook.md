@@ -197,20 +197,25 @@ uv run python scripts/runbook/shift_and_settings.py
 
 **Manual part — the real spawn** (his live check; opens actual windows):
 
-1. With the hub freshly restarted and one claude-code agent's terminal closed, press
-   **▶ Start shift** on the Courtyard page. Expect the amber countdown
-   (`Waiting for the team · N`, ticking) — then exactly one terminal window opens
-   (Admin → Team chooses Terminal or iTerm2), already in the agent's workdir with the
-   launch command running; the pill shows `Starting · x/y` and flips to `● y/y on shift`
-   as cards go green. Agents already connected get **no** window.
+1. With one claude-code agent's terminal closed, press **▶ Start shift** on the
+   Courtyard page. Expect the amber countdown (`Waiting for the team · N`, ticking —
+   it always runs since D28: stored liveness re-verifies before anything spawns, and
+   agents show gray "checking…" dots meanwhile) — then exactly one terminal window
+   opens (Admin → Team chooses Terminal or iTerm2), already in the agent's workdir
+   with the launch command running; the pill shows `Starting · x/y` and flips to
+   `● y/y on shift` as cards go green. An agent that proves itself with a heartbeat
+   during the countdown turns green and gets **no** window.
 2. Press **■ End shift** (the square button beside the status pill) → "End the shift?"
    confirm → **every** window the shift opened closes, even when its agent was
    mid-conversation moments before (the hub waits for each window's processes to end
    before closing, escalating TERM → KILL); terminals you opened by hand stay. With a
    line mid-conversation, expect the second confirm ("N lines are mid-conversation…")
    before anything closes.
-3. Repeat step 1 when the hub has been up for a while: no countdown — spawning is
-   instant.
+3. **D28 (item 31):** End the shift, then press Start again right away, while the dead
+   agents' cards are still green (stored status). Expect their dots to gray to
+   "checking…" for the countdown and fresh windows to open for them — before D28
+   their stale green made start skip them, nothing opened, and the stale-shift
+   question fired minutes later.
 4. Admin → Team: `Always on` is visibly disabled; switching the terminal app persists
    across a hub restart.
 5. **Cold start (item 23):** quit Terminal.app entirely, then Start shift with N agents
@@ -285,7 +290,7 @@ resolves it; resume with nothing open is refused (`no_shift`).
 1. With a shift running, close every agent terminal by hand (⌘Q the terminal app is
    fine) and stop the hub. Start the hub again and open the Courtyard page: first the
    **checking phase** (D26) — gray pulsing dots with "checking…", the Team panel
-   dimmed, the pill counting `Checking the team · 15` — with **no** green dots and
+   dimmed, the pill counting `Checking the team · 10` — with **no** green dots and
    **no** question; then, in one transition, the statuses turn offline and the question
    appears — "The last shift was never ended". **■ End shift** is the focused button;
    "Not now" (or Esc / a click outside) leaves the amber *shift left open* tag, which

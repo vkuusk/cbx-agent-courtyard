@@ -792,6 +792,116 @@ hub needs an authenticated non-localhost mode).
 
 **Status.** open, recorded for planning; not for v1.
 
+### 28. Tell the user about the files install writes; offer `.gitignore` entries
+
+**Asked (architect, 2026-08-31).** Decide how to notify the user about the files that
+registration writes into the agent's workdir — `.mcp.json`,
+`.claude/settings.local.json` and their `.courtyard-bak` backups — and offer to add
+them to the workdir's `.gitignore`.
+
+**Touches.** `hub/core/install.py` writes `.mcp.json` (0600, holds the token) and
+`.claude/settings.local.json`; a pre-existing file is backed up as
+`<name>.courtyard-bak` before being overwritten — so on a re-register the `.mcp.json`
+backup holds the *previous* token. The only notice today is the CLI warning printed by
+`courtyard-invite` ("do NOT commit — add .mcp.json to .gitignore"), which names neither
+the settings file nor the backups and offers no action; the WebUI add-agent path shows
+nothing. AGENTS.md tells agents `.mcp.json` "must not be committed".
+
+**Status.** open.
+
+### 29. Two opus agents keep going back and forth; make the envelope visible
+
+**Observed (architect, 2026-08-31).** With both agents on the opus model they start
+going back and forth anyway, current envelope notwithstanding (WP‑C's etiquette footer
+bounded the smaller models in earlier cycles).
+
+**Asked.** At least make the envelope **visible** to the operator: what the hub actually
+wrapped around the payload, as delivered. Whether the operator should also be able to
+**edit** the envelope text is undecided — for discussion.
+
+**Touches.** `hub/core/envelope.py` renders the preamble and footers hub-side at
+delivery; the board shows the payload only; nothing in the WebUI or API exposes the
+delivered text (the adapter's stderr log has it). Editing would touch D14 (the hub
+words what the model sees) and the tested etiquette wording.
+
+**Status.** open.
+
+### 30. Manually restarted sessions run without channels; the hub should say how to restart right
+
+**Observed (architect, 2026-08-31).** Two terminals had agent sessions open at
+registration time; the sessions were then restarted **in the same terminals** by hand,
+not by Start shift. Those sessions never asked the channel-consent question. Only after
+the stale-shift dialog (item 31) forced an End + fresh Start did the newly spawned
+windows ask about using channels — the first sign the manual restarts had been running
+channel-less the whole time.
+
+**Need (his words).** A message in the hub telling how to restart agents with channels
+enabled.
+
+**Also asked.** Should we ask the user to close agent sessions after registering and
+before starting work?
+
+**Touches.** The correct launch command (with the channel flag) lives in Edit Agent →
+launch config and is what shift spawn uses (`launch_command`). A plain `claude` restart
+still attaches over MCP, heartbeats and ACKs pushes while Claude Code skips the channel
+events (item 11's failure mode) — the hub cannot tell such a session from a working
+one, so this is guidance/visibility, not detection. Registration never touches a
+running session; configs are read at session start.
+
+**Status.** open.
+
+### 31. Shift start trusted yesterday's green: set liveness to unknown, wait for a heartbeat
+
+**Observed (architect, 2026-08-31, same run as item 30).** Ended a shift with one line
+mid-conversation, then pressed Start: the board sat with both agents **green**, then
+they went **offline**, then the stale-shift question appeared ("the shift is not
+ended — End or Start?"). Pressed End, then Start again; the second start worked
+(windows spawned, consent question shown).
+
+**Asked.** At shift start — and at other critical-for-communication moments — set the
+liveness to off/unknown and wait for the next heartbeat before saying everything is
+green and ready to work.
+
+**Diagnosis (senior engineer, same day, code-verified).** D26's unknown-until-verified
+runs only at **hub** startup (`channels.reset_unverified`). On a warm hub,
+`ShiftManager.start()` computes `grace_until = max(now, hub_start + heartbeat +
+margin)`, which is just `now`, so it spawns immediately — and `_spawn_missing` skips
+every target whose stored status is `connected`. A dead agent keeps its
+`connected`/`stale` status for up to `gone_seconds` (default 600 s) after its window
+closes, so a Start pressed inside that window skips it, opens no window, and once the
+sweep decays it to `gone` the stale detector fires. Likely fix shape, reusing the D26
+machinery: shift start flips unverified statuses to `unknown` and opens a judging
+window — a live agent's next beat (≤15 s) turns it green immediately, dead ones resolve
+to `gone` and get spawned; the board shows the existing "checking" state meanwhile.
+
+**Status.** fixed 2026-08-31 (the architect approved the shape and asked for it the same
+day, plus heartbeat 15 s → 10 s; after his live check confirmed the "checking" flip he
+shortened it further to **5 s**, making the start countdown 10 s). **D28**: `channels.begin_verification()` (flip stored
+green to `unknown` + reopen the judging window) is called at hub startup (was
+`reset_unverified`) and bound into `ShiftService.start()`, whose grace now always runs
+until that verdict — the "instant start on an old hub" path is gone. Both heartbeat
+defaults (hub `config.py`, adapter `mcp_server.py`) moved to 10 s. New tests: shift
+machine (dead-but-green agent spawned, proving agent skipped) + a live re-verify test
+over the API; runbook shift entry step 3 replaced with the end-then-start-right-away
+check; quickstart and §6.3/§8.1 updated. 204 tests green. Awaiting his live check.
+
+### 32. If channels are unavailable, can the agent pull from a queue? Revisit queue handling
+
+**Asked (architect, 2026-08-31).** When channels are not available, can we ask the
+agent to pull from the queue instead? Add to the discussion list whether to revisit how
+message queues are handled — e.g. a simple pub-sub queue, simpler than Kafka, added as
+one more container; even with postgres as that queue's backend we would not need to
+implement the basic queue operations ourselves.
+
+**Touches.** Delivery today: the hub pushes to the adapter's local `ChannelReceiver`,
+and the adapter's stdout channel notification is the only thing that *wakes* the model;
+`courtyard_inbox` already offers pull, but a model pulls only when it already has a
+turn — nothing prompts an idle session. Queued backlog is pushed on attach. Related
+open question: the wake-at-turn-end check (open design questions); channels preview
+drift (item 11) is what makes a fallback worth discussing.
+
+**Status.** open.
+
 ---
 
 ## Work packages (discussion outcome, 2026-08-24)
@@ -848,3 +958,8 @@ that review.
 | 25 | Link control → small '+' square, bottom-left of Lines, bubble on hover | WebUI board | done 2026-08-28; awaiting look |
 | 26 | Relayed answer stopped at the relaying agent (unscoped "no reply is owed") | envelope | fixed 2026-08-28 (scoped footer + relay clause); **confirmed** |
 | 27 | Remote hub deployment: compose-only local install; agents local + remote; MCP over streamable_http + remote-channels check | deployment / adapter | open (post-v1) |
+| 28 | Notify the user about install-written files (`.mcp.json`, `settings.local.json`, `.courtyard-bak`); offer `.gitignore` entries | install / docs | open |
+| 29 | Opus agents keep exchanging; make the envelope visible (editable — to discuss) | envelope / WebUI | open |
+| 30 | Manually restarted sessions run channel-less; hub message on how to restart with channels; close sessions after registering? | launch / docs / board | open |
+| 31 | Shift start trusted stale green statuses (skip-spawn → stale dialog); set unknown + wait for a heartbeat at shift start | shift / liveness | fixed 2026-08-31 (**D28**; heartbeat → 5 s); "checking" flip confirmed live |
+| 32 | Channels unavailable → pull from queue? Revisit queue handling (simple pub-sub container, postgres-backed) | delivery / architecture | open |

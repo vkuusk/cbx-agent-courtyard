@@ -500,7 +500,7 @@ class TestShiftApi:
 def test_launch_command_without_model():
     from courtyard.common.models import Agent
 
-    agent = Agent.model_construct(model=None)
+    agent = Agent.model_construct(type="claude-code", model=None)
     assert launch_command(agent) == (
         "claude --dangerously-load-development-channels server:courtyard"
     )
@@ -555,3 +555,12 @@ class TestCustomTerminals:
         spawner = make_spawner("kitty", {"kitty": "kitty {command}"})
         assert isinstance(spawner, CommandTemplate)
         assert spawner.close("anything") is False and spawner.alive("x") is False
+
+
+def test_launch_command_per_type():
+    from courtyard.common.models import Agent
+
+    assert launch_command(Agent.model_construct(type="pi", model=None)) == "pi"
+    assert "claude --dangerously" in launch_command(
+        Agent.model_construct(type="claude-code", model=None)
+    )

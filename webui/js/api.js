@@ -25,6 +25,7 @@ async function call(method, path, body) {
 export const api = {
   config: () => call("GET", "/api/config"),
   envelope: () => call("GET", "/api/envelope"),
+  fsDirs: (path) => call("GET", `/api/fs/dirs${path ? `?path=${encodeURIComponent(path)}` : ""}`),
   agents: () => call("GET", "/api/agents"),
   createAgent: (payload) => call("POST", "/api/agents", payload),
   removeAgent: (name) => call("DELETE", `/api/agents/${encodeURIComponent(name)}`),

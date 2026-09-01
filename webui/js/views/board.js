@@ -197,7 +197,10 @@ function ShiftPill() {
       title="the hub just restarted; waiting one heartbeat before trusting any status">Checking the team${checkLeft ? ` · ${checkLeft}` : "…"}</span>`;
   }
 
-  const targets = teamAgents().filter((a) => a.type === "claude-code" && a.workdir);
+  // Launchable types, matching the hub's shift targets (claude-code and pi, D32).
+  const targets = teamAgents().filter(
+    (a) => (a.type === "claude-code" || a.type === "pi") && a.workdir,
+  );
   const up = targets.filter((a) => a.status === "connected").length;
   const endShift = async () => {
     const windows = shift.spawns.length;

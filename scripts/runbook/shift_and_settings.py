@@ -70,7 +70,7 @@ hr("2. SHIFT  (POST /api/shift/start -> GET /api/shift -> POST /api/shift/end)")
 down = [
     a["name"]
     for a in admin._call("GET", "/api/agents")
-    if a["type"] == "claude-code"
+    if a["type"] in ("claude-code", "pi")
     and not a["removed_at"]
     and a["workdir"]
     and a["status"] != "connected"

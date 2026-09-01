@@ -181,9 +181,12 @@ def install(
             f"{agent.name} has no workdir set; add one when registering, or pass one here."
         )
     hub_url = str(request.base_url).rstrip("/")
-    result = install_core.install(
-        workdir, install_core.adapter_command(), hub_url, agent.name, token, agent.model
-    )
+    if agent.type == "pi":  # item 36 (D32): one extension file + the wrapper script
+        result = install_core.install_pi(workdir, hub_url, agent.name, token)
+    else:
+        result = install_core.install(
+            workdir, install_core.adapter_command(), hub_url, agent.name, token, agent.model
+        )
     return InstallResponse(**result.__dict__)
 
 
@@ -212,5 +215,8 @@ def uninstall(
     workdir = body.workdir or agent.workdir
     if not workdir:
         raise WorkdirNotFound(f"{agent.name} has no workdir set; pass one here.")
-    result = install_core.uninstall(workdir)
+    if agent.type == "pi":
+        result = install_core.uninstall_pi(workdir)
+    else:
+        result = install_core.uninstall(workdir)
     return UninstallResponse(**result.__dict__)

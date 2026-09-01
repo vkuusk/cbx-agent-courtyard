@@ -113,6 +113,55 @@ function PuppetPanel({ agent, token }) {
   </div>`;
 }
 
+// Item 37: pick the agent's project directory by browsing instead of typing. The hub
+// lists its own disk (dev-mode premise, same as install writing files): starts at the
+// hub user's home, hidden directories excluded, directories only.
+function DirPicker({ onPick }) {
+  const [state, setState] = useState(null); // null = closed; {path, parent, dirs} = open
+  const load = (path) => api.fsDirs(path).then(setState).catch((err) => alert(err.message));
+  return html`<span>
+    <button type="button" class="btn" title="browse the hub machine's directories"
+      onClick=${() => load()}>browse…</button>
+    ${state
+      ? html`<div class="overlay" onClick=${(e) => e.target === e.currentTarget && setState(null)}
+          onKeyDown=${(e) => e.key === "Escape" && setState(null)}>
+          <div class="dialog" role="dialog" aria-modal="true" aria-label="Choose a directory"
+            style="min-width:30rem;max-width:80vw">
+            <h3 style="word-break:break-all;font-family:var(--mono);font-size:.9rem">${state.path}</h3>
+            <div style="max-height:45vh;overflow:auto;display:flex;flex-direction:column;gap:.15rem">
+              ${state.parent
+                ? html`<button type="button" class="btn" style="text-align:left"
+                    onClick=${() => load(state.parent)}>↰ ..</button>`
+                : null}
+              ${state.dirs.map((d) => html`<button type="button" class="btn" style="text-align:left"
+                onClick=${() => load(`${state.path}/${d}`)}>${d}/</button>`)}
+              ${!state.dirs.length ? html`<div class="small muted">no subdirectories</div>` : null}
+            </div>
+            <div class="form-row" style="margin-top:.6rem">
+              <button type="button" class="btn primary"
+                onClick=${() => { onPick(state.path); setState(null); }}>use this directory</button>
+              <button type="button" class="btn" onClick=${() => setState(null)}>cancel</button>
+            </div>
+          </div>
+        </div>`
+      : null}
+  </span>`;
+}
+
+// The pi adapter (item 36, D32) is one extension file, too long to copy-paste: the hub
+// writes it (with the agent's token inside), and pi auto-discovers it from .pi/extensions/.
+function PiPanel({ agent }) {
+  return html`<div>
+    <div class="small muted">The whole adapter is one file, <code>.pi/extensions/courtyard.ts</code>, written by
+      the hub with this agent's token inside (chmod 600, keep it out of git). pi loads it
+      automatically; there is no flag to remember, and starting the
+      agent is <code>./start-with-courtyard.sh</code> (or plain <code>pi</code>) in its directory.</div>
+    <${InstallButton} agent=${agent} />
+    <div class="small muted" style="margin-top:.8rem">If the hub cannot see the directory (live
+      mode), run <code>uv run courtyard-invite --register</code> for this agent on the machine that can.</div>
+  </div>`;
+}
+
 function ClaudePanel({ agent, token, adapterCommand }) {
   const config = claudeConfig(agent, token, adapterCommand);
   const settings = claudeSettings(agent);
@@ -142,7 +191,9 @@ function LaunchPanel({ agent, token, note, adapterCommand, onClose }) {
     ${note ? html`<div class="warn" style="margin-bottom:.6rem">${note}</div>` : null}
     ${agent.type === "claude-code"
       ? html`<${ClaudePanel} agent=${agent} token=${token} adapterCommand=${adapterCommand} />`
-      : html`<${PuppetPanel} agent=${agent} token=${token} />`}
+      : agent.type === "pi"
+        ? html`<${PiPanel} agent=${agent} />`
+        : html`<${PuppetPanel} agent=${agent} token=${token} />`}
     <div class="small muted" style="margin-top:.8rem">The hub keeps this token; open this again any time with
       "launch config" in the list; "rotate token" replaces it.</div>
   </div>`;
@@ -162,6 +213,7 @@ function NoTokenPanel({ agent, onRotate, onClose }) {
 function AddForm({ onCreated, suggested }) {
   const [error, setError] = useState(null);
   const [picked, setPicked] = useState(null); // null = take the hub's suggestion
+  const [workdir, setWorkdir] = useState(""); // controlled so the picker can fill it
   const color = picked ?? suggested;
   const submit = async (e) => {
     e.preventDefault();
@@ -180,6 +232,7 @@ function AddForm({ onCreated, suggested }) {
       });
       form.reset();
       setPicked(null);
+      setWorkdir("");
       onCreated(created);
     } catch (err) {
       setError(
@@ -195,12 +248,15 @@ function AddForm({ onCreated, suggested }) {
     <div class="form-row">
       <input name="name" placeholder="name (e.g. scout)" required
         pattern="[A-Za-z0-9][A-Za-z0-9._\\-]{0,63}" title="letters, digits, dots, dashes, underscores" />
-      <select name="type" title="claude-code: a real agent. puppet: a fake agent for testing.">
+      <select name="type" title="claude-code and pi: real agents. puppet: a fake agent for testing.">
         <option value="claude-code">claude-code</option>
+        <option value="pi">pi</option>
         <option value="puppet">puppet</option>
       </select>
-      <input name="workdir" placeholder="project directory (claude-code, optional)"
+      <input name="workdir" placeholder="project directory (optional)" value=${workdir}
+        onInput=${(e) => setWorkdir(e.target.value)}
         title="the agent's project directory; lets the hub write its config there for you" />
+      <${DirPicker} onPick=${setWorkdir} />
       <input name="model" placeholder="model (optional, e.g. sonnet)"
         title="the model its runtime should use; written into .claude/settings.local.json by install, and the launch command adds --model" />
       <div class="swatches" role="radiogroup" aria-label="colour on the board">
@@ -226,6 +282,7 @@ function EditPanel({ agent, onLaunch, onRotate, onClose }) {
   const [error, setError] = useState(null);
   const [saved, setSaved] = useState(false);
   const [picked, setPicked] = useState(agent.color);
+  const [workdir, setWorkdir] = useState(agent.workdir ?? "");
   const submit = async (e) => {
     e.preventDefault();
     setError(null);
@@ -252,7 +309,9 @@ function EditPanel({ agent, onLaunch, onRotate, onClose }) {
     <form class="add-form" onSubmit=${submit}>
       <div class="form-row">
         <span class="small muted">${agent.type} · name and type are permanent</span>
-        <input name="workdir" defaultValue=${agent.workdir ?? ""} placeholder="project directory" />
+        <input name="workdir" value=${workdir} placeholder="project directory"
+          onInput=${(e) => setWorkdir(e.target.value)} />
+        <${DirPicker} onPick=${setWorkdir} />
         <input name="model" defaultValue=${agent.model ?? ""} placeholder="model (e.g. sonnet)" />
         <div class="swatches" role="radiogroup" aria-label="colour on the board">
           <span class="small muted">colour:</span>

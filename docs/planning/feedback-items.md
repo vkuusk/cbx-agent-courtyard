@@ -991,6 +991,100 @@ keeps using the command directly
 install tests. His live check: register (or re-install) an agent, run the script,
 watch the card verify.
 
+### 36. The second adapter: pi coding agent
+
+**Asked (architect, 2026-09-01).** Design the adapter for the pi coding agent
+(github.com/earendil-works/pi), researching first what its extension ecosystem
+(pi.dev/packages) already offers: require an existing extension, or implement our own.
+
+**Research (senior engineer, same day).** pi's native extension API covers the whole
+§7.1 contract, including the hard half: `pi.sendMessage({customType, content},
+{triggerTurn: true, deliverAs: "followUp"})` injects a message into LLM context,
+waking an idle session and queueing politely on a busy one — first-class and
+documented, where Claude Code needs a drifting research-preview flag. Extensions are
+in-process TypeScript (loaded via jiti from `.pi/extensions/`), can register tools
+(`pi.registerTool`), hook session lifecycle, and run timers and local HTTP servers.
+Options considered:
+- **(A) our own extension** speaking the unchanged hub HTTP API — chosen;
+- **(B) reuse our MCP server via the third-party `pi-mcp-adapter`** (it reads the same
+  `.mcp.json` we write): tools would work with zero code, but pi ignores our
+  Claude-Code-specific channel notification, producing the item-30 deaf-agent
+  pathology by construction — rejected;
+- **(C) `pi-intercom`**: direct pi-to-pi socket messaging, no external ingress, no
+  hub in the path — the thing courtyard replaces; prior art only;
+- **(D) pi's RPC mode**: the hub would own sessions, against D14/D16 — rejected.
+
+**Decided (architect, 2026-09-01): option A.** Sub-decisions taken with it: injection
+via `sendMessage` with `customType: "courtyard"` (never `sendUserMessage` — a peer's
+message must not impersonate the operator); token inline in the generated extension
+file, chmod 600 (D15 precedent); shift launch recipe and `start-with-courtyard.sh`
+for pi agents (plain `pi` — no flag to forget, the item-33 failure class does not
+exist there); delivery check works unchanged (`courtyard_ack` as a native tool),
+`channel_flag` honestly `present` always. Deferred refinements: a once-per-session
+instructions injection (v1 relies on tool descriptions + the self-sufficient
+envelope footers from WP-C), `--model` on the pi launch command, publishing the
+extension to pi.dev, and the README's "one adapter" wording (update after the live
+check proves it against a real pi).
+
+**Status.** implemented 2026-09-01 (**D32**, §7.3): `src/courtyard/adapters/pi/extension.ts`
+(the whole adapter, one file: attach-forever, heartbeat, local channel endpoint, the
+four tools, clean detach); `install_pi`/`uninstall_pi` render it with the agent's
+connection (token inline, 0600) plus the wrapper script (`exec pi`); the API and
+`courtyard-invite` branch on type; the add-form offers `pi`; the launch panel got a
+PiPanel; shift launches pi agents plainly. Written as plain JS in a `.ts` file so
+`tests/pi_harness.mjs` can drive the identical install-written file under bare Node
+against a live hub: the full wire round trip (attach + flag, push as
+`customType: "courtyard"` with `triggerTurn`/`followUp`, reply, turn violation
+verbatim, delivery check acked, detach) is in the automated suite — pi itself is
+not needed for it. 10 new tests (224 total). Awaiting the live check with a real pi
+session (runbook manual steps; needs pi installed); the README's "one adapter"
+wording waits for that check.
+
+**Addendum (architect, 2026-09-01): use pi's native surface to the fullest.** His
+question — is the plumbing token-free? — is satisfied by construction (heartbeat,
+attach, the endpoint are in-process code; tokens go only to reading messages and to
+the delivery check's one turn). Five native additions, implemented same day:
+live **footer status** via `ctx.ui.setStatus` (the pi analog of the claude status
+line, better: it shows connected / hub unreachable / queued live);
+`ctx.ui.notify` on hub connection lost/restored; a **`/courtyard` TUI command**
+(connection + queue, no LLM); the **etiquette skill** at pi's native
+`.pi/skills/courtyard/SKILL.md` (agentskills.io format, discovered by pi itself,
+near-zero standing token cost — closes the deferred instructions question; rides
+the install result's settings fields); and **`.courtyard/adapter.log`**, the
+per-delivery trail (his layout call: native things in native places, runtime
+artifacts in `.courtyard/`). A TUI **message renderer** for courtyard envelopes is
+registered behind a lazy `@earendil-works/pi-tui` import (falls back to default
+rendering outside pi; signature mirrored from pi's official example, verified only
+at the real-pi check). Harness extended (ctx with a recording ui, command
+invocation); the e2e now also proves footer status, /courtyard, and the log trail.
+
+**Live check (architect, 2026-09-01, real pi session `vvklab-ops`): passed.** Start
+shift spawned the pi terminal itself; the extension attached and showed the
+connected footer; the courtyard skill loaded in the session; the delivery check was
+acked (green ✓); and a send to an unlinked agent surfaced the hub's `not_linked`
+refusal verbatim and stopped — manual discovery working as designed across adapter
+types. Two follow-ups from the run: the board pill counted claude-code targets only
+(showed 2/2 for a team of 3 — fixed same day, board.js filter widened to pi, plus
+the same guard in `shift_and_settings.py`); the TUI envelope-card renderer still
+awaits visual confirmation.
+
+### 37. A directory picker for the agent's workdir
+
+**Asked (architect, 2026-09-01).** The registration and edit forms take the project
+directory as a typed path; add a pulldown directory-navigation dialog.
+
+**Status.** implemented 2026-09-01: `GET /api/fs/dirs` (dev-mode admin surface, D3
+localhost — the hub lists its own disk, the same premise install already relies on;
+directories only, hidden entries excluded, 500-entry cap) + a **browse…** button
+beside the workdir input in both the add form and the Edit Agent view, opening a
+dialog: current path, `..` up, click a directory to descend, "use this directory"
+fills the input. Defaults taken (flagged for his veto): starts at the hub user's
+home; dotdirs hidden; no new-folder creation from the dialog; in live/container
+mode the hub would browse its own filesystem, not the agent machine's (same
+limitation as install, acceptable while v1 is dev-mode). Verified in the browser
+(home listing, descend, pick fills the field; zero console errors); API test in
+`test_health.py`. Awaiting his look.
+
 ---
 
 ## Work packages (discussion outcome, 2026-08-24)
@@ -1055,3 +1149,5 @@ that review.
 | 33 | Channel-less session undetected: adapter reports the launch flag; popup + red foot on `absent` | adapter / attach / board | implemented 2026-08-31 (**D29**); awaiting live check |
 | 34 | Delivery-verification check: hub-notice + token, `courtyard_ack`, auto on attach-during-shift + card button | delivery / adapter / board | implemented 2026-08-31 (**D30**); awaiting live check |
 | 35 | `start-with-courtyard.sh` launch wrapper written by install; docs and popup point at it | install / docs | implemented 2026-08-31 (**D31**); awaiting live check |
+| 36 | The pi adapter: one native extension file, option A of the research (sendMessage injection, no flag class) | adapters / install / shift | implemented 2026-09-01 (**D32**, §7.3) + native-surface addendum (status, /courtyard, skill, log, renderer); awaiting real-pi check |
+| 37 | Directory picker for the workdir (browse the hub's disk from the add/edit forms) | WebUI / API | implemented 2026-09-01; awaiting his look |

@@ -50,6 +50,10 @@ def launch_command_text(model: str | None) -> str:
 
 
 def launch_command(agent: Agent) -> str:
+    """Per-type launch recipe (§8.1's seam). pi needs no flag: the courtyard
+    extension is auto-discovered from `.pi/extensions/` (item 36, D32)."""
+    if agent.type == "pi":
+        return "pi"
     return launch_command_text(agent.model)
 
 
@@ -379,15 +383,15 @@ class ShiftService:
         self._events.publish("shift", status)
 
     def _targets(self) -> tuple[list[Agent], list[str]]:
-        """(launchable agents, skipped names). v1 launches claude-code only — a puppet is
-        a test twin, started by whoever is testing; other types have no launch profile."""
+        """(launchable agents, skipped names). claude-code and pi have launch profiles
+        (D32); a puppet is a test twin, started by whoever is testing."""
         launchable: list[Agent] = []
         skipped: list[str] = []
         with self._storage.transaction() as uow:
             for agent in uow.agents.list():
                 if agent.removed_at is not None or agent.type == "human":
                     continue
-                if agent.type != "claude-code":
+                if agent.type not in ("claude-code", "pi"):
                     skipped.append(agent.name)
                 elif not agent.workdir:
                     skipped.append(agent.name)

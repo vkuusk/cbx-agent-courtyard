@@ -279,3 +279,56 @@ class TestStartScript:
         result = install.uninstall(str(tmp_path))
         assert result.script_removed is False
         assert "rewritten by hand" in script.read_text()
+
+
+class TestPiInstall:
+    """Item 36 (D32): the pi adapter is one extension file plus the wrapper script."""
+
+    def test_install_writes_the_extension_with_token_and_the_wrapper(self, tmp_path):
+        result = install.install_pi(str(tmp_path), HUB, "pibot", "tok")
+        ext = tmp_path / ".pi/extensions/courtyard.ts"
+        assert result.path == str(ext)
+        text = ext.read_text()
+        assert '"tok"' in text and '"pibot"' in text and HUB in text
+        assert "__COURTYARD_" not in text  # every placeholder substituted
+        assert mode(ext) == 0o600
+        script = tmp_path / "start-with-courtyard.sh"
+        assert "exec pi " in script.read_text()
+        assert mode(script) & 0o111
+        skill = tmp_path / ".pi/skills/courtyard/SKILL.md"
+        assert result.settings_path == str(skill)
+        text2 = skill.read_text()
+        assert text2.startswith("---\nname: courtyard")
+        assert "courtyard_send" in text2 and "Written by the courtyard" in text2
+
+    def test_reinstall_regenerates_ours_and_backs_up_a_foreign_file(self, tmp_path):
+        install.install_pi(str(tmp_path), HUB, "pibot", "tok")
+        result = install.install_pi(str(tmp_path), HUB, "pibot", "tok2")
+        assert result.replaced_server is True and result.backed_up is None
+        assert '"tok2"' in (tmp_path / ".pi/extensions/courtyard.ts").read_text()
+        theirs = tmp_path / ".pi/extensions/courtyard.ts"
+        theirs.write_text("// my own extension\n")
+        result = install.install_pi(str(tmp_path), HUB, "pibot", "tok3")
+        backup = tmp_path / ".pi/extensions/courtyard.ts.courtyard-bak"
+        assert result.backed_up == str(backup)
+        assert backup.read_text() == "// my own extension\n"
+
+    def test_uninstall_pi_reverses_exactly(self, tmp_path):
+        install.install_pi(str(tmp_path), HUB, "pibot", "tok")
+        result = install.uninstall_pi(str(tmp_path))
+        assert result.removed_server is True and result.script_removed is True
+        assert result.settings_cleaned is True  # the skill (rides the settings fields)
+        assert not (tmp_path / ".pi/extensions/courtyard.ts").exists()
+        assert not (tmp_path / "start-with-courtyard.sh").exists()
+        assert not (tmp_path / ".pi/skills/courtyard").exists()
+        with pytest.raises(NothingToUninstall):
+            install.uninstall_pi(str(tmp_path))
+
+    def test_uninstall_pi_restores_a_backed_up_foreign_extension(self, tmp_path):
+        (tmp_path / ".pi/extensions").mkdir(parents=True)
+        theirs = tmp_path / ".pi/extensions/courtyard.ts"
+        theirs.write_text("// my own extension\n")
+        install.install_pi(str(tmp_path), HUB, "pibot", "tok")
+        result = install.uninstall_pi(str(tmp_path))
+        assert result.restored_from_backup is True
+        assert theirs.read_text() == "// my own extension\n"

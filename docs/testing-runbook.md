@@ -502,3 +502,37 @@ collapsible blocks, one per delivery case plus the adapter instructions, served 
    (or the adapter stderr log) with the matching sample; the wrapper must be
    identical apart from names, ids and the body.
 3. Zero errors in the browser console.
+
+---
+
+## The pi adapter (design §7.3, D32, item 36)
+
+**Feature under test:** the second adapter — one extension file
+(`.pi/extensions/courtyard.ts`) written by install, speaking the same hub contract
+as the Claude Code adapter.
+
+**Scripted part** (runs the exact install-written file under Node with a stub `pi`
+object against a real hub: attach with `channel_flag: present`, push arrives as a
+`customType: "courtyard"` message with `triggerTurn`/`followUp`, reply through the
+turn machine, a turn violation surfaced verbatim, the delivery check acked, clean
+detach):
+
+```
+uv run pytest tests/test_pi_adapter.py -q
+```
+
+**Manual part — a real pi session** (needs pi installed: `npm i -g @earendil-works/pi-coding-agent`):
+
+1. Register an agent with `--type pi` and a workdir; install writes the extension,
+   the wrapper, and the etiquette skill (`.pi/skills/courtyard/SKILL.md`). Run `./start-with-courtyard.sh` there: the card goes green with
+   `channel_flag` present, and — with a shift on — the delivery check turns the ✓
+   green as the model calls `courtyard_ack`.
+2. Message it from the board: the envelope appears in the pi session as a courtyard
+   message (not as user input), and the model's reply comes back via
+   `courtyard_send` and lands on the board.
+3. In the pi TUI: the footer shows `⏺ <agent> · courtyard · connected`; incoming
+   envelopes render as courtyard cards (sender + kind header), not raw XML;
+   `/courtyard` answers with the connection and queue without an LLM turn; and
+   `.courtyard/adapter.log` in the workdir logs every delivery.
+4. Mixed team: one claude-code agent and one pi agent on a line, a relayed question
+   through the gate — same turn-taking, same envelope, both directions.

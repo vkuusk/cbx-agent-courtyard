@@ -827,7 +827,17 @@ delivery; the board shows the payload only; nothing in the WebUI or API exposes 
 delivered text (the adapter's stderr log has it). Editing would touch D14 (the hub
 words what the model sees) and the tested etiquette wording.
 
-**Status.** open.
+**Status.** the visibility half implemented 2026-09-01: Admin gains an **Envelope**
+section ("What the agents read") — eight collapsible blocks, one per case (peer
+question/answer, domain owner, operator message/note, hub notice, delivery check,
+adapter instructions), served by `GET /api/envelope` from `envelope.preview()`, which
+builds sample messages through the real `render()` so the display cannot drift from
+what agents receive. 2 new tests; browser-verified, zero console errors. The
+**editable** half stays open for discussion (senior engineer's position: resist for
+v1 — D14 says the hub words what the model sees, and the footer wording is what
+items 16/24/26 tested; a hand-edited envelope silently invalidates that). The opus
+back-and-forth observation itself also stays open: visibility is the first step,
+not the fix.
 
 ### 30. Manually restarted sessions run without channels; the hub should say how to restart right
 
@@ -1038,7 +1048,7 @@ that review.
 | 26 | Relayed answer stopped at the relaying agent (unscoped "no reply is owed") | envelope | fixed 2026-08-28 (scoped footer + relay clause); **confirmed** |
 | 27 | Remote hub deployment: compose-only local install; agents local + remote; MCP over streamable_http + remote-channels check | deployment / adapter | open (post-v1) |
 | 28 | Notify the user about install-written files (`.mcp.json`, `settings.local.json`, `.courtyard-bak`); offer `.gitignore` entries | install / docs | open |
-| 29 | Opus agents keep exchanging; make the envelope visible (editable — to discuss) | envelope / WebUI | open |
+| 29 | Opus agents keep exchanging; make the envelope visible (editable — to discuss) | envelope / WebUI | visibility done 2026-09-01 (Admin → Envelope); editable + the loop itself open |
 | 30 | Manually restarted sessions run channel-less; hub message on how to restart with channels; close sessions after registering? | launch / docs / board | open |
 | 31 | Shift start trusted stale green statuses (skip-spawn → stale dialog); set unknown + wait for a heartbeat at shift start | shift / liveness | fixed 2026-08-31 (**D28**; heartbeat → 5 s); "checking" flip confirmed live |
 | 32 | Channels unavailable → pull from queue? Revisit queue handling (simple pub-sub container, postgres-backed) | delivery / architecture | open |

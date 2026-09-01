@@ -114,6 +114,31 @@ function SettingsSection() {
     </div>`;
 }
 
+// Item 29 (the visibility half): the exact texts the hub puts in front of the models,
+// one block per case, fetched from the hub so what is shown is what render() produces.
+// Read-only; whether the operator may edit the wording is a separate, open discussion.
+function EnvelopeSection() {
+  const [blocks, setBlocks] = useState(null);
+  const [open, setOpen] = useState(null);
+  useEffect(() => { api.envelope().then(setBlocks).catch(() => {}); }, []);
+  if (!blocks) return null;
+  return html`
+    <div class="eyebrow" style="margin-top:1.2rem">Message envelope</div>
+    <div class="panel"><h3>What the agents receive</h3>
+      <div class="small muted" style="margin-bottom:.8rem">The hub wraps every delivery in one of these
+        envelopes; the samples below are rendered by the same code that renders real deliveries.
+        The wording ships with the hub and is not editable here. The token figure is what the
+        envelope adds around the message body, estimated at about four characters per token.</div>
+      ${blocks.map((b) => html`
+        <div style="margin:.7rem 0">
+          <button class="link" onClick=${() => setOpen(open === b.title ? null : b.title)}>
+            ${open === b.title ? "▾" : "▸"} ${b.title}</button>
+          <span class="small muted" style="margin-left:.5rem">${b.note} · ≈${b.overhead_tokens} tokens</span>
+          ${open === b.title ? html`<pre class="cmd" style="margin-top:.35rem">${b.text}</pre>` : null}
+        </div>`)}
+    </div>`;
+}
+
 export function Admin() {
   useStore();
   const [health, setHealth] = useState(null);
@@ -143,5 +168,6 @@ export function Admin() {
         <dt>lines</dt><dd>${lines.length - inactive} active · ${inactive} inactive</dd>
         <dt>held at the gate</dt><dd>${store.pending.size}</dd>
       </dl></div>
-    <${SettingsSection} />`;
+    <${SettingsSection} />
+    <${EnvelopeSection} />`;
 }

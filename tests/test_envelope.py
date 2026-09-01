@@ -183,3 +183,33 @@ def test_delivery_check_body_names_the_tool_and_the_token():
     text = delivery_check_body("tok-123")
     assert "courtyard_ack" in text and '"tok-123"' in text
     assert "Do nothing else" in text
+
+
+def test_preview_covers_every_variant_and_is_deterministic():
+    """Item 29 (visibility): the Admin page's blocks come from the real render()."""
+    from courtyard.hub.core.envelope import preview
+
+    blocks = preview()
+    titles = [b["title"] for b in blocks]
+    assert len(titles) == len(set(titles)) == 7
+    by_title = {b["title"]: b["text"] for b in blocks}
+    assert "courtyard_send" in by_title["A question from a peer"]  # the reply footer
+    assert "is complete" in by_title["An answer from a peer"]  # the closing footer
+    assert "(what the sender owns)" in by_title["A question from a domain owner"]
+    assert 'authority="operator"' in by_title["A message from the operator"]
+    assert "needs no separate reply" in by_title["An operator note"]  # the note footer
+    assert "courtyard_ack" in by_title["The delivery check"]
+    assert preview() == blocks  # deterministic: fixed ids and timestamps
+    for b in blocks:  # the Admin page's token figure: overhead, always positive
+        assert isinstance(b["overhead_tokens"], int) and b["overhead_tokens"] > 0
+    question = next(b for b in blocks if b["title"] == "A question from a peer")
+    assert 100 < question["overhead_tokens"] < 300  # ~4 chars/token of wrapper text
+
+
+def test_envelope_api_serves_the_blocks_plus_adapter_instructions(client):
+    blocks = client.get("/api/envelope").json()
+    titles = [b["title"] for b in blocks]
+    assert titles[-1] == "The adapter instructions"
+    assert len(titles) == 8
+    assert all(b["text"].strip() and b["note"].strip() for b in blocks)
+    assert all(b["overhead_tokens"] > 0 for b in blocks)

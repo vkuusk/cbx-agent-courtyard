@@ -19,6 +19,9 @@ a new agent type forwards text, it does not re-implement grading (D14).
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from uuid import UUID
+
 from courtyard.common.models import Message
 
 TAG = "courtyard-message"
@@ -167,6 +170,115 @@ def render(message: Message) -> str:
 def with_rendering(message: Message) -> Message:
     """The message as an agent receives it: the same record, plus `rendered`."""
     return message.model_copy(update={"rendered": render(message)})
+
+
+# What the envelope costs, for the Admin page: modern tokenizers average about four
+# characters per token on English prose, so tokens ≈ chars / 4. This is an estimate
+# for budgeting, not a count — the exact number depends on the recipient model's
+# tokenizer. The overhead of a delivery is the rendered envelope minus the body it
+# carries; the delivery check and the adapter instructions are hub-authored end to
+# end, so their whole text counts (the instructions once per session, not per message).
+CHARS_PER_TOKEN = 4
+
+
+def estimate_tokens(text: str) -> int:
+    return -(-len(text) // CHARS_PER_TOKEN)  # ceiling division
+
+
+def preview() -> list[dict[str, str | int]]:
+    """Item 29 (the visibility half): every model-facing text the hub renders, built
+    as sample messages through the real render() — so what the Admin page shows is
+    what an agent reads, by construction. Deterministic (fixed ids and timestamps).
+    Each block carries `overhead_tokens`: the estimated tokens the envelope adds
+    around the message body (for the fully hub-authored blocks, the whole text)."""
+
+    def sample(**overrides) -> Message:
+        base: dict = {
+            "id": UUID(int=0),
+            "line_id": UUID(int=0),
+            "seq": 1,
+            "sender": UUID(int=1),
+            "recipient": UUID(int=2),
+            "kind": "message",
+            "body": "(the sender's message text)",
+            "status": "delivered",
+            "created_at": datetime(2026, 1, 1, tzinfo=UTC),
+            "sender_name": "peer-agent",
+            "sender_type": "claude-code",
+        }
+        base.update(overrides)
+        return Message(**base)
+
+    entries = [
+        (
+            "A question from a peer",
+            "an agent with no declared domain opens (or continues) an exchange",
+            sample(),
+        ),
+        (
+            "An answer from a peer",
+            "the reply that closes the exchange",
+            sample(reply_to=UUID(int=3)),
+        ),
+        (
+            "A question from a domain owner",
+            "the sender has a declared domain; yours, when set, is named too",
+            sample(
+                sender_name="domain-owner-agent",
+                sender_sme_domain="(what the sender owns)",
+                recipient_sme_domain="(what you own)",
+            ),
+        ),
+        (
+            "A message from the operator",
+            "you, through the hub: your line's messages and gate verdicts",
+            sample(sender_name="operator", sender_type="human"),
+        ),
+        (
+            "An operator note",
+            "your comment riding along an approved message",
+            sample(
+                kind="operator_note",
+                sender_name="operator",
+                sender_type="human",
+                body="(your note's text)",
+            ),
+        ),
+        (
+            "A hub notice",
+            "the hub reporting facts about the agent's own messages",
+            sample(
+                sender=None,
+                sender_name=None,
+                sender_type=None,
+                kind="system",
+                body="(a factual notice, e.g. a gate decision on your message)",
+            ),
+        ),
+        (
+            "The delivery check",
+            "sent when a session begins during a shift, and from the card's check button",
+            sample(
+                sender=None,
+                sender_name=None,
+                sender_type=None,
+                kind="system",
+                seq=0,
+                body=delivery_check_body("(token)"),
+            ),
+        ),
+    ]
+    blocks: list[dict[str, str | int]] = []
+    for title, note, message in entries:
+        text = render(message)
+        # Hub-authored end to end (sender None): the whole text is the overhead.
+        # Otherwise: the envelope around the body, so the placeholder body comes off.
+        wrapper = text if message.sender is None else text.replace(message.body, "", 1)
+        blocks.append(
+            {"title": title, "note": note, "text": text,
+             "overhead_tokens": estimate_tokens(wrapper)}
+        )
+    return blocks
 
 
 def delivery_check_body(token: str) -> str:

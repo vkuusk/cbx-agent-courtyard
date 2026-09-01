@@ -485,3 +485,20 @@ uv run python scripts/runbook/delivery_check.py
    After the timeout (60 s) the foot turns to *delivery check failed* (the flag warning
    outranks it when both apply). Expected everywhere: the check never appears in any
    line history or archive.
+
+---
+
+## Envelope visibility on the Admin page (item 29, visibility half)
+
+**Feature under test:** Admin → **Envelope** ("What the agents read"): eight
+collapsible blocks, one per delivery case plus the adapter instructions, served by
+`GET /api/envelope` from the same `render()` that wraps real deliveries.
+
+1. Open Admin, scroll to Envelope: eight rows, each with a one-line note on when it
+   applies. Expand "A question from a peer": the full `<courtyard-message>` sample
+   with the agent preamble and the reply footer. Expand "The delivery check": the
+   `courtyard_ack` instruction with a placeholder token.
+2. Cross-check honesty: send a real agent a message and compare the pane's raw text
+   (or the adapter stderr log) with the matching sample; the wrapper must be
+   identical apart from names, ids and the body.
+3. Zero errors in the browser console.

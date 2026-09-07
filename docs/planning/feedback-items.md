@@ -4,7 +4,7 @@ The architect tests the courtyard with real Claude Code agents and records what 
 observes here, one item per observation or question, **stated but not answered**. Action
 items are discussed and decided only after a review cycle is complete; until then every
 item is *open*. Decisions taken from an item are recorded in the design doc's decision log
-(`docs/design/architecture-v1-2026-08-18.md` §13) and the step plan
+(`docs/design/architecture-v1.md` §13) and the step plan
 (`v1-implementation-steps.md`), and the item is marked with a pointer to them.
 
 Conventions: items keep the architect's numbering; the *Touches* line lists where the
@@ -1100,6 +1100,78 @@ docs, design §7.4 with a rename note). History keeps the old word: the decision
 this file's earlier items, and the planning steps are records, not living docs.
 225 tests green. His next `make demo` is the live check of the renamed cast.
 
+### 39. Hub-side memory: learn lessons from inter-agent collaboration
+
+**Asked (architect, 2026-09-06).** Courtyard deliberately leaves craft memory to the
+agents themselves: each specialist grows its own experience (memories, skills) in its
+own directory, and the hub stays out of it. The open question is whether the hub
+should keep a memory of its own — distilled not from any agent's work but from what
+only the hub sees: the complete inter-agent record and the operator's verdicts. Could
+the team learn lessons from how its collaborations went?
+
+**Ideas (discussion, same day).** One design principle first: a memory layer is only
+real once there is a path that delivers it back into an agent's context; extraction
+into storage that nothing reads back is a dashboard feature, not memory. So design
+the retrieval hop before the extraction. The hub already owns two proven delivery
+paths — the envelope and the hub tools — and the envelope's token overhead is already
+measured and watched (item 29), which argues for pull over push. Candidate memory
+types, ranked:
+
+1. **Conversation outcome digests.** At end shift, when the books close, distill each
+   finished conversation into a short record: who asked whom, what was asked, what
+   was decided. End shift is a natural consolidation moment — a boundary that already
+   exists and already means "the day's work is complete". Retrieval pull-based: a
+   hub tool in the spirit of the existing ones (a `courtyard_recall`) that lets an
+   agent ask "has the team discussed X before" and get the digest instead of
+   re-opening a line and spending a peer's turn. Zero standing token cost.
+2. **Verdict lessons.** A return-to-sender with the operator's comment is a labeled
+   example: this message, on this line, was wrong, and here is why. These are the
+   highest-signal events the hub records, and today they evaporate into the archive.
+   Distilled per agent, they could be delivered as a short hub notice at shift start
+   or on the next send on that line — turning supervision into standing guidance,
+   which is exactly how a line earns auto-pass.
+3. **Evidence-based routing.** The roster's capability/SME descriptions are static
+   and human-written; the hub sees who actually answered what, and where an asker
+   picked the wrong SME. A periodic digest could suggest description refinements —
+   shown to the operator, never auto-applied; team design stays the operator's.
+4. **Operator-side memory.** Not for the agents: surface the operator's own patterns
+   back to them ("three messages of this shape returned this week"), reducing
+   supervision burden. Cheapest of the four — a query over data already in Postgres
+   plus a UI panel.
+
+Deliberately not the starting point: an embedding/vector store. Digests and verdict
+lessons are few and small; plain Postgres queries (or full-text search) cover
+retrieval until they number in the hundreds. Start from the trusted delivery paths,
+an extraction pass at end shift, and plain storage.
+
+**Touches.** End shift (consolidation moment); envelope / hub tools (the retrieval
+paths); storage (new tables); Admin/WebUI (whatever is surfaced to the operator).
+
+**Status.** open — ideas recorded, no decision; touches end shift, the envelope and
+possibly a new tool, so it wants a design discussion (and a D-number) before any code.
+
+### 40. `courtyard-invite --remove` undoes the install but not the registration
+
+**Flagged (senior engineer, 2026-09-01; recorded 2026-09-06).** The register and
+remove paths are asymmetric. `--register` does two things: registers the agent on the
+hub, then writes the files into the workdir. `--remove` does one: it uninstalls the
+files (`invite.py` calls only `client.uninstall`) and leaves the registration on the
+hub, so the agent stays on the roster with no configured workdir. AGENTS.md says
+"Undo with the same command using `--remove`", which reads as a full undo. The WebUI's
+remove flow, by contrast, already does both in the right order (uninstall before
+delete, item 15).
+
+An observation to weigh rather than answer here: registration delete is a soft
+remove and the name is a permanent identity, so a full-undo `--remove` would burn
+the name — which is fine for a genuine undo but wrong for "detach this directory,
+keep the agent". The fix may be wording (AGENTS.md saying exactly what `--remove`
+does), behavior (`--remove` also deletes, perhaps behind a second flag), or both.
+
+**Touches.** `courtyard-invite` (`invite.py`); `HubClient.uninstall`; AGENTS.md
+wording; parity with the WebUI remove flow (item 15).
+
+**Status.** open.
+
 ---
 
 ## Work packages (discussion outcome, 2026-08-24)
@@ -1167,3 +1239,5 @@ that review.
 | 36 | The pi adapter: one native extension file, option A of the research (sendMessage injection, no flag class) | adapters / install / shift | implemented 2026-09-01 (**D32**, §7.3) + native-surface addendum (status, /courtyard, skill, log, renderer); awaiting real-pi check |
 | 37 | Directory picker for the workdir (browse the hub's disk from the add/edit forms) | WebUI / API | implemented 2026-09-01; awaiting his look |
 | 38 | Rename puppet → dummy (the Puppet-the-product collision for devops readers) | vocabulary / everywhere living | implemented 2026-09-01 (migration 0016); demo run pending |
+| 39 | Hub-side memory: learn lessons from inter-agent collaboration (digests, verdict lessons, routing evidence, operator patterns) | shift / envelope / storage | open — ideas recorded, awaiting design discussion |
+| 40 | `courtyard-invite --remove` uninstalls the files but leaves the registration (AGENTS.md implies full undo) | invite CLI / docs | open |

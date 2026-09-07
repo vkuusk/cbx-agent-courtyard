@@ -93,7 +93,7 @@ the full walkthrough with every screen described.
 - Every completed feature ships a manual verification procedure in
   `docs/testing-runbook.md` plus a durable script in `scripts/runbook/`;
   conventions live in `docs/developer-notes.md`.
-- The design document (`docs/design/architecture-v1-2026-08-18.md`) records
+- The design document (`docs/design/architecture-v1.md`) records
   every decision with its reasons in a decision log; read the relevant entries
   before proposing a design change.
 - User-facing docs (README, `docs/`) never use the em dash character; write in

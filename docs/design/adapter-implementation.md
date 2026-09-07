@@ -3,7 +3,7 @@
 Scope: `src/courtyard/adapters/claude_code/mcp_server.py`, installed as
 `courtyard-claude-mcp`. This records the implementation-level decisions, one per
 section, laconic. The architecture-level decisions it builds on live in the main
-design doc (`architecture-v1-2026-08-18.md`): §7 (adapter contract), D14 (thin
+design doc (`architecture-v1.md`): §7 (adapter contract), D14 (thin
 agent side), D15 (token placement), the step-6a spike (channels).
 
 ## 1. One stdio process per agent, spawned by Claude Code

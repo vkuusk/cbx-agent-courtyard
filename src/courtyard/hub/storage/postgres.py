@@ -15,7 +15,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Json
 from psycopg_pool import ConnectionPool
 
-from courtyard.common.models import Agent, Archive, Channel, Line, Message
+from courtyard.common.models import Agent, Archive, Channel, Line, Message, Team
 
 _MESSAGE_SELECT = """
 SELECT m.*, sa.name AS sender_name, ra.name AS recipient_name,
@@ -470,6 +470,56 @@ class PgChannelRepo:
         return [Channel.model_validate(r) for r in rows]
 
 
+# The `loaded` column carries the cached charter document; the model calls it `charter`.
+_TEAM_SELECT = (
+    "SELECT id, charter_dir, name, is_current, loaded AS charter, load_report,"
+    " loaded_at, created_at FROM teams"
+)
+
+
+class PgTeamRepo:
+    def __init__(self, conn: Connection):
+        self._conn = conn
+
+    def insert(self, *, team_id, charter_dir, name, loaded, load_report) -> Team:
+        self._conn.execute(
+            "INSERT INTO teams (id, charter_dir, name, loaded, load_report, loaded_at)"
+            " VALUES (%s, %s, %s, %s, %s, now())",
+            (team_id, charter_dir, name, Json(loaded) if loaded else None, Json(load_report)),
+        )
+        return self.get(team_id)
+
+    def get(self, team_id: UUID) -> Team | None:
+        row = self._conn.execute(_TEAM_SELECT + " WHERE id = %s", (team_id,)).fetchone()
+        return Team.model_validate(row) if row else None
+
+    def get_by_dir(self, charter_dir: str) -> Team | None:
+        row = self._conn.execute(
+            _TEAM_SELECT + " WHERE charter_dir = %s", (charter_dir,)
+        ).fetchone()
+        return Team.model_validate(row) if row else None
+
+    def list(self) -> list[Team]:
+        rows = self._conn.execute(_TEAM_SELECT + " ORDER BY created_at").fetchall()
+        return [Team.model_validate(r) for r in rows]
+
+    def set_loaded(self, team_id, name, loaded, load_report) -> Team | None:
+        row = self._conn.execute(
+            "UPDATE teams SET name = %s, loaded = %s, load_report = %s, loaded_at = now()"
+            " WHERE id = %s RETURNING id",
+            (name, Json(loaded) if loaded else None, Json(load_report), team_id),
+        ).fetchone()
+        return self.get(team_id) if row else None
+
+    def set_current(self, team_id: UUID | None) -> None:
+        self._conn.execute("UPDATE teams SET is_current = false WHERE is_current")
+        if team_id is not None:
+            self._conn.execute("UPDATE teams SET is_current = true WHERE id = %s", (team_id,))
+
+    def delete(self, team_id: UUID) -> None:
+        self._conn.execute("DELETE FROM teams WHERE id = %s", (team_id,))
+
+
 class PgSettingsRepo:
     def __init__(self, conn: Connection):
         self._conn = conn
@@ -497,6 +547,7 @@ class PgUnitOfWork:
         self.channels = PgChannelRepo(conn)
         self.archives = PgArchiveRepo(conn)
         self.settings = PgSettingsRepo(conn)
+        self.teams = PgTeamRepo(conn)
 
 
 class PostgresStorage:

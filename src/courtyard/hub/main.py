@@ -24,6 +24,7 @@ from courtyard.hub.core.events import EventBus
 from courtyard.hub.core.gate import EventApprover
 from courtyard.hub.core.registry import Registry
 from courtyard.hub.core.shift import ShiftService
+from courtyard.hub.core.teams import TeamService
 from courtyard.hub.storage.postgres import PostgresStorage
 
 logger = logging.getLogger("courtyard.hub")
@@ -94,6 +95,7 @@ def create_app(config: Config | None = None) -> FastAPI:
         app.state.channels = channels
         app.state.archiver = archiver
         app.state.shift = shift
+        app.state.teams = TeamService(storage)
         app.state.board = Board(
             storage,
             registry,

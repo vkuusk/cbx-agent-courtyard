@@ -7,7 +7,7 @@ from contextlib import AbstractContextManager
 from typing import Any, Protocol
 from uuid import UUID
 
-from courtyard.common.models import Agent, Archive, Channel, Line, Message
+from courtyard.common.models import Agent, Archive, Channel, Line, Message, Team
 
 
 class AgentRepo(Protocol):
@@ -190,6 +190,39 @@ class SettingsRepo(Protocol):
     def delete(self, key: str) -> None: ...
 
 
+class TeamRepo(Protocol):
+    """The team charter registry (design team-charter.md, D33): registered charter
+    directories with what the hub last loaded from each. At most one row is current."""
+
+    def insert(
+        self,
+        *,
+        team_id: UUID,
+        charter_dir: str,
+        name: str | None,
+        loaded: dict | None,
+        load_report: list[str],
+    ) -> Team: ...
+
+    def get(self, team_id: UUID) -> Team | None: ...
+
+    def get_by_dir(self, charter_dir: str) -> Team | None: ...
+
+    def list(self) -> list[Team]: ...
+
+    def set_loaded(
+        self, team_id: UUID, name: str | None, loaded: dict | None, load_report: list[str]
+    ) -> Team | None:
+        """Record a reload: the cached charter, its report, and loaded_at = now."""
+        ...
+
+    def set_current(self, team_id: UUID | None) -> None:
+        """Make exactly this team current (None = no current team)."""
+        ...
+
+    def delete(self, team_id: UUID) -> None: ...
+
+
 class ChannelRepo(Protocol):
     def upsert(
         self, agent_id: UUID, endpoint: str, channel_token: str, channel_flag: str = "unknown"
@@ -222,6 +255,7 @@ class UnitOfWork(Protocol):
     channels: ChannelRepo
     archives: ArchiveRepo
     settings: SettingsRepo
+    teams: TeamRepo
 
 
 class Storage(Protocol):

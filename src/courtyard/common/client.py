@@ -21,7 +21,15 @@ from uuid import UUID
 
 import httpx
 
-from courtyard.common.models import Agent, Archive, AttachSummary, Line, Message, PeersView
+from courtyard.common.models import (
+    Agent,
+    Archive,
+    AttachSummary,
+    Line,
+    Message,
+    PeersView,
+    Team,
+)
 
 CHANNEL_TOKEN_HEADER = "X-Courtyard-Channel-Token"
 DEFAULT_HUB_URL = "http://127.0.0.1:2626"
@@ -211,6 +219,26 @@ class HubClient:
 
     def patch_settings(self, patch: dict) -> dict:
         return self._call("PATCH", "/api/settings", patch)
+
+    # -- the team charter registry (design team-charter.md, D33) -----------------------
+
+    def teams(self) -> list[Team]:
+        return [Team.model_validate(t) for t in self._call("GET", "/api/teams")]
+
+    def add_team(self, charter_dir: str, name: str | None = None) -> Team:
+        return Team.model_validate(
+            self._call("POST", "/api/teams", {"charter_dir": charter_dir, "name": name})
+        )
+
+    def reload_team(self, team_id: UUID | str) -> Team:
+        return Team.model_validate(self._call("POST", f"/api/teams/{team_id}/reload"))
+
+    def set_current_team(self, team_id: UUID | str | None) -> list[Team]:
+        body = {"team_id": str(team_id) if team_id else None}
+        return [Team.model_validate(t) for t in self._call("POST", "/api/teams/current", body)]
+
+    def remove_team(self, team_id: UUID | str) -> Team:
+        return Team.model_validate(self._call("DELETE", f"/api/teams/{team_id}"))
 
 
 class ChannelReceiver:

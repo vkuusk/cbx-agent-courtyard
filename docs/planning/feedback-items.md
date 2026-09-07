@@ -1232,7 +1232,16 @@ skills; WebUI Agents; a new sync path.
 
 **Status.** design accepted 2026-09-07 (**D33**; every open question decided or
 postponed to next-features-list — incl. **envelope delta = one anti-scope line
-per peer, nothing more**, and **hooks postponed**); implementation not started.
+per peer, nothing more**, and **hooks postponed**). **Slice 1 (read path)
+implemented 2026-09-07**: migration 0017 `teams`, `core/charter.py` loader
+(lenient, report-everything), `core/teams.py` + `/api/teams` (add; a charter-less dir, empty or not, draws
+422 `charter_name_required` = the UI's initialize offer, name confirms —
+refined same day from an empty-only bootstrap after his live check; reload,
+current, remove),
+Admin Teams section + current team on the board eyebrow, fixture charter in
+`tests/team-charter/` (3 agents), 8 tests, runbook `team_charter.py`,
+Playwright 9/9. Next slices: projection into registrations (incl. anti-scope
+column + envelope line, workdir overlay, shift guard), then write-back.
 
 ### 42. Threads: a bounded exchange about one ask, inside a line
 
@@ -1271,6 +1280,23 @@ turn machine boundary; envelope footers; end shift; conversation pane.
 
 **Status.** design accepted 2026-09-07 (**D34**; "verifiably done" parked in
 next-features-list); implementation not started.
+
+---
+
+### 43. The directory picker should look standard (2026-09-07)
+
+**Observation (architect):** the from-scratch browse dialog (item 37) does not look
+professional; wants a standard dialog — the macOS system one, or the browser's.
+
+**Resolution (same day):** browser pickers cannot do the job — web APIs never reveal
+an absolute path to the page, and the hub needs one. The hub instead opens the REAL
+macOS folder dialog via `osascript` (same operator-screen premise as the shift's
+Terminal windows): `core/fs_pick.py` + `POST /api/fs/pick-dir`; cancel returns null;
+`browse…` everywhere (workdirs, charter dir) uses it. The in-page dialog stays as the
+fallback on `native_picker_unavailable` (not macOS, no GUI, `COURTYARD_NATIVE_PICKER=0`,
+a remote hub one day). 6 tests; runbook teams entry updated.
+
+**Status.** implemented, awaiting his check.
 
 ---
 
@@ -1343,3 +1369,4 @@ that review.
 | 40 | `courtyard-invite --remove` uninstalls the files but leaves the registration (AGENTS.md implies full undo) | invite CLI / docs | open |
 | 41 | Team charter: the team defined as files (cards + rules of engagement + topology, files as source of truth) | registration / install / links / envelope / WebUI | open — design in `docs/design/team-charter.md` |
 | 42 | Threads: a bounded exchange about one ask inside a line (serial in v1; lifecycle open/closed/expired/locked) | domain model / storage / envelope / shift / WebUI | open — design in `docs/design/threads.md` |
+| 43 | The directory picker should look standard → native macOS folder dialog via the hub, in-page dialog as fallback | WebUI / api/fs | implemented, awaiting his check |

@@ -536,3 +536,40 @@ uv run pytest tests/test_pi_adapter.py -q
    `.courtyard/adapter.log` in the workdir logs every delivery.
 4. Mixed team: one claude-code agent and one pi agent on a line, a relayed question
    through the gate — same turn-taking, same envelope, both directions.
+
+## The team charter registry, read path (design team-charter.md, D33 — slice 1)
+
+**Feature under test:** registering team charter directories with the hub, loading and
+displaying what the files say, explicit reload, and current-team selection. No agents,
+lines or shift are touched; a hub with no team registered behaves exactly as before.
+
+**Scripted part** (its own throwaway hub; add the committed demo charter, initialize a
+charter-less dir, edit-then-reload, broken charter renders a report, current selection,
+remove leaves the files):
+
+```
+uv run python scripts/runbook/team_charter.py
+```
+
+**Manual part** (any hub, the WebUI):
+
+1. Admin → Teams → "add a team" → browse. On macOS the REAL system folder dialog
+   opens (browser pickers cannot return absolute paths, so the hub shows its own
+   native dialog; the old in-page browse dialog remains as the fallback and can be
+   forced with `COURTYARD_NATIVE_PICKER=0` on the hub — the scripted checks do).
+   Pick `tests/team-charter` in the repo: the team appears as `demo-devops`,
+   "3 agents", no problems; expanding it shows the agent table (infra with
+   type/model/colour and all three prose fields) and "loaded at". Cancelling the
+   dialog does nothing. The same native dialog now serves the workdir pickers on
+   the Agents page.
+2. Pick a directory without a `team-definition.yml` instead (empty or not): the panel
+   offers to initialize it as a team charter; typing a name and pressing initialize
+   creates a commented `team-definition.yml` there, existing files untouched. Cancel
+   writes nothing.
+3. Edit that file by hand (change the name), reload the Admin page: the hub still shows
+   the old name. Press "⟳ reload from disk": the new name appears.
+4. Break the file (delete a quote), reload from disk: a readable problem report shows
+   in the expanded view; the row survives.
+5. Set "Current team" to `demo-devops`: the Courtyard page's Team panel eyebrow reads
+   "Team · demo-devops". Set it back to none: plain "Team".
+6. Remove a team: a confirm names it, the row goes, the files stay on disk.

@@ -113,15 +113,24 @@ function DummyPanel({ agent, token }) {
   </div>`;
 }
 
-// Item 37: pick the agent's project directory by browsing instead of typing. The hub
-// lists its own disk (dev-mode premise, same as install writing files): starts at the
-// hub user's home, hidden directories excluded, directories only.
-function DirPicker({ onPick }) {
+// Item 37: pick a directory by browsing instead of typing. browse… asks the hub to open
+// the REAL macOS folder dialog (the hub shares the operator's screen, the same premise
+// the shift uses for Terminal windows); this web dialog is the fallback where no native
+// dialog exists — not macOS, no GUI, or a remote hub one day.
+export function DirPicker({ onPick, prompt }) {
+  // exported: Admin's Teams section picks the charter directory with the same control
   const [state, setState] = useState(null); // null = closed; {path, parent, dirs} = open
   const load = (path) => api.fsDirs(path).then(setState).catch((err) => alert(err.message));
+  const browse = () =>
+    api.pickDir(prompt ?? "Choose a directory for the courtyard")
+      .then((r) => r.path && onPick(r.path)) // null path = the operator cancelled
+      .catch((err) => {
+        if (err.code === "native_picker_unavailable") load(); // the web dialog instead
+        else alert(err.message);
+      });
   return html`<span>
-    <button type="button" class="btn" title="browse the hub machine's directories"
-      onClick=${() => load()}>browse…</button>
+    <button type="button" class="btn" title="choose a directory on the hub's machine"
+      onClick=${browse}>browse…</button>
     ${state
       ? html`<div class="overlay" onClick=${(e) => e.target === e.currentTarget && setState(null)}
           onKeyDown=${(e) => e.key === "Escape" && setState(null)}>
@@ -256,7 +265,7 @@ function AddForm({ onCreated, suggested }) {
       <input name="workdir" placeholder="project directory (optional)" value=${workdir}
         onInput=${(e) => setWorkdir(e.target.value)}
         title="the agent's project directory; lets the hub write its config there for you" />
-      <${DirPicker} onPick=${setWorkdir} />
+      <${DirPicker} prompt="Choose the agent's project directory" onPick=${setWorkdir} />
       <input name="model" placeholder="model (optional, e.g. sonnet)"
         title="the model its runtime should use; written into .claude/settings.local.json by install, and the launch command adds --model" />
       <div class="swatches" role="radiogroup" aria-label="colour on the board">
@@ -311,7 +320,7 @@ function EditPanel({ agent, onLaunch, onRotate, onClose }) {
         <span class="small muted">${agent.type} · name and type are permanent</span>
         <input name="workdir" value=${workdir} placeholder="project directory"
           onInput=${(e) => setWorkdir(e.target.value)} />
-        <${DirPicker} onPick=${setWorkdir} />
+        <${DirPicker} prompt="Choose the agent's project directory" onPick=${setWorkdir} />
         <input name="model" defaultValue=${agent.model ?? ""} placeholder="model (e.g. sonnet)" />
         <div class="swatches" role="radiogroup" aria-label="colour on the board">
           <span class="small muted">colour:</span>

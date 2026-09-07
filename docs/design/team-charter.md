@@ -1,9 +1,11 @@
 # Team charter: the team defined as files
 
 Status: design accepted 2026-09-07 (feedback item 41, branch
-`feature/add-team-charter`, decision D33 in `architecture-v1.md` §13);
-implementation not started. This document holds the charter design in one
-place; other documents reference it rather than repeating it.
+`feature/add-team-charter`, decision D33 in `architecture-v1.md` §13).
+Implementation slice 1, the read path (teams registry, loader, Admin Teams
+section, reload, current selection), landed 2026-09-07; projection into
+registrations and write-back are next. This document holds the charter design
+in one place; other documents reference it rather than repeating it.
 
 ## 1. The problem
 
@@ -121,10 +123,13 @@ naturally.
 
 **Team creation and reload are explicit, in an Admin Teams subpage** (decided
 2026-09-07). Adding a team picks a directory; the hub reads it and displays
-what it read. If the directory is empty, the WebUI prompts for the team name
-and the hub creates `team-definition.yml` with no agents: the first instance
-of the decided write-back direction, so the files are the master from the
-first second of a team's life. The edit view shows what the hub loaded and
+what it read. If the directory has no `team-definition.yml`, the WebUI offers
+to initialize it as a team charter (the architect's refinement after live use:
+an offer, not a refusal, non-empty directories included); the operator's typed
+team name is the confirmation, and only then does the hub create the index
+with no agents, existing files untouched: the first instance of the decided
+write-back direction, so the files are the master from the first second of a
+team's life. The edit view shows what the hub loaded and
 carries a reload button; the hub never watches the filesystem. The operator
 declares when disk is ready, which avoids loading half-saved edits and makes
 the sharing workflow exactly git pull, then reload. Attached points: the edit

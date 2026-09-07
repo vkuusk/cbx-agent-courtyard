@@ -1,0 +1,11 @@
+# A small demo team used by the test suite (and as a worked example of the charter
+# format, design docs/design/team-charter.md). One directory = one team.
+team:
+  name: demo-devops
+  agents:
+    infra:
+      agent-config-dir: infra
+    tf-dev:
+      agent-config-dir: tf-dev
+    scribe:
+      agent-config-dir: scribe

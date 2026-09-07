@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import APIRouter, Request
 
 from courtyard.adapters.claude_code.mcp_server import INSTRUCTIONS
-from courtyard.hub.api import agents, archive, channels, events, gate, lines, operator, shift
+from courtyard.hub.api import agents, archive, channels, events, gate, lines, operator, shift, teams
 from courtyard.hub.core import envelope as envelope_core
 from courtyard.hub.core.errors import WorkdirNotFound
 from courtyard.hub.core.install import adapter_command
@@ -33,6 +33,17 @@ def envelope() -> list[dict[str, str | int]]:
             "overhead_tokens": envelope_core.estimate_tokens(INSTRUCTIONS),
         },
     ]
+
+
+@router.post("/fs/pick-dir")
+def fs_pick_dir(body: dict | None = None) -> dict:
+    """Open the native macOS folder dialog on the hub's screen and return the chosen
+    path ({"path": null} on cancel). Answers `native_picker_unavailable` where there is
+    no such dialog — the WebUI then falls back to the /fs/dirs browse dialog."""
+    from courtyard.hub.core.fs_pick import pick_directory
+
+    prompt = (body or {}).get("prompt") or "Choose a directory for the courtyard"
+    return {"path": pick_directory(str(prompt)[:200])}
 
 
 @router.get("/fs/dirs")
@@ -78,3 +89,4 @@ router.include_router(operator.router)
 router.include_router(events.router)
 router.include_router(archive.router)
 router.include_router(shift.router)
+router.include_router(teams.router)

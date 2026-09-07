@@ -135,3 +135,23 @@ class MalformedMcpJson(DomainError):
 class NothingToUninstall(DomainError):
     code = "nothing_to_uninstall"
     http_status = 404
+
+
+class TeamNotFound(DomainError):
+    code = "team_not_found"
+    http_status = 404
+
+
+class TeamExists(DomainError):
+    """That charter directory is already registered."""
+
+    code = "team_exists"
+
+
+class CharterNameRequired(DomainError):
+    """The directory has no team-definition.yml; it can be initialized into a charter,
+    but the team needs a name first — the WebUI catches this code and offers exactly
+    that, and the name doubles as the operator's confirmation to write the file."""
+
+    code = "charter_name_required"
+    http_status = 422

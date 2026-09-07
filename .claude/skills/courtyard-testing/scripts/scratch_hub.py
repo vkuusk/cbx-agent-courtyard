@@ -78,7 +78,7 @@ def healthy(port: int) -> bool:
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=1):
             return True
-    except Exception:
+    except Exception:  # noqa: BLE001 - a probe: any failure at all means "not up yet"
         return False
 
 
@@ -121,7 +121,9 @@ def start(name: str, port: int | None) -> None:
         if healthy(port):
             print(f"scratch hub '{name}' ready at http://127.0.0.1:{port}")
             print(f"  log : {d / 'hub.log'}")
-            print(f"  stop: uv run python {Path(__file__).relative_to(REPO_ROOT)} stop --name {name}")
+            print(
+                f"  stop: uv run python {Path(__file__).relative_to(REPO_ROOT)} stop --name {name}"
+            )
             return
         if proc.poll() is not None:
             break

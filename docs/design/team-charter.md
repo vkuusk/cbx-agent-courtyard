@@ -1,9 +1,9 @@
 # Team charter: the team defined as files
 
-Status: draft under discussion (started 2026-09-07, feedback item 41, branch
-`feature/add-team-charter`). Decisions accepted from this design get D-numbers in
-the main decision log (`architecture-v1.md` §13). This document holds the charter
-design in one place; other documents reference it rather than repeating it.
+Status: design accepted 2026-09-07 (feedback item 41, branch
+`feature/add-team-charter`, decision D33 in `architecture-v1.md` §13);
+implementation not started. This document holds the charter design in one
+place; other documents reference it rather than repeating it.
 
 ## 1. The problem
 
@@ -48,6 +48,128 @@ bidirectional sync: designs with two writable masters spend their complexity
 budget on conflict resolution. This is the same team-as-code instinct as the rest
 of the project: team design becomes reviewable in a pull request, and git is the
 charter's version history and review mechanism for free.
+
+**The charter lives in its own directory, chosen by the operator** (decided
+2026-09-07). Anywhere on disk, typically the root of its own small git
+repository; the hub is pointed at the path. Never inside an agent's workdir:
+beyond the fact that the team spans workdirs, an agent has write access to its
+own workdir, and a charter placed there would hand one team member the power
+to rewrite the team's rules of engagement (the hub refusing a charter path
+inside any registered workdir is an enforcement candidate at implementation).
+The architect's driving use case: a dedicated repository makes team setups
+shareable between engineers; publishing the charter repo lets another operator
+clone it and initialize the same team on their own hub. The directory's name
+is the operator's choice; `team-charter/` is only the convention the docs use.
+
+**The hub keeps a registry of teams, one of them current** (decided
+2026-09-07). A team is a set of agents that talk to each other and work
+together; each team is one charter directory, and several can be registered
+with the hub. The directories can be subdirectories of one repository, for
+example `my-agent-teams/devops-team/` and `my-agent-teams/k8s-team/`, so one
+repo can carry an engineer's whole collection of teams. The hub stores the
+registered directories and which one is current. The WebUI shows the current
+team's name on the Courtyard page; Admin gets a Teams section: add a team by
+directory (the browse dialog from the workdir picker, reused) and a pulldown
+selecting the current team. In v1 this is registration and selection only:
+what switching the current team does to a running hub (agents, lines, history)
+is postponed past v1 (recorded in `../next-features-list.md`). No team
+registered means the hub behaves exactly as today, so the charter is opt-in
+and an existing hub migrates at no cost. The hub stays git-agnostic: it reads
+and writes charter files; commits, history and review are the operator's.
+
+**The team defines itself in `team-definition.yml`** (decided 2026-09-07).
+Inside the charter directory, one YAML index defines one team (single team
+root, matching one directory per team) and lists its agents; each agent entry
+points, by relative path, at a subdirectory holding the files that fill that
+agent's registration:
+
+```yaml
+team:
+  name: <team-name>
+  agents:
+    <agent-name>:
+      agent-config-dir: <relative dirname>
+```
+
+The key is deliberately named `agent-config-dir` to keep it distinct from the
+agent's project directory (the workdir): the configuration directory is
+charter content and travels with the repo; the project directory is
+engineer-machine specific and never goes into the shared charter. An agent's
+configuration directory can hold multiple files, so long prose (the
+description shown to peers, what the agent owns, the anti-scope) separates
+into its own files instead of living inside YAML strings. The hub's team
+registry reads the team name from this file and caches it for display: adding
+a team to the hub is pointing at a directory, nothing more, and the name
+travels with the repo when the charter is shared.
+
+**The agent's project directory has its own per-machine change point**
+(decided 2026-09-07). Workdirs are never written into shared charter files; a
+separate per-machine entry holds each agent's project directory on this
+machine. The exact mechanism (a gitignored overlay file in the charter
+directory, values filled by asking the operator at team initialization) is
+settled at implementation time.
+
+**The agent configuration directory's file set** (decided 2026-09-07). The
+agent's name exists only as its key in `team-definition.yml`, so no file
+repeats it; `card.yml` holds the short structured facts (type, model, colour);
+the prose fields are markdown files of their own: `description.md` (what the
+agent is for, shown to peers), `owns.md` (the SME domain, backing authority
+grading), `anti-scope.md` (what not to ask this agent). Team-level rules of
+engagement live as sibling files beside the agents; their exact set is settled
+when rules of engagement are implemented, since prose directories grow files
+naturally.
+
+**Team creation and reload are explicit, in an Admin Teams subpage** (decided
+2026-09-07). Adding a team picks a directory; the hub reads it and displays
+what it read. If the directory is empty, the WebUI prompts for the team name
+and the hub creates `team-definition.yml` with no agents: the first instance
+of the decided write-back direction, so the files are the master from the
+first second of a team's life. The edit view shows what the hub loaded and
+carries a reload button; the hub never watches the filesystem. The operator
+declares when disk is ready, which avoids loading half-saved edits and makes
+the sharing workflow exactly git pull, then reload. Attached points: the edit
+view shows when the charter was loaded, so staleness is visible instead of
+silent; a non-empty but broken directory (missing or invalid YAML, dangling
+`agent-config-dir`) renders as a readable validation report in the same view;
+and reloading the current team while a shift is on needs a guard, since it
+changes registrations under live agents (lean, to confirm at implementation:
+refuse with the existing 409 idiom, end the shift first; a cousin of the
+postponed team switching).
+
+**Agent edits write back to the charter** (decided 2026-09-07). When the team
+has a charter, the WebUI's add and edit agent forms write the card files and
+the yml, not only the database; the database stays the projection of section
+6. Removal necessarily follows the same rule: an agent removed only from the
+database would come back at the next reload. With no team registered the
+forms write the database only, exactly as today.
+
+**Hook-loaded hub context is postponed from v1** (decided 2026-09-07, recorded
+in `../next-features-list.md`). Everything a session-start hook would deliver
+is covered by a channel that already works: the MCP instructions load at
+session start even in a bare `claude` (only the delivery channel needs the
+flag, and D29 catches that); larger rules-of-engagement content rides the
+skill, loaded when relevant instead of paid by every session; live team state
+comes from the envelope, per message and always current, where a hook's
+snapshot goes stale at the first charter reload. The deciding evidence is how
+protocol behavior gets taught: the thread-close instruction, for example,
+rides the envelope footer rendered only to the thread's initiator on a
+delivered reply, naming the actual peer, plus the close tool's own
+description; instructions attached to the moment of action have worked live
+(reply path, relay clause, scoped closing footer) where session-start prose
+would sit thousands of tokens from the decision. A hook is also agent-side
+behavior rather than configuration (the D14 and D21 instinct), one more trust
+surface, and a second copy of the rules to keep in sync with the skill. Hooks
+return if acceptance runs show sessions acting ignorant of the hub in ways
+instructions plus skill do not fix.
+
+**What reaches the envelope: one short anti-scope line per peer, nothing
+more** (decided 2026-09-07). The peer roster and authority grades the envelope
+already carries become charter-fed rather than growing. The anti-scope is the
+one new field that earns envelope space: whom not to ask helps only at the
+moment of choosing whom to ask, and misrouting is a real failure class. Rules
+of engagement never enter the envelope (that is the skill's job), and the
+thread footers are accounted for in `threads.md`. The Admin envelope panel's
+token estimates (item 29) remain the instrument that keeps the cost visible.
 
 **Enforced versus advisory is decided per item, at implementation time.** Each
 charter item is classified when it is implemented, not upfront. The standing
@@ -121,17 +243,6 @@ authority grades (card fields), the adapter skills (rules of engagement).
 
 ## 7. Open questions
 
-To be discussed high level first, in roughly this order:
-
-1. **Where the charter directory lives.** It describes a team that spans many
-   workdirs, so it is not any one agent's directory; likely its own directory (or
-   repository) that the hub is pointed at. To decide.
-2. **File formats.** A structured format for cards, prose files for rules of
-   engagement; the exact split to decide.
-3. **Sync mechanics.** How WebUI edits write back; how the hub notices the files
-   changed underneath it and what it does then. To decide.
-4. **Hook-loaded hub context** (the architect's point b: context loaded by the
-   agent's hooks so a session always knows the hub). In tension with D14's
-   minimal agent-side footprint; needs its own discussion before it rides in.
-5. **What of the charter reaches the envelope**, and at what token cost; the
-   envelope overhead is measured (item 29) and must stay visible.
+None remaining as of 2026-09-07; every question raised in the design
+discussion is either decided in section 3 or postponed with its reasoning in
+`../next-features-list.md` (team switching, hook-loaded context).

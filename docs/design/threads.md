@@ -1,10 +1,11 @@
 # Threads: the quant of conversation
 
-Status: draft under discussion (started 2026-09-07, feedback item 42). Decisions
-accepted from this design get D-numbers in the main decision log
-(`architecture-v1.md` §13). Threads are a basic construct of inter-agent
-communication in the courtyard, so they get their own document; the team charter
-(`team-charter.md`) references thread policies but does not define threads.
+Status: design accepted 2026-09-07 (feedback item 42, decision D34 in
+`architecture-v1.md` §13); implementation not started; the one parked question
+("verifiably done") is in `../next-features-list.md`. Threads are a basic
+construct of inter-agent communication in the courtyard, so they get their own
+document; the team charter (`team-charter.md`) references thread policies but
+does not define threads.
 
 ## 1. The problem
 
@@ -52,6 +53,54 @@ migrates trivially.
 
 **Threads get their own design document** (this one), as a basic construct of
 the communication model, not a feature of any other subsystem.
+
+**The sender declares thread boundaries; the hub never infers them.** A message
+that opens a new thread says so explicitly; any other message continues the
+line's open thread, or opens one when the line has none (the only possibility
+then). Reason: the sender knows its own intent, and inferring intent from
+message text is guesswork of a kind the hub avoids everywhere else. Under
+serial v1 the declaration has exactly one job: a declared new ask while a
+thread is still open is refused, the way turn violations are refused, instead
+of being silently filed into the open thread.
+
+**Open rides the send call; close is a dedicated tool call.** The open
+declaration is a parameter on the send tool, because a new ask always is a
+message. The close is its own tool with no message and no note parameter,
+because an acceptance often carries no content: a tool call closes at zero
+message cost, and the hub gets a deterministic protocol event instead of
+parsing text. Reasons for no note field: an initiator with something
+substantive to say still has the whole message channel until the moment it
+closes (send the message, then close); lessons worth keeping are what the
+team-memory digest distills from the closed thread (item 39), and records
+beyond that are the operator's, outside the courtyard; and an optional
+free-text field invites exactly the closing pleasantries the tool call
+eliminates. The peer learns of the closure from a fixed system line rendered
+by the hub ("thread closed by X"): the closure wording of section 5 item 1,
+made literal. Implementation note: the turn machine must treat a close as
+resolving the line's reply obligation, so a closed thread never leaves a line
+stuck awaiting a reply.
+
+**Operator threads are unbudgeted.** The analog of D9: the operator's lines
+are ungated, and their threads carry no budget (the per-thread exchange cap of
+section 5 item 2 never locks a thread the operator is in; a thread with the
+operator in it has its natural stopper). Serial still applies, and it costs
+the operator nothing: with one open thread per line, a send with no thread
+open necessarily opens one, so the operator never declares anything; starting
+a new ask is close, then send.
+
+**The operator closes through a control in the conversation pane.** Agents
+call the close tool; the operator's control invokes the same hub operation,
+rendered only when the selected chat has an open thread the operator
+initiated. Not a typed command: the composer carries message text only, and
+parsing "/done" out of it would be the text-inference this design rejects;
+every protocol action the operator takes today is a click (verdicts, release,
+archive), and a typed command would be a new idiom. Exact placement at
+implementation time (pane header, or the open thread's group boundary).
+
+**Threads start at the migration; no backfill.** Messages older than the
+migration stay thread-less in history. Reconstructing threads from old
+messages would mean the hub inferring boundaries from text, which this design
+rejects (sender declares).
 
 ## 4. Lifecycle
 
@@ -101,15 +150,6 @@ the agent-context copy exists for clean escalation):
 
 ## 7. Open questions
 
-1. **New ask versus clarification.** How the hub knows a message opens a new
-   thread rather than continuing the open one: the sender declares it
-   (cheapest, honest) or the hub infers it. To decide.
-2. **The close signal.** What exactly the initiator does to close: a flag on a
-   message, a dedicated tool call, or both. To decide.
-3. **"Verifiably done".** Out of v1: initiator-accepted is the v1 close;
+1. **"Verifiably done".** Out of v1: initiator-accepted is the v1 close;
    verifiable completion needs typed artifacts, which are out of scope
    (see `team-charter.md` §4).
-4. **Operator threads.** D9 makes operator lines ungated; presumably operator
-   threads are also unbudgeted. To confirm.
-5. **Existing history.** Whether old messages are backfilled into
-   reconstructed threads or threads start with the migration. To decide.

@@ -1186,9 +1186,41 @@ the hub; (c) the charter directory as the home for content read by several hub
 subsystems. Named after human team charters; the mapping between the standard
 human charter and courtyard features is kept explicit as a completeness check.
 
-**Decided so far (architect, same day):** files are the source of truth (the
+**Decided so far (architect):** files are the source of truth (the
 WebUI becomes an editor/viewer that writes back; no two-master sync), and
-enforced-versus-advisory is decided per item at implementation time.
+enforced-versus-advisory is decided per item at implementation time (both
+2026-09-07); **charter location** (2026-09-07) — its own directory, chosen by
+the operator, typically the root of its own git repo; never inside an agent's
+workdir (an agent could rewrite its own team's rules); his driving use case:
+team setups shareable between engineers by publishing the charter repo;
+**teams registry** (2026-09-07) — the hub registers several team charter
+directories (possibly subdirs of one repo) and one is current; Courtyard page
+shows the current team's name, Admin gets a Teams section (add by directory,
+current-team pulldown); v1 = registration and selection only, switching a
+running hub postponed (docs/next-features-list.md created for postponed
+features, no version assignments); no team registered = today's behavior
+(charter opt-in); hub git-agnostic; **team-definition.yml** (2026-09-07) —
+YAML index in the charter dir, single team root, maps agents to relative
+`agent-config-dir` subdirectories whose files fill the registration; long
+prose splits into its own files; the registry reads and caches the name
+(settles where-the-name-lives); the key name is deliberately distinct from
+the agent's project directory, which is machine-specific, never in the shared
+charter, and gets its own per-machine change point (mechanism at
+implementation); **sync mechanics** (2026-09-07, his proposal + agreed
+additions) — add-team picks a directory, hub reads and displays it (empty dir:
+prompt for name, hub creates the yml with no agents); edit view = what the hub
+loaded + reload button + loaded-at timestamp; the hub never watches the
+filesystem (sharing workflow = git pull, then reload); broken dir renders as a
+validation report; reload-of-current-team during a shift needs a guard (lean:
+409 refuse); **agent add/edit/remove forms write the card files and yml, not
+only the database** (DB stays the projection; no-team hubs unchanged);
+**agent-config-dir file set** (2026-09-07) — name = yml key only, card.yml
+(type/model/colour), description.md, owns.md, anti-scope.md; team rules =
+sibling prose files, exact set at rules implementation; **hook-loaded context
+postponed from v1** (2026-09-07, next-features-list) — MCP instructions +
+skill + envelope cover it (the thread-close instruction rides the envelope
+footer + tool description, not session-start prose); returns if acceptance
+runs show ignorant sessions.
 
 **Design:** `docs/design/team-charter.md` (scope in four categories: identity
 cards + anti-scope, rules of engagement, topology, lifecycle; out of scope:
@@ -1198,7 +1230,9 @@ questions listed there). Branch `feature/add-team-charter`.
 **Touches.** Registration/install; manual links; envelope roster; adapter
 skills; WebUI Agents; a new sync path.
 
-**Status.** open — design discussion in progress.
+**Status.** design accepted 2026-09-07 (**D33**; every open question decided or
+postponed to next-features-list — incl. **envelope delta = one anti-scope line
+per peer, nothing more**, and **hooks postponed**); implementation not started.
 
 ### 42. Threads: a bounded exchange about one ask, inside a line
 
@@ -1212,20 +1246,31 @@ the "no reply is owed" footer (closure as prose), item 29's endless exchanges
 (no protocol "enough"), D24's message-level expiry, and item 39's missing
 digest unit.
 
-**Decided so far (architect, same day):** **serial in v1** — one open thread
+**Decided so far (architect):** **serial in v1** — one open thread
 per line (agents change infrastructure; parallel threads would need proof they
 do not touch the same piece of it; turn machine untouched); own design doc as
-a basic construct of inter-agent communication.
+a basic construct of inter-agent communication; **sender declares thread
+boundaries** (2026-09-07) — the hub never infers new-ask-vs-clarification from
+text; a declared new ask on an open thread is refused like a turn violation;
+**open = parameter on send, close = dedicated tool call, no note field**
+(2026-09-07) — zero-token deterministic close; anything to say goes as a
+message before closing; lessons belong to item-39 digests or the operator's
+own records; peer sees a fixed hub-rendered "thread closed by X" line;
+**operator threads unbudgeted** (D9 analog; serial costs the operator nothing:
+close, then send) and **no history backfill** — threads start at the
+migration, old messages stay thread-less (both 2026-09-07).
 
 **Design:** `docs/design/threads.md` (lifecycle open/closed/expired/locked;
 enforcement candidates: closure as protocol, per-thread budgets, shift-end
-close, visible boundaries; open questions: ask-vs-clarification declaration,
-the close signal, operator threads, history backfill).
+close, visible boundaries; operator close = pane control, same hub op as the
+tool, placement at implementation time). Design-complete 2026-09-07 except
+"verifiably done" (parked, out of v1).
 
 **Touches.** Domain model §5; messages storage (`thread_id`, a threads table);
 turn machine boundary; envelope footers; end shift; conversation pane.
 
-**Status.** open — design discussion in progress.
+**Status.** design accepted 2026-09-07 (**D34**; "verifiably done" parked in
+next-features-list); implementation not started.
 
 ---
 

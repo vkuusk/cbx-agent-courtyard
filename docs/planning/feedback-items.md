@@ -1172,6 +1172,61 @@ wording; parity with the WebUI remove flow (item 15).
 
 **Status.** open.
 
+### 41. Team charter: the team defined as files
+
+**Asked (architect, 2026-09-07).** Three problems in one feature: (1) creating a
+team means registering one agent at a time in the WebUI, typing long descriptions
+into form fields; (2) each agent's registration card and the team's rules of
+engagement belong together in one `team-charter` directory of files, used to
+initialize the team; (3) team creation should work from the UI or from the files,
+kept in sync with the DB. Wider than registration: (a) an existing agent joining
+the team needs rules of engagement larger than the MCP surface carries; (b) hub
+context possibly loaded via the agent's hooks so a session always stays aware of
+the hub; (c) the charter directory as the home for content read by several hub
+subsystems. Named after human team charters; the mapping between the standard
+human charter and courtyard features is kept explicit as a completeness check.
+
+**Decided so far (architect, same day):** files are the source of truth (the
+WebUI becomes an editor/viewer that writes back; no two-master sync), and
+enforced-versus-advisory is decided per item at implementation time.
+
+**Design:** `docs/design/team-charter.md` (scope in four categories: identity
+cards + anti-scope, rules of engagement, topology, lifecycle; out of scope:
+budgets, typed artifacts, stall detection, per-task assembly items; open
+questions listed there). Branch `feature/add-team-charter`.
+
+**Touches.** Registration/install; manual links; envelope roster; adapter
+skills; WebUI Agents; a new sync path.
+
+**Status.** open — design discussion in progress.
+
+### 42. Threads: a bounded exchange about one ask, inside a line
+
+**Asked (architect, 2026-09-07).** Real work showed it is difficult to control
+how agents talk about one task; skills and envelope wording were fighting it
+piecemeal. Introduce the **thread**: starts with an independent ask, ends when
+the sender is satisfied (answer accepted or task verifiably done) or the system
+closes it; every message belongs to a thread; a line's conversation is a
+sequence of threads. Unifies five existing pains: item 3.3 boundary violations,
+the "no reply is owed" footer (closure as prose), item 29's endless exchanges
+(no protocol "enough"), D24's message-level expiry, and item 39's missing
+digest unit.
+
+**Decided so far (architect, same day):** **serial in v1** — one open thread
+per line (agents change infrastructure; parallel threads would need proof they
+do not touch the same piece of it; turn machine untouched); own design doc as
+a basic construct of inter-agent communication.
+
+**Design:** `docs/design/threads.md` (lifecycle open/closed/expired/locked;
+enforcement candidates: closure as protocol, per-thread budgets, shift-end
+close, visible boundaries; open questions: ask-vs-clarification declaration,
+the close signal, operator threads, history backfill).
+
+**Touches.** Domain model §5; messages storage (`thread_id`, a threads table);
+turn machine boundary; envelope footers; end shift; conversation pane.
+
+**Status.** open — design discussion in progress.
+
 ---
 
 ## Work packages (discussion outcome, 2026-08-24)
@@ -1241,3 +1296,5 @@ that review.
 | 38 | Rename puppet → dummy (the Puppet-the-product collision for devops readers) | vocabulary / everywhere living | implemented 2026-09-01 (migration 0016); demo run pending |
 | 39 | Hub-side memory: learn lessons from inter-agent collaboration (digests, verdict lessons, routing evidence, operator patterns) | shift / envelope / storage | open — ideas recorded, awaiting design discussion |
 | 40 | `courtyard-invite --remove` uninstalls the files but leaves the registration (AGENTS.md implies full undo) | invite CLI / docs | open |
+| 41 | Team charter: the team defined as files (cards + rules of engagement + topology, files as source of truth) | registration / install / links / envelope / WebUI | open — design in `docs/design/team-charter.md` |
+| 42 | Threads: a bounded exchange about one ask inside a line (serial in v1; lifecycle open/closed/expired/locked) | domain model / storage / envelope / shift / WebUI | open — design in `docs/design/threads.md` |

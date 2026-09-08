@@ -9,3 +9,13 @@ team:
       agent-config-dir: tf-dev
     scribe:
       agent-config-dir: scribe
+  # The declared topology: who may talk to whom, with an optional gate mode per line.
+  # `discovery: manual` makes the links the permission (D22) — without it they are
+  # only mode presets, since under auto any pair forms a line on first message.
+  # scribe and tf-dev have no line on purpose; they cannot reach each other until
+  # the operator links them.
+  discovery: manual
+  links:
+    - between: [infra, tf-dev]
+      mode: auto_pass
+    - between: [infra, scribe]

@@ -32,6 +32,7 @@ def roster(agents: list[Agent], me: Agent, linked: set[UUID] | None = None) -> l
             type=a.type,
             description=a.description,
             sme_domain=a.sme_domain,
+            anti_scope=a.anti_scope,
             status=a.status,
         )
         for a in others
@@ -56,6 +57,9 @@ def render(peers: list[PeerInfo], hidden: int, managed: bool = False) -> str:
         f"{p.name} — {p.type}, {p.status}"
         + (f" — owns: {p.sme_domain}" if p.sme_domain else "")
         + (f" — {p.description}" if p.description else "")
+        # D33: whom NOT to ask, at the one moment it helps — choosing whom to ask.
+        # Anti-scope prose comes from a wrapped .md file; collapse it to its one line.
+        + (f" — not for: {' '.join(p.anti_scope.split())}" if p.anti_scope else "")
         for p in peers
     ]
     if hidden:

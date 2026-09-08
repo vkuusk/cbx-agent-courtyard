@@ -3,9 +3,11 @@
 Status: design accepted 2026-09-07 (feedback item 41, branch
 `feature/add-team-charter`, decision D33 in `architecture-v1.md` §13).
 Implementation slice 1, the read path (teams registry, loader, Admin Teams
-section, reload, current selection), landed 2026-09-07; projection into
-registrations and write-back are next. This document holds the charter design
-in one place; other documents reference it rather than repeating it.
+section, reload, current selection), landed 2026-09-07; slice 2, projection
+into registrations and lines (section 6, with the mechanics settled at
+implementation recorded in section 3), landed the same day. Write-back from
+the agent forms is next. This document holds the charter design in one place;
+other documents reference it rather than repeating it.
 
 ## 1. The problem
 
@@ -62,6 +64,7 @@ The architect's driving use case: a dedicated repository makes team setups
 shareable between engineers; publishing the charter repo lets another operator
 clone it and initialize the same team on their own hub. The directory's name
 is the operator's choice; `team-charter/` is only the convention the docs use.
+A complete worked example ships in `examples/team-charters/aws-devops/`.
 
 **The hub keeps a registry of teams, one of them current** (decided
 2026-09-07). A team is a set of agents that talk to each other and work
@@ -88,10 +91,32 @@ agent's registration:
 ```yaml
 team:
   name: <team-name>
+  discovery: manual    # optional: auto | manual; omitted = the Admin dial stays
   agents:
     <agent-name>:
       agent-config-dir: <relative dirname>
+  links:
+    - between: [<agent-name>, <agent-name>]
+      mode: auto_pass    # optional; omitted = the hub's default for new lines
 ```
+
+The `links` list (settled at implementation, slice 2) is the declared topology:
+who may talk to whom, each entry naming two agents of this charter and,
+optionally, the line's gate mode. A link without a mode gets the Admin default
+when its line is created and then keeps whatever the operator sets; a declared
+mode is reasserted on every reload, because the files are the master for what
+they state. Pairs the charter does not link get no line, which under manual
+discovery means they cannot reach each other.
+
+`discovery` (settled at implementation, slice 2) lets the charter declare the
+team's discovery regime, projected onto the hub's Settings dial. The point is
+honesty about what the links mean: only `manual` makes a link the permission
+to talk (D22), so a charter that declares its topology almost always wants
+`manual`; under `auto` the links are mode presets and any pair still forms a
+line on first message. Left out, the dial stays whatever the operator set in
+Admin; declared, it is reasserted on every reload like the line modes. The
+charter never infers `manual` from the presence of links: a silent behavior
+change from a yml edit would be worse than the explicit key.
 
 The key is deliberately named `agent-config-dir` to keep it distinct from the
 agent's project directory (the workdir): the configuration directory is
@@ -107,9 +132,14 @@ travels with the repo when the charter is shared.
 **The agent's project directory has its own per-machine change point**
 (decided 2026-09-07). Workdirs are never written into shared charter files; a
 separate per-machine entry holds each agent's project directory on this
-machine. The exact mechanism (a gitignored overlay file in the charter
-directory, values filled by asking the operator at team initialization) is
-settled at implementation time.
+machine. Mechanism settled at implementation (slice 2): `workdirs.local.yml`
+beside the index, a `workdirs:` mapping of agent name to absolute path,
+written by the hub when the operator answers an agent's directory question in
+the Teams view (the native folder dialog, item 43). The file starts with a
+never-commit warning; the hub does not edit the operator's `.gitignore`, the
+same stance D15 took for the token file. A charter agent without an answer
+simply registers without a workdir, exactly the state the shift already skips
+and the Agents page already explains.
 
 **The agent configuration directory's file set** (decided 2026-09-07). The
 agent's name exists only as its key in `team-definition.yml`, so no file
@@ -137,9 +167,10 @@ view shows when the charter was loaded, so staleness is visible instead of
 silent; a non-empty but broken directory (missing or invalid YAML, dangling
 `agent-config-dir`) renders as a readable validation report in the same view;
 and reloading the current team while a shift is on needs a guard, since it
-changes registrations under live agents (lean, to confirm at implementation:
-refuse with the existing 409 idiom, end the shift first; a cousin of the
-postponed team switching).
+changes registrations under live agents (implemented lean, slice 2: reloading
+or selecting the current team during a shift is refused with the 409 idiom,
+code `shift_active`, end the shift first; clearing the selection projects
+nothing and stays allowed; a cousin of the postponed team switching).
 
 **Agent edits write back to the charter** (decided 2026-09-07). When the team
 has a charter, the WebUI's add and edit agent forms write the card files and
@@ -245,6 +276,33 @@ One source, two projections, never hand-maintained twice:
 Existing machinery that becomes charter-fed rather than newly built: registration
 and install (cards), manual links (topology), the envelope's peer roster and
 authority grades (card fields), the adapter skills (rules of engagement).
+
+The database projection is implemented (slice 2, 2026-09-07) with these
+semantics. It runs whenever the current team's charter is loaded: on selecting
+a team as current (the initialization gesture) and on every reload of the
+current team; adding or reloading a non-current team only refreshes what the
+hub displays. A declared `discovery` is written onto the Settings dial first. Projection is additive and idempotent: it registers charter
+agents that are missing, mirrors the charter-owned fields onto the ones that
+exist (description, owns, anti-scope and model follow the files exactly, so a
+deleted file clears the field; the colour is hub-assigned unless the card
+declares one; the workdir comes only from the per-machine overlay), and
+creates declared lines that are missing. It never removes an agent or a line:
+removal is the write-back direction, an agent leaves the team by leaving the
+files, and until write-back lands a row deleted only from the database would
+return at the next reload by design. The courtyard's permanent identities win
+over what a charter claims: a name that is already registered with another
+type keeps its type, a removed name stays removed, and the operator is never a
+charter agent (D9); each such conflict, like a card without a type, is
+reported in the team's load report rather than raised, because the WebUI's job
+is to show what happened. Projection goes through the same registry and board
+operations the operator's own gestures use, so events, colour picking and the
+operator-line invariants all apply unchanged.
+
+The anti-scope reaches the models as decided in section 3: one line per peer,
+appended to the hub-rendered roster entry as `not for: ...`, collapsed to a
+single line however `anti-scope.md` was wrapped. The field also joined the
+agent add and edit forms and `courtyard-invite --anti-scope`, so charterless
+hubs get it too.
 
 ## 7. Open questions
 

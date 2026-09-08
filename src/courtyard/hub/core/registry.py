@@ -68,6 +68,7 @@ class Registry:
         launch: dict[str, Any] | None = None,
         color: str | None = None,
         model: str | None = None,
+        anti_scope: str | None = None,
     ) -> tuple[Agent, str]:
         """Register an agent. The token is returned here and kept (D19): the operator can
         read it again via `token_of` and replace it via `rotate_token`. Every agent but the
@@ -90,15 +91,16 @@ class Registry:
                 launch=launch,
                 color=color,
                 model=model,
+                anti_scope=anti_scope,
             )
         self._events.publish("agent", agent)
         return agent, token
 
     def update(self, name_or_id: str, patch: dict[str, Any]) -> Agent:
         """Edit an agent's operator-owned fields (WP-D, item 8): description, sme_domain,
-        workdir, model, color. Name and type are permanent identities — never editable.
-        An explicit None clears a field; absent keys are untouched."""
-        editable = {"description", "sme_domain", "workdir", "model", "color"}
+        anti_scope, workdir, model, color. Name and type are permanent identities — never
+        editable. An explicit None clears a field; absent keys are untouched."""
+        editable = {"description", "sme_domain", "anti_scope", "workdir", "model", "color"}
         unknown = set(patch) - editable
         if unknown:
             raise NotAllowed(f"not editable: {', '.join(sorted(unknown))}")

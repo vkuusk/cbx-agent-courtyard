@@ -69,18 +69,20 @@ class PgAgentRepo:
         launch,
         color,
         model,
+        anti_scope=None,
     ) -> Agent:
         row = self._conn.execute(
             "INSERT INTO agents"
-            " (id, name, type, description, sme_domain, workdir, token_hash, token, launch,"
-            "  color, model)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
+            " (id, name, type, description, sme_domain, anti_scope, workdir, token_hash, token,"
+            "  launch, color, model)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
             (
                 agent_id,
                 name,
                 type,
                 description,
                 sme_domain,
+                anti_scope,
                 workdir,
                 token_hash,
                 token,

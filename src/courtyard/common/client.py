@@ -122,6 +122,7 @@ class HubClient:
         workdir: str | None = None,
         color: str | None = None,
         model: str | None = None,
+        anti_scope: str | None = None,
     ) -> tuple[Agent, str]:
         data = self._call(
             "POST",
@@ -131,6 +132,7 @@ class HubClient:
                 "type": type,
                 "description": description,
                 "sme_domain": sme_domain,
+                "anti_scope": anti_scope,
                 "workdir": workdir,
                 "color": color,
                 "model": model,
@@ -236,6 +238,14 @@ class HubClient:
     def set_current_team(self, team_id: UUID | str | None) -> list[Team]:
         body = {"team_id": str(team_id) if team_id else None}
         return [Team.model_validate(t) for t in self._call("POST", "/api/teams/current", body)]
+
+    def set_team_workdir(self, team_id: UUID | str, agent: str, workdir: str) -> Team:
+        """Answer one agent's per-machine workdir (overlay file + reload, D33)."""
+        return Team.model_validate(
+            self._call(
+                "POST", f"/api/teams/{team_id}/workdirs", {"agent": agent, "workdir": workdir}
+            )
+        )
 
     def remove_team(self, team_id: UUID | str) -> Team:
         return Team.model_validate(self._call("DELETE", f"/api/teams/{team_id}"))

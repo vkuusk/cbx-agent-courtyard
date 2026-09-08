@@ -1,14 +1,21 @@
-"""The team charter registry, slice 1 (design team-charter.md, D33): loader units
-against the committed fixture charter in tests/team-charter/, and the API round trip
-(add, reload, current selection, remove) against the real hub."""
+"""The team charter registry (design team-charter.md, D33): loader units against the
+committed fixture charter in tests/team-charter/, the API round trip (add, reload,
+current selection, remove), and slice 2 — projection of the current team's charter into
+registrations and lines, the per-machine workdir overlay, and the shift guard."""
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 from courtyard.hub.core.charter import load_charter
 
 FIXTURE = Path(__file__).parent / "team-charter"
+
+
+def fixture_copy(tmp_path: Path) -> Path:
+    """A private copy of the fixture charter, for tests that edit the files."""
+    return shutil.copytree(FIXTURE, tmp_path / "team-charter")
 
 
 # ---- the loader, straight against the fixture files --------------------------------
@@ -28,6 +35,29 @@ def test_fixture_charter_loads_clean():
     assert charter.agents[1].model is None
     assert charter.agents[2].type == "pi"
     assert charter.agents[2].sme_domain is None
+    # the declared topology (slice 2): two links, one with a mode, scribe-tf-dev none
+    assert [(li.a, li.b, li.mode) for li in charter.links] == [
+        ("infra", "tf-dev", "auto_pass"),
+        ("infra", "scribe", None),
+    ]
+    # and the regime that makes the links the permission (D22)
+    assert charter.discovery == "manual"
+
+
+def test_example_charter_loads_clean():
+    """The shipped example (examples/team-charters/aws-devops) must stay loadable —
+    it is the worked example the docs point at."""
+    example = Path(__file__).parents[1] / "examples" / "team-charters" / "aws-devops"
+    charter, report = load_charter(example)
+    assert report == []
+    assert charter.name == "aws-devops"
+    assert charter.discovery == "manual"
+    assert {a.name for a in charter.agents} == {"infra-agent", "tf-developer", "argocd-agent"}
+    assert all(a.type and a.description and a.sme_domain and a.anti_scope for a in charter.agents)
+    assert [(li.a, li.b, li.mode) for li in charter.links] == [
+        ("infra-agent", "tf-developer", "auto_pass"),
+        ("infra-agent", "argocd-agent", None),
+    ]
 
 
 def test_missing_index_is_the_only_fatal_case(tmp_path):
@@ -161,6 +191,54 @@ def test_nonempty_dir_gets_the_initialize_offer(client, tmp_path):
     assert (populated / "somefile.txt").read_text() == "hi"
 
 
+def test_link_problems_are_reported_not_fatal(tmp_path):
+    charter_dir = fixture_copy(tmp_path)
+    (charter_dir / "team-definition.yml").write_text(
+        "team:\n"
+        "  name: demo-devops\n"
+        "  agents:\n"
+        "    infra:\n"
+        "      agent-config-dir: infra\n"
+        "    tf-dev:\n"
+        "      agent-config-dir: tf-dev\n"
+        "  links:\n"
+        "    - between: [infra, tf-dev]\n"
+        "      mode: gated   # not a mode\n"
+        "    - between: [infra, stranger]\n"
+        "    - between: [infra, infra]\n"
+        "    - between: [infra]\n"
+        "    - just a string\n"
+    )
+    charter, report = load_charter(charter_dir)
+    # the good pair survives, its bad mode dropped and reported; the rest are dropped
+    assert [(li.a, li.b, li.mode) for li in charter.links] == [("infra", "tf-dev", None)]
+    joined = "\n".join(report)
+    assert "'gated'" in joined
+    assert "stranger" in joined
+    assert "to itself" in joined
+    assert "exactly two agent names" in joined
+
+
+def test_bad_discovery_is_reported_and_left_undeclared(tmp_path):
+    (tmp_path / "team-definition.yml").write_text(
+        "team:\n  name: t\n  discovery: open\n  agents: {}\n"
+    )
+    charter, report = load_charter(tmp_path)
+    assert charter.discovery is None
+    assert "`team.discovery` must be auto or manual" in report[0]
+
+
+def test_workdir_overlay_fills_cards_and_reports_strangers(tmp_path):
+    charter_dir = fixture_copy(tmp_path)
+    (charter_dir / "workdirs.local.yml").write_text(
+        f"workdirs:\n  infra: {tmp_path}\n  stranger: /nowhere\n"
+    )
+    charter, report = load_charter(charter_dir)
+    assert charter.agents[0].workdir == str(tmp_path)
+    assert charter.agents[1].workdir is None
+    assert "stranger" in report[0]
+
+
 def test_add_with_broken_charter_registers_and_reports(client, tmp_path):
     """A directory WITH a charter file always registers; problems go to the report —
     the WebUI's job is to display them (design team-charter.md §3)."""
@@ -172,3 +250,183 @@ def test_add_with_broken_charter_registers_and_reports(client, tmp_path):
     body = made.json()
     assert body["name"] is None and body["charter"] is None
     assert "team.name" in body["load_report"][0]
+
+
+# ---- slice 2: projection into registrations and lines -------------------------------
+
+
+def _make_current(client, charter_dir) -> str:
+    made = client.post("/api/teams", json={"charter_dir": str(charter_dir)})
+    assert made.status_code == 201, made.text
+    team_id = made.json()["id"]
+    current = client.post("/api/teams/current", json={"team_id": team_id})
+    assert current.status_code == 200, current.text
+    return team_id
+
+
+def _agents_by_name(client) -> dict:
+    return {a["name"]: a for a in client.get("/api/agents").json()}
+
+
+def _lines_by_pair(client) -> dict:
+    return {
+        frozenset((li["agent_a_name"], li["agent_b_name"])): li
+        for li in client.get("/api/lines").json()
+    }
+
+
+def test_selecting_a_team_projects_cards_and_links(client):
+    """Becoming current is the initialization gesture: cards become registrations,
+    links become lines with their declared modes (design team-charter.md §6)."""
+    team_id = _make_current(client, FIXTURE)
+    agents = _agents_by_name(client)
+    assert {"operator", "infra", "tf-dev", "scribe"} <= set(agents)
+    infra = agents["infra"]
+    assert infra["type"] == "claude-code" and infra["model"] == "sonnet"
+    assert infra["color"] == "blue" and infra["sme_domain"].startswith("The AWS estate")
+    assert "tf-dev writes them" in infra["anti_scope"]
+    assert agents["scribe"]["type"] == "pi"
+    lines = _lines_by_pair(client)
+    assert set(lines) == {frozenset(("infra", "tf-dev")), frozenset(("infra", "scribe"))}
+    assert lines[frozenset(("infra", "tf-dev"))]["mode"] == "auto_pass"
+    assert lines[frozenset(("infra", "scribe"))]["mode"] == "supervised"  # the default
+    # the declared discovery regime landed on the Settings dial
+    assert client.get("/api/settings").json()["discovery"] == "manual"
+    # projection found nothing to complain about, and reloading is idempotent
+    assert client.get("/api/teams").json()[0]["load_report"] == []
+    reloaded = client.post(f"/api/teams/{team_id}/reload")
+    assert reloaded.json()["load_report"] == []
+    assert len(client.get("/api/agents").json()) == 4
+
+
+def test_reload_mirrors_the_files_and_reasserts_declared_modes(client, tmp_path):
+    charter_dir = fixture_copy(tmp_path)
+    team_id = _make_current(client, charter_dir)
+    # the files are the master: edits land on the registration, a removed file clears
+    (charter_dir / "infra" / "description.md").write_text("Now runs GCP too.\n")
+    (charter_dir / "infra" / "anti-scope.md").unlink()
+    lines = _lines_by_pair(client)
+    declared = lines[frozenset(("infra", "tf-dev"))]  # auto_pass in the charter
+    undeclared = lines[frozenset(("infra", "scribe"))]  # no mode in the charter
+    client.post(f"/api/lines/{declared['id']}/mode", json={"mode": "supervised"})
+    client.post(f"/api/lines/{undeclared['id']}/mode", json={"mode": "auto_pass"})
+    assert client.post(f"/api/teams/{team_id}/reload").status_code == 200
+    infra = _agents_by_name(client)["infra"]
+    assert infra["description"] == "Now runs GCP too."
+    assert infra["anti_scope"] is None
+    lines = _lines_by_pair(client)
+    # a declared mode is reasserted; an undeclared line keeps the operator's dial
+    assert lines[frozenset(("infra", "tf-dev"))]["mode"] == "auto_pass"
+    assert lines[frozenset(("infra", "scribe"))]["mode"] == "auto_pass"
+    # declared discovery is reasserted over an Admin flip the same way
+    client.patch("/api/settings", json={"discovery": "auto"})
+    assert client.post(f"/api/teams/{team_id}/reload").status_code == 200
+    assert client.get("/api/settings").json()["discovery"] == "manual"
+
+
+def test_projection_is_additive_and_reports_name_conflicts(client, make_agent, tmp_path):
+    """Projection never removes anything, and the courtyard's permanent identities
+    (names, types, the operator) win over what a charter claims."""
+    make_agent("outsider")  # registered by hand, not in the charter
+    make_agent("infra", type="dummy", description="was here first")
+    removed, _ = make_agent("old-timer")
+    client.delete("/api/agents/old-timer")
+    charter_dir = tmp_path / "clashing"
+    for sub in ("infra", "old-timer", "operator", "typeless"):
+        (charter_dir / sub).mkdir(parents=True)
+    (charter_dir / "infra" / "description.md").write_text("the charter's words\n")
+    (charter_dir / "infra" / "card.yml").write_text("type: claude-code\n")
+    (charter_dir / "team-definition.yml").write_text(
+        "team:\n"
+        "  name: clashing\n"
+        "  agents:\n"
+        "    infra:\n"
+        "      agent-config-dir: infra\n"
+        "    old-timer:\n"
+        "      agent-config-dir: old-timer\n"
+        "    operator:\n"
+        "      agent-config-dir: operator\n"
+        "    typeless:\n"
+        "      agent-config-dir: typeless\n"
+        "  links:\n"
+        "    - between: [infra, typeless]\n"
+    )
+    _make_current(client, charter_dir)
+    report = "\n".join(client.get("/api/teams").json()[0]["load_report"])
+    assert "the type is a permanent identity and stays dummy" in report
+    assert "names are permanent" in report
+    assert "on the roster by design" in report
+    assert "declares no type; not registered" in report
+    agents = _agents_by_name(client)
+    assert "outsider" in agents and "typeless" not in agents
+    assert agents["infra"]["type"] == "dummy"  # kept
+    # this charter declares no discovery, so the dial stays the operator's (auto)
+    assert client.get("/api/settings").json()["discovery"] == "auto"
+    assert agents["infra"]["description"] == "the charter's words"  # prose still mirrored
+    assert agents["old-timer"]["id"] == removed["id"]  # still the removed row, untouched
+    assert client.get("/api/lines").json() == []  # half a link helps nobody
+
+
+def test_workdir_answer_writes_the_overlay_and_the_registration(client, tmp_path):
+    charter_dir = fixture_copy(tmp_path)
+    team_id = _make_current(client, charter_dir)
+    project = tmp_path / "infra-project"
+    project.mkdir()
+    answered = client.post(
+        f"/api/teams/{team_id}/workdirs", json={"agent": "infra", "workdir": str(project)}
+    )
+    assert answered.status_code == 200, answered.text
+    overlay = (charter_dir / "workdirs.local.yml").read_text()
+    assert "Never commit" in overlay and str(project) in overlay
+    assert _agents_by_name(client)["infra"]["workdir"] == str(project)
+    # a second answer keeps the first entry
+    other = tmp_path / "scribe-project"
+    other.mkdir()
+    client.post(f"/api/teams/{team_id}/workdirs", json={"agent": "scribe", "workdir": str(other)})
+    overlay = (charter_dir / "workdirs.local.yml").read_text()
+    assert str(project) in overlay and str(other) in overlay
+    # refusals: not a charter agent; not a directory
+    stranger = client.post(
+        f"/api/teams/{team_id}/workdirs", json={"agent": "stranger", "workdir": str(project)}
+    )
+    assert stranger.status_code == 404
+    nowhere = client.post(
+        f"/api/teams/{team_id}/workdirs", json={"agent": "infra", "workdir": str(project / "no")}
+    )
+    assert nowhere.status_code == 400
+
+
+def test_shift_guard_refuses_projection_while_a_shift_runs(client):
+    """D33's lean guard: projection changes registrations under live agents, so the
+    current team can be neither reloaded nor changed until the shift ends."""
+    team_id = _make_current(client, FIXTURE)
+    assert client.post("/api/shift/start").status_code == 200
+    refused = client.post(f"/api/teams/{team_id}/reload")
+    assert refused.status_code == 409
+    assert refused.json()["error"]["code"] == "shift_active"
+    reselect = client.post("/api/teams/current", json={"team_id": team_id})
+    assert reselect.status_code == 409
+    assert reselect.json()["error"]["code"] == "shift_active"
+    # clearing the selection projects nothing and stays allowed
+    assert client.post("/api/teams/current", json={"team_id": None}).status_code == 200
+    client.post("/api/shift/end", json={"force": True})
+    assert client.post("/api/teams/current", json={"team_id": team_id}).status_code == 200
+
+
+def test_anti_scope_reaches_the_peers_roster(client):
+    """One "not for:" line per peer (D33), collapsed to a single line however the
+    anti-scope.md file was wrapped."""
+    from conftest import auth
+
+    _make_current(client, FIXTURE)
+    token = client.get("/api/agents/tf-dev/token").json()["token"]
+    view = client.get("/api/agents/tf-dev/peers", headers=auth(token))
+    assert view.status_code == 200, view.text
+    rendered = view.json()["rendered"]
+    assert (
+        "not for: application code or Terraform module internals; "
+        "it consumes modules, tf-dev writes them" in rendered
+    )
+    # editable on the agent form too, like the other prose fields
+    patched = client.patch("/api/agents/scribe", json={"anti_scope": "code of any kind"})
+    assert patched.json()["anti_scope"] == "code of any kind"

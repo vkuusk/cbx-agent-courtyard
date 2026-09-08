@@ -235,6 +235,7 @@ function AddForm({ onCreated, suggested }) {
         type: data.get("type"),
         description: data.get("description") || null,
         sme_domain: data.get("sme_domain") || null,
+        anti_scope: data.get("anti_scope") || null,
         workdir: data.get("workdir") || null,
         model: data.get("model") || null,
         color,
@@ -277,6 +278,8 @@ function AddForm({ onCreated, suggested }) {
     <textarea name="description" rows="2" placeholder="what is this agent for? (shown to peers)"></textarea>
     <textarea name="sme_domain" rows="2"
       placeholder="what does it own? (e.g. the AWS estate); it raises its standing there when it messages peers"></textarea>
+    <textarea name="anti_scope" rows="2"
+      placeholder="what is it NOT for? (optional); tells peers whom not to ask"></textarea>
     <div class="form-row">
       <button class="btn primary">add agent</button>
       ${error ? html`<div class="error">${error}</div>` : null}
@@ -302,6 +305,7 @@ function EditPanel({ agent, onLaunch, onRotate, onClose }) {
       const updated = await api.patchAgent(agent.name, {
         description: text("description"),
         sme_domain: text("sme_domain"),
+        anti_scope: text("anti_scope"),
         workdir: text("workdir"),
         model: text("model"),
         color: picked,
@@ -332,6 +336,8 @@ function EditPanel({ agent, onLaunch, onRotate, onClose }) {
         defaultValue=${agent.description ?? ""}></textarea>
       <textarea name="sme_domain" rows="2" placeholder="what does it own?"
         defaultValue=${agent.sme_domain ?? ""}></textarea>
+      <textarea name="anti_scope" rows="2" placeholder="what is it NOT for? (tells peers whom not to ask)"
+        defaultValue=${agent.anti_scope ?? ""}></textarea>
       <div class="form-row">
         <button class="btn primary">save</button>
         <button type="button" class="btn" onClick=${() => onLaunch(agent)}>launch config</button>

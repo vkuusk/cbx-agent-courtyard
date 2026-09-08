@@ -82,6 +82,9 @@ function TerminalSection({ settings, save, error }) {
 // click — the hub never watches the filesystem, so "loaded at" says how stale the view is.
 function TeamDetail({ team, refresh }) {
   const agents = team.charter?.agents ?? [];
+  const links = team.charter?.links ?? [];
+  const setWorkdir = (agent) => (dir) =>
+    api.setTeamWorkdir(team.id, agent, dir).then(refresh).catch((e) => alert(e.message));
   return html`<div style="margin:.4rem 0 .6rem;padding-left:.8rem;border-left:2px solid var(--border)">
     <div class="small muted">${team.charter_dir} ·
       loaded ${team.loaded_at ? new Date(team.loaded_at).toLocaleString() : "never"} ·
@@ -91,16 +94,30 @@ function TeamDetail({ team, refresh }) {
       : null}
     ${agents.length
       ? html`<table style="margin:.4rem 0">
-          <thead><tr><th>agent</th><th>type</th><th>model</th><th>what it is for</th><th>owns</th><th>not for</th></tr></thead>
+          <thead><tr><th>agent</th><th>type</th><th>model</th><th>what it is for</th><th>owns</th><th>not for</th><th>directory on this machine</th></tr></thead>
           <tbody>${agents.map((a) => html`<tr key=${a.name}>
             <td style="font-family:var(--mono)">${a.name}</td>
             <td>${a.type ?? "—"}</td><td>${a.model ?? "—"}</td>
             <td>${a.description ?? "—"}</td><td>${a.sme_domain ?? "—"}</td><td>${a.anti_scope ?? "—"}</td>
+            <td>${a.workdir ?? html`<span class="muted">not set · </span>`}
+              ${a.type !== "dummy"
+                ? html`<${DirPicker} prompt=${`Choose the project directory for ${a.name}`}
+                    onPick=${setWorkdir(a.name)} />`
+                : null}</td>
           </tr>`)}</tbody>
         </table>`
       : team.charter
         ? html`<div class="small muted" style="margin:.4rem 0">No agents in this charter yet.</div>`
         : null}
+    ${links.length || team.charter?.discovery
+      ? html`<div class="small muted" style="margin:.4rem 0">
+          ${team.charter?.discovery ? `discovery: ${team.charter.discovery} (declared) · ` : ""}
+          links: ${links.length ? links.map(
+            (l) => `${l.a} ↔ ${l.b}${l.mode ? ` (${l.mode.replace("_", "-")})` : ""}`).join(" · ") : "none"}</div>`
+      : null}
+    <div class="small muted" style="margin:.4rem 0">Project directories are per machine, kept in
+      workdirs.local.yml beside the charter — never commit that file.
+      ${team.is_current ? "Reloading this team also updates its registrations and lines." : ""}</div>
     <button class="btn" onClick=${() => api.reloadTeam(team.id).then(refresh).catch((e) => alert(e.message))}>
       ⟳ reload from disk</button>
   </div>`;

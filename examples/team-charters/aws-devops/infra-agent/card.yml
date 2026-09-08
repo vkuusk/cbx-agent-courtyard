@@ -1,0 +1,4 @@
+# Short structured facts; the prose lives in the .md files beside this one.
+type: claude-code
+model: sonnet
+color: blue

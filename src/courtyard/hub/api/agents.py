@@ -24,6 +24,8 @@ class AgentCreate(BaseModel):
     description: str | None = Field(default=None, max_length=500)
     # what this agent OWNS — drives authority grading (design §7.5); short on purpose
     sme_domain: str | None = Field(default=None, max_length=120)
+    # what NOT to ask it (D33) — one roster line per peer, so short too
+    anti_scope: str | None = Field(default=None, max_length=500)
     workdir: str | None = None
     launch: dict[str, Any] | None = None
     color: AgentColor | None = None  # omitted = the hub picks the least-used colour
@@ -50,6 +52,7 @@ def create_agent(
         body.launch,
         body.color,
         body.model,
+        body.anti_scope,
     )
     return AgentCreated(agent=agent, token=token)
 
@@ -73,6 +76,7 @@ class AgentPatch(BaseModel):
 
     description: str | None = Field(default=None, max_length=500)
     sme_domain: str | None = Field(default=None, max_length=120)
+    anti_scope: str | None = Field(default=None, max_length=500)
     workdir: str | None = None
     model: str | None = Field(default=None, max_length=120)
     color: AgentColor | None = None

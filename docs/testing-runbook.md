@@ -540,12 +540,13 @@ uv run pytest tests/test_pi_adapter.py -q
 ## The team charter registry, read path (design team-charter.md, D33 — slice 1)
 
 **Feature under test:** registering team charter directories with the hub, loading and
-displaying what the files say, explicit reload, and current-team selection. No agents,
-lines or shift are touched; a hub with no team registered behaves exactly as before.
+displaying what the files say, explicit reload, and current-team selection. A hub with
+no team registered behaves exactly as before. Slice 2 (below) adds projection: since
+then, selecting or reloading the CURRENT team also changes registrations and lines.
 
 **Scripted part** (its own throwaway hub; add the committed demo charter, initialize a
 charter-less dir, edit-then-reload, broken charter renders a report, current selection,
-remove leaves the files):
+remove leaves the files — plus the slice 2 checkpoints of the next entry):
 
 ```
 uv run python scripts/runbook/team_charter.py
@@ -573,3 +574,47 @@ uv run python scripts/runbook/team_charter.py
 5. Set "Current team" to `demo-devops`: the Courtyard page's Team panel eyebrow reads
    "Team · demo-devops". Set it back to none: plain "Team".
 6. Remove a team: a confirm names it, the row goes, the files stay on disk.
+
+## Charter projection: cards become the team (team-charter.md §6, D33 — slice 2)
+
+**Feature under test:** selecting a team as current (or reloading the current team)
+projects the charter into the database: cards become registrations, declared links
+become lines with their gate modes, the per-machine workdir overlay fills workdirs,
+and the anti-scope reaches the peers roster. Additive only: nothing is ever removed
+by a reload. Do the manual part on a scratch hub, not the dev hub — selecting a team
+registers its agents for good (names are permanent).
+
+**Scripted part** (rides the same script as slice 1: projection on select, the
+workdir answer and overlay file, edit-then-reload mirroring, declared-mode reassert,
+the shift guard):
+
+```
+uv run python scripts/runbook/team_charter.py
+```
+
+**Manual part** (a scratch hub, the WebUI):
+
+1. Admin → Teams → add `tests/team-charter` and set it as "Current team": three
+   agents appear on the Courtyard page (infra blue, claude-code, model sonnet), and
+   the Lines panel shows infra↔tf-dev (auto-pass, as declared) and infra↔scribe
+   (the Admin default). Nothing was typed into an agent form. The Discovery dial
+   under Settings → Team now reads manual — the charter declares it (the expanded
+   team view says "discovery: manual (declared)"), and a hand flip to auto is
+   reasserted at the next reload. A charter without the key leaves the dial alone.
+2. In the expanded team view, every agent row carries a "directory on this machine"
+   cell reading "not set". Press browse on infra and pick a directory: the overlay
+   file `workdirs.local.yml` appears in the charter directory (with its never-commit
+   header) and infra's registration carries the workdir (Agents page shows it).
+3. Edit `infra/description.md` on disk, press "⟳ reload from disk": the new text is
+   on infra's card and in the team view. Flip the infra↔tf-dev line to supervised in
+   the pane, reload again: it returns to auto-pass (the charter declares that mode);
+   a flip on infra↔scribe survives reloads (no declared mode).
+4. Register an agent by hand, reload the team: it is untouched — projection adds and
+   mirrors, never removes.
+5. The anti-scope: on the Agents page, infra's edit view shows the "not for" text
+   from `anti-scope.md`; the field is editable on both agent forms (a hand edit is
+   overwritten at the next reload while the team is current — the files are the
+   master).
+6. Start a shift, try "⟳ reload from disk" on the current team: refused with "a
+   shift is running; end it before reloading the current team". The "Current team"
+   pulldown refuses the same way. End the shift: both work again.

@@ -1,6 +1,7 @@
 """The team charter registry (design team-charter.md, D33). Admin surface,
-unauthenticated like the rest (D3, localhost trust). Slice 1 is registration,
-loading and selection only — projecting a charter into registrations comes later."""
+unauthenticated like the rest (D3, localhost trust). Reloading or selecting the
+current team also projects the charter into registrations and lines (slice 2);
+`shift_active` refusals mean: end the shift first."""
 
 from __future__ import annotations
 
@@ -49,6 +50,21 @@ class CurrentTeam(BaseModel):
 @router.post("/current")
 def set_current(body: CurrentTeam, teams: Annotated[TeamService, Depends(get_teams)]) -> list[Team]:
     return teams.set_current(body.team_id)
+
+
+class WorkdirSet(BaseModel):
+    agent: str
+    workdir: str
+
+
+@router.post("/{team_id}/workdirs")
+def set_workdir(
+    team_id: UUID, body: WorkdirSet, teams: Annotated[TeamService, Depends(get_teams)]
+) -> Team:
+    """Record one agent's per-machine project directory in the charter's overlay file
+    (workdirs.local.yml), then reload — for the current team that carries the workdir
+    into the registration."""
+    return teams.set_workdir(team_id, body.agent, body.workdir)
 
 
 @router.delete("/{team_id}")

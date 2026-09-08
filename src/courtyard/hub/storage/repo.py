@@ -25,13 +25,14 @@ class AgentRepo(Protocol):
         launch: dict[str, Any] | None,
         color: str | None,
         model: str | None,
+        anti_scope: str | None = None,
     ) -> Agent: ...
 
     def get(self, agent_id: UUID) -> Agent | None: ...
 
     def update(self, agent_id: UUID, fields: dict) -> None:
-        """Set the operator-editable columns (WP-D): description, sme_domain, workdir,
-        model, color. None values clear. Caller validates which keys are allowed."""
+        """Set the operator-editable columns (WP-D): description, sme_domain, anti_scope,
+        workdir, model, color. None values clear. Caller validates which keys are allowed."""
         ...
 
     def get_token(self, agent_id: UUID) -> str | None:

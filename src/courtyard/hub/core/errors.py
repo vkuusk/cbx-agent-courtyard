@@ -148,6 +148,13 @@ class TeamExists(DomainError):
     code = "team_exists"
 
 
+class ShiftActive(DomainError):
+    """Reloading or selecting the current team is refused while a shift runs: projection
+    changes registrations under live agents. End the shift first (D33, lean guard)."""
+
+    code = "shift_active"
+
+
 class CharterNameRequired(DomainError):
     """The directory has no team-definition.yml; it can be initialized into a charter,
     but the team needs a name first — the WebUI catches this code and offers exactly

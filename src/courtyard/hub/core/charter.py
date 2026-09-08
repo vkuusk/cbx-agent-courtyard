@@ -14,9 +14,14 @@ from pathlib import Path
 
 import yaml
 
-from courtyard.common.models import AGENT_COLORS, Charter, CharterCard
+from courtyard.common.models import AGENT_COLORS, Charter, CharterCard, CharterLink
 
 CHARTER_FILE = "team-definition.yml"
+# The per-machine overlay (D33): each agent's project directory on THIS machine. The
+# charter travels between engineers; their project paths do not, so this file must never
+# be committed — the hub writes it with that warning, and stays out of .gitignore
+# (the operator's file, same stance as D15's token warning).
+WORKDIRS_FILE = "workdirs.local.yml"
 # Same shape registration enforces (api/agents.py); a charter must not smuggle in a
 # name the form would refuse.
 AGENT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
@@ -53,7 +58,14 @@ def load_charter(charter_dir: Path) -> tuple[Charter | None, list[str]]:
     cards = [
         _load_card(charter_dir, agent_name, entry, report) for agent_name, entry in agents.items()
     ]
-    return Charter(name=name.strip(), agents=[c for c in cards if c]), report
+    loaded = [c for c in cards if c]
+    _apply_workdirs(charter_dir, loaded, report)
+    links = _load_links(team.get("links"), {c.name for c in loaded}, report)
+    discovery = team.get("discovery")
+    if discovery is not None and discovery not in ("auto", "manual"):
+        report.append(f"`team.discovery` must be auto or manual, got {discovery!r}")
+        discovery = None
+    return Charter(name=name.strip(), agents=loaded, links=links, discovery=discovery), report
 
 
 def _load_card(
@@ -117,6 +129,90 @@ def _read_card_yml(config_dir: Path, card: CharterCard, report: list[str]) -> No
                 )
         else:
             report.append(f"agent {card.name}: card.yml key {key!r} is not a card field")
+
+
+_LINK_MODES = ("supervised", "auto_pass")
+
+
+def _load_links(entries: object, agent_names: set[str], report: list[str]) -> list[CharterLink]:
+    """`team.links`: the declared topology (D33). Each entry is a mapping with `between`
+    (two agent names of this charter) and an optional `mode`. Bad entries are reported
+    and dropped; a bad mode is reported and the link kept without one."""
+    if entries is None:
+        return []
+    if not isinstance(entries, list):
+        report.append("`team.links` must be a list of `between: [a, b]` entries")
+        return []
+    links: list[CharterLink] = []
+    for entry in entries:
+        between = entry.get("between") if isinstance(entry, dict) else None
+        if (
+            not isinstance(between, list)
+            or len(between) != 2
+            or not all(isinstance(n, str) for n in between)
+        ):
+            report.append(f"link {entry!r}: needs `between:` with exactly two agent names")
+            continue
+        a, b = between
+        if a == b:
+            report.append(f"link {entry!r}: cannot link an agent to itself")
+            continue
+        missing = [n for n in between if n not in agent_names]
+        if missing:
+            report.append(f"link {a} - {b}: {', '.join(missing)} is not an agent of this charter")
+            continue
+        mode = entry.get("mode")
+        if mode is not None and mode not in _LINK_MODES:
+            report.append(f"link {a} - {b}: mode {mode!r} is not one of {_LINK_MODES}")
+            mode = None
+        links.append(CharterLink(a=a, b=b, mode=mode))
+    return links
+
+
+def _apply_workdirs(charter_dir: Path, cards: list[CharterCard], report: list[str]) -> None:
+    path = charter_dir / WORKDIRS_FILE
+    if not path.is_file():
+        return
+    try:
+        doc = yaml.safe_load(path.read_text())
+    except yaml.YAMLError as exc:
+        report.append(f"{WORKDIRS_FILE} is not valid YAML: {exc}")
+        return
+    workdirs = doc.get("workdirs") if isinstance(doc, dict) else None
+    if not isinstance(workdirs, dict):
+        report.append(f"{WORKDIRS_FILE} must have a `workdirs:` mapping of agent name to path")
+        return
+    by_name = {c.name: c for c in cards}
+    for agent_name, workdir in workdirs.items():
+        card = by_name.get(agent_name)
+        if card is None:
+            report.append(f"{WORKDIRS_FILE} names {agent_name!r}, not an agent of this charter")
+        elif not isinstance(workdir, str) or not workdir.strip():
+            report.append(f"{WORKDIRS_FILE}: {agent_name} needs a path, got {workdir!r}")
+        else:
+            card.workdir = workdir
+
+
+def set_workdir(charter_dir: Path, agent_name: str, workdir: str) -> None:
+    """Record one agent's per-machine project directory in the overlay, keeping the
+    other entries. Hub-written like the index, so the file exists the moment the
+    operator answers the workdir question (ask-at-init, D33)."""
+    path = charter_dir / WORKDIRS_FILE
+    workdirs: dict[str, str] = {}
+    if path.is_file():
+        try:
+            doc = yaml.safe_load(path.read_text())
+            if isinstance(doc, dict) and isinstance(doc.get("workdirs"), dict):
+                workdirs = doc["workdirs"]
+        except yaml.YAMLError:
+            pass  # unreadable overlay: rewrite it clean; load_charter reported the damage
+    workdirs[agent_name] = workdir
+    path.write_text(
+        "# Written by the courtyard (design docs/design/team-charter.md). Per-machine\n"
+        "# project directories for this charter's agents. Never commit this file:\n"
+        "# every engineer's machine has its own paths.\n"
+        + yaml.safe_dump({"workdirs": workdirs}, default_flow_style=False, sort_keys=True)
+    )
 
 
 def create_charter(charter_dir: Path, name: str) -> None:

@@ -1240,8 +1240,20 @@ refined same day from an empty-only bootstrap after his live check; reload,
 current, remove),
 Admin Teams section + current team on the board eyebrow, fixture charter in
 `tests/team-charter/` (3 agents), 8 tests, runbook `team_charter.py`,
-Playwright 9/9. Next slices: projection into registrations (incl. anti-scope
-column + envelope line, workdir overlay, shift guard), then write-back.
+Playwright 9/9. **Slice 2 (projection) implemented 2026-09-07**: selecting a
+team as current (or reloading the current team) projects the charter — cards
+become registrations (charter-owned fields mirror the files exactly; additive,
+never removes; identity conflicts go to the load report), `team.links`
+(`between: [a, b]` + optional `mode`) become lines with declared modes
+reasserted on reload; optional `team.discovery: auto|manual` projects onto the
+Settings dial (declared = reasserted on reload, omitted = the operator's;
+under auto, links are only mode presets — manual makes them the permission,
+D22, and the charter never infers manual from links alone); migration 0018 `agents.anti_scope` + form field, invite
+`--anti-scope`, one "not for:" line per peer in the rendered roster;
+`workdirs.local.yml` per-machine overlay filled from the Teams view
+(`POST /api/teams/{id}/workdirs`, never-commit header); shift guard = 409
+`shift_active` on reload/select of the current team mid-shift. 248 tests,
+runbook extended (10 checkpoints), Playwright 6/6. Next slice: write-back.
 
 ### 42. Threads: a bounded exchange about one ask, inside a line
 

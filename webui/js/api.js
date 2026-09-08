@@ -65,5 +65,7 @@ export const api = {
   addTeam: (charterDir, name) => call("POST", "/api/teams", { charter_dir: charterDir, name: name || null }),
   reloadTeam: (id) => call("POST", `/api/teams/${id}/reload`),
   setCurrentTeam: (id) => call("POST", "/api/teams/current", { team_id: id }),
+  setTeamWorkdir: (id, agent, workdir) =>
+    call("POST", `/api/teams/${id}/workdirs`, { agent, workdir }),
   removeTeam: (id) => call("DELETE", `/api/teams/${id}`),
 };

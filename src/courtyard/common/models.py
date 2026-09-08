@@ -42,6 +42,7 @@ class Agent(BaseModel):
     type: AgentType
     description: str | None = None  # operator-curated: what this agent is for
     sme_domain: str | None = None  # operator-curated: what this agent OWNS (§7.5 grading)
+    anti_scope: str | None = None  # what NOT to ask this agent (D33; one roster line per peer)
     workdir: str | None = None
     model: str | None = None  # operator-declared model for the agent's runtime (WP-A);
     # install writes it into the agent's settings so nobody forgets to set it
@@ -149,6 +150,7 @@ class PeerInfo(BaseModel):
     type: AgentType
     description: str | None = None
     sme_domain: str | None = None
+    anti_scope: str | None = None  # rendered as one "not for:" line per peer (D33)
     status: AgentStatus
 
 
@@ -193,6 +195,19 @@ class CharterCard(BaseModel):
     description: str | None = None  # description.md
     sme_domain: str | None = None  # owns.md
     anti_scope: str | None = None  # anti-scope.md: what NOT to ask this agent
+    # from workdirs.local.yml, the per-machine overlay (D33) — never from shared files
+    workdir: str | None = None
+
+
+class CharterLink(BaseModel):
+    """One declared line of the team's topology (design team-charter.md §4 category 3):
+    the two agents, by their charter names, and optionally the line's gate mode.
+    A link without a mode gets the hub's default when the line is created and keeps
+    whatever the operator later set; a declared mode is reasserted on every reload."""
+
+    a: str
+    b: str
+    mode: LineMode | None = None
 
 
 class Charter(BaseModel):
@@ -200,6 +215,11 @@ class Charter(BaseModel):
 
     name: str
     agents: list[CharterCard] = []
+    links: list[CharterLink] = []
+    # the team's discovery regime (D33): a charter that declares links usually means
+    # "this IS the topology", which only `manual` enforces (D22). None = not declared;
+    # the hub's Settings dial stays the operator's.
+    discovery: Discovery | None = None
 
 
 class Team(BaseModel):

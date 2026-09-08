@@ -266,10 +266,11 @@ class Board:
 
     # -- line administration -------------------------------------------------------
 
-    def link(self, a: str, b: str) -> Line:
+    def link(self, a: str, b: str, mode: str | None = None) -> Line:
         """Operator gesture (§5.8, D22): pre-create the idle line between two agents —
         under manual discovery that line is what lets them reach each other. Harmless
-        under auto (the line would have formed on first message anyway)."""
+        under auto (the line would have formed on first message anyway). `mode` (used
+        by charter projection, D33) overrides the Admin default for the new line."""
         with self._storage.transaction() as uow:
             agents = (self._registry.resolve(uow, a), self._registry.resolve(uow, b))
             if agents[0].id == agents[1].id:
@@ -284,7 +285,7 @@ class Board:
             if uow.lines.get_pair_locked(agents[0].id, agents[1].id) is not None:
                 raise AlreadyLinked(f"{agents[0].name} and {agents[1].name} already have a line")
             line = uow.lines.get_or_create_locked(
-                agents[0].id, agents[1].id, self._default_line_mode()
+                agents[0].id, agents[1].id, mode or self._default_line_mode()
             )
             line = uow.lines.get(line.id)
         self._events.publish("line", line)

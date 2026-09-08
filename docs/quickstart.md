@@ -56,9 +56,11 @@ description of what it can do, what it owns, its project directory, optionally t
 model it should run (e.g. `sonnet`, so nobody forgets to set it at launch), and a
 colour for its card (one is pre-selected; keep it or pick another).
 
-Take a moment over the two descriptive fields; this is team design, not bookkeeping.
+Take a moment over the descriptive fields; this is team design, not bookkeeping.
 What the agent can do is advertised to every other agent and is how they decide whom
 to ask; what it owns marks the agent's word as authoritative inside its own area.
+A third, optional field states what the agent is NOT for; peers see it as a short
+"not for" note and use it to avoid asking the wrong agent.
 
 The agent's tool permissions are part of the same design. They are Claude Code's own
 settings, per project, not the hub's: give each agent standing approval for the

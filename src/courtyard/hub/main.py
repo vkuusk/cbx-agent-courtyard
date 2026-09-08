@@ -95,7 +95,6 @@ def create_app(config: Config | None = None) -> FastAPI:
         app.state.channels = channels
         app.state.archiver = archiver
         app.state.shift = shift
-        app.state.teams = TeamService(storage)
         app.state.board = Board(
             storage,
             registry,
@@ -105,6 +104,15 @@ def create_app(config: Config | None = None) -> FastAPI:
             deliverer,
             default_line_mode=lambda: shift.get_settings().default_line_mode,
             discovery=discovery,
+        )
+        # Projection (D33) registers agents and links lines through the same services the
+        # operator's own gestures use, so events and invariants come along for free.
+        app.state.teams = TeamService(
+            storage,
+            registry=registry,
+            board=app.state.board,
+            shift_active=lambda: shift.status().state != "off",
+            set_discovery=lambda v: shift.update_settings({"discovery": v}),
         )
 
         async def sweep_liveness() -> None:

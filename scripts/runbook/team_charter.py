@@ -1,7 +1,9 @@
-"""Runbook check: the team charter registry, slice 1 (design team-charter.md, D33).
+"""Runbook check: the team charter (design team-charter.md, D33) — the read path
+(slice 1) and the projection into registrations and lines (slice 2).
 
 Runs against its OWN throwaway hub on a scratch database — never the dev hub — because
-registering teams and choosing the current one is courtyard-wide state.
+registering teams, choosing the current one and projecting a charter is courtyard-wide
+state.
 
   1. add the committed demo charter (tests/team-charter): name and three agents load
   2. the report is empty; what the hub cached is what the files say
@@ -9,13 +11,20 @@ registering teams and choosing the current one is courtyard-wide state.
      name confirms), then the hub writes the index; existing files are untouched
   4. the hub never watches the filesystem: an edit shows only after reload
   5. a broken charter reloads into a readable report, the row survives
-  6. current-team selection: exactly one current; clearing works; remove leaves files
+  6. selecting a team as current projects it: cards become registrations (with the
+     anti-scope), links become lines with their declared gate modes
+  7. answering an agent's workdir writes the per-machine overlay + the registration
+  8. the files are the master: an edited description lands at reload, a declared
+     line mode is reasserted over a WebUI flip
+  9. the shift guard: the current team cannot be reloaded while a shift runs
+ 10. exactly one current team; clearing works; remove leaves the files
 
 Needs the compose postgres up (`make db-up`). Run:
     uv run python scripts/runbook/team_charter.py
 """
 
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -107,7 +116,54 @@ try:
     print(f"report            : {fresh.load_report}")
     print(f"row survives      : name still {fresh.name!r}, charter cached: {fresh.charter}")
 
-    hr("6. CURRENT TEAM: EXACTLY ONE, CLEARABLE; REMOVE LEAVES THE FILES")
+    hr("6. SELECTING A TEAM PROJECTS IT: CARDS -> REGISTRATIONS, LINKS -> LINES")
+    # a private copy of the demo charter, so the workdir overlay never lands in the repo
+    copy_dir = scratch / "demo-devops"
+    shutil.copytree(FIXTURE, copy_dir)
+    admin.remove_team(team.id)  # same directory content; the copy takes its place
+    team = admin.add_team(str(copy_dir))
+    admin.set_current_team(team.id)
+    for agent in admin.agents():
+        if agent.type != "human":
+            print(f"registered        : {agent.name} ({agent.type}) — not for: {agent.anti_scope}")
+    for line in admin.lines():
+        print(f"line              : {line.agent_a_name} <-> {line.agent_b_name} [{line.mode}]")
+    print(f"discovery         : {admin.settings()['discovery']} (declared by the charter)")
+    projected = next(t for t in admin.teams() if t.id == team.id)
+    print(f"report            : {projected.load_report or 'clean'}")
+
+    hr("7. ANSWERING A WORKDIR WRITES THE OVERLAY AND THE REGISTRATION")
+    project_dir = scratch / "infra-project"
+    project_dir.mkdir()
+    admin.set_team_workdir(team.id, "infra", str(project_dir))
+    infra = next(a for a in admin.agents() if a.name == "infra")
+    print(f"registration      : infra.workdir = {infra.workdir}")
+    print("workdirs.local.yml:")
+    print((copy_dir / "workdirs.local.yml").read_text())
+
+    hr("8. THE FILES ARE THE MASTER: RELOAD MIRRORS EDITS, REASSERTS DECLARED MODES")
+    (copy_dir / "infra" / "description.md").write_text("Now runs GCP too.\n")
+    declared = next(
+        li for li in admin.lines() if {li.agent_a_name, li.agent_b_name} == {"infra", "tf-dev"}
+    )
+    admin.set_mode(declared.id, "supervised")  # the operator flips the declared auto_pass line
+    team = admin.reload_team(team.id)
+    infra = next(a for a in admin.agents() if a.name == "infra")
+    print(f"description       : {infra.description!r} (from the edited file)")
+    declared = next(li for li in admin.lines() if li.id == declared.id)
+    print(f"declared mode     : back to [{declared.mode}] (the charter says auto_pass)")
+
+    hr("9. THE SHIFT GUARD: NO RELOAD OF THE CURRENT TEAM MID-SHIFT")
+    admin._call("POST", "/api/shift/start")
+    try:
+        admin.reload_team(team.id)
+        print("BUG: reload went through during a shift")
+    except HubError as exc:
+        print(f"refused           : {exc.code} — {exc}")
+    admin._call("POST", "/api/shift/end", {"force": True})
+    print(f"after end shift   : reload OK ({admin.reload_team(team.id).name})")
+
+    hr("10. CURRENT TEAM: EXACTLY ONE, CLEARABLE; REMOVE LEAVES THE FILES")
     teams = admin.set_current_team(team.id)
     print(f"current flags     : { {t.name: t.is_current for t in teams} }")
     teams = admin.set_current_team(None)

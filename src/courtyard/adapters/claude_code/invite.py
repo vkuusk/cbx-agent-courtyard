@@ -40,6 +40,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--description", help="what the agent is for (when --register)")
     p.add_argument("--sme-domain", help="what the agent owns (when --register)")
+    p.add_argument("--anti-scope", help="what NOT to ask this agent (when --register)")
     p.add_argument("--color", help="board colour: red orange yellow green teal blue purple pink")
     p.add_argument("--model", help="model for the agent's runtime, e.g. sonnet (when --register)")
     return p
@@ -70,6 +71,7 @@ def cli(argv: list[str] | None = None) -> None:
                 args.workdir,
                 args.color,
                 model=args.model,
+                anti_scope=args.anti_scope,
             )
             print(f"registered {args.name}; token: {token}")
 

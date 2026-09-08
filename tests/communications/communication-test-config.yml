@@ -6,7 +6,7 @@ hub: http://127.0.0.1:2626
 # agent1: a registered claude-code agent with a workdir; the test reinstalls its
 # config, launches a real Claude Code session from that directory, and drives the
 # operator -> agent1 -> operator round trip through the hub.
-agent1: cbxorg-infra
+agent1: infra-agent
 
 # Model for agent1's session — cheap on purpose; the test spends a few real tokens.
 model: haiku

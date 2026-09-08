@@ -55,6 +55,27 @@ class AlreadyLinked(DomainError):
     code = "already_linked"
 
 
+class ThreadStillOpen(DomainError):
+    """D34: a declared new ask while the line's thread is still open — refused the way
+    turn violations are, instead of being silently filed into the open thread."""
+
+    code = "thread_open"
+
+
+class NoOpenThread(DomainError):
+    """Close called on a line with no open thread — nothing to close."""
+
+    code = "no_open_thread"
+
+
+class NotThreadInitiator(DomainError):
+    """D34: only the agent that opened a thread may close it (the ask is theirs to
+    declare satisfied)."""
+
+    code = "not_thread_initiator"
+    http_status = 403
+
+
 class NotPending(DomainError):
     code = "not_pending"
 

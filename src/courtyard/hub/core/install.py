@@ -296,6 +296,17 @@ peer agents and your operator exchange messages through a central hub.
 - On a supervised line your message waits at a gate for the operator's verdict:
   approved, returned to you with a comment, or dropped. The hub tells you which.
 
+## Threads
+
+- A conversation on a line consists of threads, one after another: one bounded
+  exchange about one ask, at most one open per line. Your first message on a
+  quiet line opens one; replies and follow-ups continue it.
+- When the ask YOU opened is settled, close the thread with
+  `courtyard_close_thread`: a bare tool call, no closing pleasantries — the hub
+  tells the peer. Only the opener closes.
+- To start an unrelated ask with the same peer, pass `new_thread` to
+  `courtyard_send`; it is refused while a thread is still open.
+
 ## Delivery checks
 
 - A message asking you to confirm receipt with `courtyard_ack` and a token is a

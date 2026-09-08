@@ -6,8 +6,8 @@ One stdio MCP server per agent, spawned by Claude Code from the agent's project
 * **a channel** — declares the `claude/channel` experimental capability, so a
   `notifications/claude/channel` event this server emits arrives in the session as a
   live conversation turn. This is how the hub's pushes reach a running agent.
-* **a toolbox** — `courtyard_send` / `courtyard_inbox` / `courtyard_peers`, the agent's
-  side of the adapter contract (§7.1).
+* **a toolbox** — `courtyard_send` / `courtyard_close_thread` / `courtyard_inbox` /
+  `courtyard_peers`, the agent's side of the adapter contract (§7.1).
 * **a hub adapter** — attaches with a channel endpoint + channel token, heartbeats, and
   detaches at session end, exactly like the dummy has done since step 2.
 
@@ -79,11 +79,19 @@ behalf — your operator told you to ask a peer, say — the answer you receive 
 that exchange: deliver the result to whoever is waiting on it, with courtyard_send, \
 before considering the task done.
 
-The hub enforces one rule: between any pair of agents, at most one unanswered message may \
-be in flight. Sending again before the other side answers is refused with a \
+The hub enforces two rules. First: between any pair of agents, at most one unanswered \
+message may be in flight. Sending again before the other side answers is refused with a \
 machine-readable explanation of whose turn it is — read it and wait rather than retrying. \
 Your messages may also be held for the operator's approval before they reach the \
-recipient; the tool result says which happened."""
+recipient; the tool result says which happened.
+
+Second: a conversation on a line consists of threads, one after another — a thread is one \
+bounded exchange about one ask, and each line holds at most one open thread. Your first \
+message on a quiet line opens one; replies and follow-ups continue it. When the ask YOU \
+opened is settled — the answer accepted — close the thread with courtyard_close_thread: a \
+bare tool call, no closing pleasantries, and the hub tells the peer. Only the opener \
+closes. To start an unrelated ask with the same peer, pass new_thread to courtyard_send; \
+it is refused while a thread is still open, the way turn violations are."""
 
 TOOLS: list[dict[str, Any]] = [
     {
@@ -105,8 +113,36 @@ TOOLS: list[dict[str, Any]] = [
                     "description": "the recipient agent's name (see courtyard_peers)",
                 },
                 "message": {"type": "string", "description": "what you want to say"},
+                "new_thread": {
+                    "type": "boolean",
+                    "description": (
+                        "declare that this message starts a NEW independent ask, unrelated "
+                        "to the exchange in progress. Refused while a thread with this peer "
+                        "is still open — close yours first, or leave this unset to continue "
+                        "the open thread."
+                    ),
+                },
             },
             "required": ["to", "message"],
+        },
+    },
+    {
+        "name": "courtyard_close_thread",
+        "description": (
+            "Close the thread you opened with a peer: your ask is settled, the answer "
+            "accepted. A bare protocol event — no message rides it; if you have something "
+            "substantive left to say, send it with courtyard_send first, then close. Only "
+            "the agent that opened a thread can close it. The peer is told by the hub."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "peer": {
+                    "type": "string",
+                    "description": "the other agent on the thread's line",
+                },
+            },
+            "required": ["peer"],
         },
     },
     {
@@ -443,6 +479,7 @@ class CourtyardAdapter:
     def _call_tool(self, name: str, arguments: dict) -> dict:
         handlers = {
             "courtyard_send": self._tool_send,
+            "courtyard_close_thread": self._tool_close_thread,
             "courtyard_inbox": self._tool_inbox,
             "courtyard_peers": self._tool_peers,
             "courtyard_ack": self._tool_ack,
@@ -468,7 +505,7 @@ class CourtyardAdapter:
         body = arguments.get("message") or ""
         if not to or not body.strip():
             return _tool_result("both `to` and `message` are required", is_error=True)
-        message = self._client.send(to, body)
+        message = self._client.send(to, body, bool(arguments.get("new_thread")))
         if message.status == "pending_gate":
             text = (
                 f"Held at the gate for the operator's approval (seq {message.seq}); it has "
@@ -485,6 +522,15 @@ class CourtyardAdapter:
                 f"will hand it over when they attach. The line is awaiting their reply."
             )
         return _tool_result(text)
+
+    def _tool_close_thread(self, arguments: dict) -> dict:
+        peer = (arguments.get("peer") or "").strip()
+        if not peer:
+            return _tool_result("`peer` is required", is_error=True)
+        self._client.close_thread(peer)
+        return _tool_result(
+            f"Thread closed; the hub has told {peer}. A new ask with {peer} may start now."
+        )
 
     def _tool_inbox(self, _arguments: dict) -> dict:
         messages = self._client.inbox()

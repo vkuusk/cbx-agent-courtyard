@@ -176,7 +176,13 @@ def test_adapter_end_to_end(session):
 
     # --- tools ------------------------------------------------------------------------
     tools = {t["name"] for t in adapter.request("tools/list")["tools"]}
-    assert tools == {"courtyard_send", "courtyard_inbox", "courtyard_peers", "courtyard_ack"}
+    assert tools == {
+        "courtyard_send",
+        "courtyard_close_thread",
+        "courtyard_inbox",
+        "courtyard_peers",
+        "courtyard_ack",
+    }
 
     peers = tool_text(adapter.call_tool("courtyard_peers"))
     assert "infra — dummy, invited — owns: the staging and prod clusters" in peers

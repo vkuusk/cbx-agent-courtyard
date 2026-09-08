@@ -12,7 +12,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
 
-from courtyard.common.models import Agent, Message
+from courtyard.common.models import Agent, Message, Thread
 from courtyard.hub.api.deps import get_board
 from courtyard.hub.core.board import Board
 from courtyard.hub.core.registry import OPERATOR_NAME
@@ -35,8 +35,25 @@ def send(
     operator: Annotated[Agent, Depends(get_operator)],
     board: Annotated[Board, Depends(get_board)],
 ) -> Message:
-    """Operator-initiated message: a normal line with normal turn rules, never gated."""
+    """Operator-initiated message: a normal line with normal turn rules, never gated.
+    No thread declaration (D34): with one open thread per line, a send with none open
+    necessarily opens one — starting a new ask is close, then send."""
     return board.send(operator, body.to, body.body)
+
+
+class CloseThread(BaseModel):
+    peer: str  # the agent on the other end of the operator's line
+
+
+@router.post("/close-thread")
+def close_thread(
+    body: CloseThread,
+    operator: Annotated[Agent, Depends(get_operator)],
+    board: Annotated[Board, Depends(get_board)],
+) -> Thread:
+    """The conversation pane's close control (D34): the same hub operation the agents'
+    close tool invokes — only threads the operator initiated."""
+    return board.close_thread(operator, body.peer)
 
 
 @router.get("/inbox")

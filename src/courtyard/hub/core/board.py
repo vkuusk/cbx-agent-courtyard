@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from uuid import UUID, uuid4
 
-from courtyard.common.models import Agent, Line, Message
+from courtyard.common.models import Agent, Line, Message, Thread
 from courtyard.hub.core import turns
 from courtyard.hub.core.deliver import Deliverer
 from courtyard.hub.core.envelope import with_rendering
@@ -18,11 +18,15 @@ from courtyard.hub.core.errors import (
     AgentGone,
     AlreadyLinked,
     BodyTooLarge,
+    GatePendingBlock,
     InvalidRecipient,
     LineNotFound,
     MessageNotFound,
+    NoOpenThread,
     NotAllowed,
     NotLinked,
+    NotThreadInitiator,
+    ThreadStillOpen,
 )
 from courtyard.hub.core.events import EventBus
 from courtyard.hub.core.gate import Approver
@@ -34,16 +38,18 @@ def _turn_state(line: Line) -> turns.TurnState:
     return turns.TurnState(line.mode, line.state, line.awaiting_from, line.in_flight_msg)
 
 
-def expire_open_work(uow: UnitOfWork) -> tuple[list[Line], list[Message]]:
-    """End-of-shift close-out (design §8.1, D24): every non-idle line goes back to idle
-    and its unfinished message — awaiting a reply (queued or delivered) or held at the
-    gate — becomes `expired`, with a `system` entry in the line's history. Nothing is
-    deleted, nothing is delivered; the record is the point. Bypasses the turn planners
-    deliberately, like `release`: an administrative transition, not a turn.
+def expire_open_work(uow: UnitOfWork) -> tuple[list[Line], list[Message], list[Thread]]:
+    """End-of-shift close-out (design §8.1, D24; §D34): every non-idle line goes back to
+    idle and its unfinished message — awaiting a reply (queued or delivered) or held at
+    the gate — becomes `expired`, with a `system` entry in the line's history; every
+    open thread becomes `expired` too, the same close-out at task granularity. Nothing
+    is deleted, nothing is delivered; the record is the point. Bypasses the turn
+    planners deliberately, like `release`: an administrative transition, not a turn.
 
-    Returns (changed lines, messages to publish) for the caller's event fan-out.
+    Returns (changed lines, messages to publish, expired threads) for the caller's
+    event fan-out.
     """
-    changed: list[Line] = []
+    touched: set[UUID] = set()
     publish: list[Message] = []
     for line in uow.lines.list():
         if line.state == "idle":
@@ -65,12 +71,33 @@ def expire_open_work(uow: UnitOfWork) -> tuple[list[Line], list[Message]]:
             body=f"the message {what} expired at end of shift",
             reply_to=locked.in_flight_msg,
             status="delivered",
+            thread_id=locked.open_thread,
         )
         if expired is not None:
             publish.append(expired)
         publish.append(entry)
-        changed.append(uow.lines.get(locked.id))
-    return changed, publish
+        touched.add(locked.id)
+    # D34: threads outlive turns, so an idle line can still hold an open thread —
+    # every one of them ends here, whatever its line was doing.
+    expired_threads = uow.threads.expire_open()
+    for thread in expired_threads:
+        uow.lines.get_locked(thread.line_id)  # insert bumps the per-line seq
+        uow.lines.set_open_thread(thread.line_id, None)
+        publish.append(
+            uow.messages.insert(
+                message_id=uuid4(),
+                line_id=thread.line_id,
+                sender=None,
+                recipient=None,  # log-only board entry
+                kind="system",
+                body="the open thread expired at end of shift",
+                reply_to=None,
+                status="delivered",
+                thread_id=thread.id,
+            )
+        )
+        touched.add(thread.line_id)
+    return [uow.lines.get(line_id) for line_id in touched], publish, expired_threads
 
 
 class Board:
@@ -98,9 +125,16 @@ class Board:
 
     # -- sending -------------------------------------------------------------------
 
-    def send(self, sender: Agent, to: str, body: str) -> Message:
-        """A turn-taking `message` from an authenticated agent (or the operator)."""
+    def send(self, sender: Agent, to: str, body: str, new_thread: bool = False) -> Message:
+        """A turn-taking `message` from an authenticated agent (or the operator).
+
+        `new_thread` is the sender's boundary declaration (D34): under serial v1 its one
+        job is to be refused while the line's thread is still open — a message on a line
+        with no open thread opens one whether declared or not, and any other message
+        continues the open thread.
+        """
         self._check_body(body)
+        opened = None
         with self._storage.transaction() as uow:
             recipient = self._registry.resolve(uow, to)
             if recipient.id == sender.id:
@@ -126,6 +160,22 @@ class Board:
                 uow.lines.set_mode(line.id, "auto_pass")
                 line = uow.lines.get_locked(line.id)
             plan = turns.plan_message_send(_turn_state(line), sender.id, recipient.id)
+            thread_id = line.open_thread
+            if thread_id is None:
+                # The first message of a new exchange opens the thread — declared or
+                # not, it is the only possibility on a line with none (D34).
+                opened = uow.threads.insert(thread_id=uuid4(), line_id=line.id, opened_by=sender.id)
+                uow.lines.set_open_thread(line.id, opened.id)
+                thread_id = opened.id
+            elif new_thread:
+                thread = uow.threads.get(thread_id)
+                raise ThreadStillOpen(
+                    f"a thread is still open on your line with {recipient.name!r}; a new "
+                    "ask begins only after it is closed. Send without new_thread to "
+                    "continue the open thread, or — if you opened it and the ask is "
+                    "settled — close it first",
+                    opened_by=thread.opened_by_name or str(thread.opened_by),
+                )
             message = uow.messages.insert(
                 message_id=uuid4(),
                 line_id=line.id,
@@ -135,6 +185,7 @@ class Board:
                 body=body,
                 reply_to=plan.reply_to,
                 status=plan.message_status,
+                thread_id=thread_id,
             )
             uow.lines.set_turn(
                 line.id,
@@ -143,6 +194,8 @@ class Board:
                 message.id if plan.track_new_message else None,
             )
             line = uow.lines.get(line.id)
+        if opened is not None:
+            self._events.publish("thread", opened)
         self._events.publish("message", message)
         self._events.publish("line", line)
         if message.status == "pending_gate":
@@ -150,6 +203,59 @@ class Board:
         elif message.status == "queued":
             message = self._deliverer.deliver(message)
         return message
+
+    def close_thread(self, closer: Agent, with_: str) -> Thread:
+        """Close the open thread on the closer's line with a peer (D34): the initiator
+        declares the ask settled. A dedicated protocol event with no message and no
+        note — the peer learns of it from a fixed system line. Closing resolves the
+        line's reply obligation, so a closed thread never leaves a line stuck."""
+        with self._storage.transaction() as uow:
+            peer = self._registry.resolve(uow, with_)
+            if peer.id == closer.id:
+                raise InvalidRecipient("you have no line with yourself")
+            line = uow.lines.get_pair_locked(closer.id, peer.id)
+            if line is None or line.open_thread is None:
+                raise NoOpenThread(f"no open thread on your line with {peer.name!r}")
+            thread = uow.threads.get(line.open_thread)
+            if thread.opened_by != closer.id:
+                raise NotThreadInitiator(
+                    f"this thread was opened by {thread.opened_by_name!r}; only its "
+                    "initiator closes it — answer with a message instead",
+                )
+            if line.state == "pending_gate":
+                raise GatePendingBlock(
+                    "a message on this line is awaiting the operator's gate decision; "
+                    "the thread cannot close until it is decided",
+                    in_flight_msg=str(line.in_flight_msg),
+                )
+            thread = uow.threads.end(thread.id, "closed")
+            uow.lines.set_open_thread(line.id, None)
+            if line.state == "awaiting_reply":
+                # The close resolves the reply obligation, whichever side owed it.
+                uow.lines.set_turn(line.id, "idle", None, None)
+            entry = uow.messages.insert(
+                message_id=uuid4(),
+                line_id=line.id,
+                sender=None,
+                recipient=peer.id,
+                kind="system",
+                body=f"thread closed by {closer.name}",
+                reply_to=None,
+                status="queued",
+                thread_id=thread.id,
+            )
+            line = uow.lines.get(line.id)
+        self._events.publish("thread", thread)
+        self._events.publish("message", entry)
+        self._events.publish("line", line)
+        self._deliverer.deliver(entry)
+        return thread
+
+    def line_threads(self, line_id: UUID) -> list[Thread]:
+        with self._storage.transaction() as uow:
+            if uow.lines.get(line_id) is None:
+                raise LineNotFound("no such line")
+            return uow.threads.list_line(line_id)
 
     def note(self, line_id: UUID, target: str, body: str) -> list[Message]:
         """Operator insertion into an inter-agent line, targeted at one participant or
@@ -183,6 +289,7 @@ class Board:
                     body=body,
                     reply_to=None,
                     status="queued",
+                    thread_id=line.open_thread,  # commentary rides the open exchange, if any
                 )
                 for recipient in recipients
             ]
@@ -231,6 +338,7 @@ class Board:
                     body=note,
                     reply_to=message.id,
                     status="queued",
+                    thread_id=message.thread_id,
                 )
             line = uow.lines.get(line.id)
         self._events.publish("message", updated)
@@ -258,6 +366,7 @@ class Board:
             body=body,
             reply_to=message.id,
             status="queued",
+            thread_id=message.thread_id,
         )
 
     def pending(self) -> list[Message]:
@@ -323,6 +432,7 @@ class Board:
                 body="line released to idle by the operator",
                 reply_to=line.in_flight_msg,
                 status="delivered",
+                thread_id=line.open_thread,
             )
             line = uow.lines.get(line.id)
         self._events.publish("message", entry)

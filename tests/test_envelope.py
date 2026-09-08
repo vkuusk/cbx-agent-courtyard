@@ -191,10 +191,14 @@ def test_preview_covers_every_variant_and_is_deterministic():
 
     blocks = preview()
     titles = [b["title"] for b in blocks]
-    assert len(titles) == len(set(titles)) == 7
+    assert len(titles) == len(set(titles)) == 8
     by_title = {b["title"]: b["text"] for b in blocks}
     assert "courtyard_send" in by_title["A question from a peer"]  # the reply footer
-    assert "is complete" in by_title["An answer from a peer"]  # the closing footer
+    # the closing footers (D34): the initiator is pointed at the close tool, a
+    # non-initiator gets the plain exchange-complete wording
+    assert "courtyard_close_thread" in by_title["An answer from a peer"]
+    assert "is complete" in by_title["An answer to someone else's thread"]
+    assert "courtyard_close_thread" not in by_title["An answer to someone else's thread"]
     assert "(what the sender owns)" in by_title["A question from a domain owner"]
     assert 'authority="operator"' in by_title["A message from the operator"]
     assert "needs no separate reply" in by_title["An operator note"]  # the note footer
@@ -210,6 +214,6 @@ def test_envelope_api_serves_the_blocks_plus_adapter_instructions(client):
     blocks = client.get("/api/envelope").json()
     titles = [b["title"] for b in blocks]
     assert titles[-1] == "The adapter instructions"
-    assert len(titles) == 8
+    assert len(titles) == 9
     assert all(b["text"].strip() and b["note"].strip() for b in blocks)
     assert all(b["overhead_tokens"] > 0 for b in blocks)

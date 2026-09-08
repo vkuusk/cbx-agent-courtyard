@@ -681,3 +681,44 @@ uv run python scripts/runbook/log_level.py
    a charter and cancel the name prompt): the 422 line appears, labeled WARNING.
 2. Stop, run plain `make run`: the familiar INFO lines are back, and the same
    422 shows as WARNING among them.
+
+---
+
+## Threads: the quant of conversation (design threads.md, D34 - slice 1)
+
+**Feature under test:** every message belongs to a thread, one bounded exchange
+about one ask. Serial v1: at most one open thread per line. The first message on
+a quiet line opens one (declared or not); a declared new ask (`new_thread` on the
+send) while a thread is open is refused like a turn violation. Close is a
+dedicated tool call (`courtyard_close_thread`), initiator-only, with no message
+and no note: it resolves the line's reply obligation and the peer gets the fixed
+system line "thread closed by X". The answer's envelope points the initiator, and
+only the initiator, at the close tool. End shift marks open threads `expired`.
+The operator's threads need no declaration and close through
+`POST /api/operator/close-thread` (the pane control lands with the WebUI slice).
+
+**Scripted part** (against a live hub; the expiry checkpoint skips itself unless
+every other line is idle and no real claude-code agent is down):
+
+```
+make run                        # hub in another terminal
+uv run python scripts/runbook/threads.py
+```
+
+Checkpoints printed: same thread id on ask and answer; the `thread_open` refusal
+text; the close-tool pointer in the rendered answer; the `not_thread_initiator`
+refusal; closed state + idle line + the peer's notice; a fresh thread for the
+next ask; `expired` state and its system entry after a forced end shift.
+
+**Manual part** (needs a live agent session, e.g. the comms round trip setup):
+
+1. Ask a connected agent something and read its answer in the conversation pane;
+   check the hub log or `GET /api/lines/<id>/threads` shows one open thread
+   opened by `operator`.
+2. Close it: `curl -X POST http://127.0.0.1:2626/api/operator/close-thread -H
+   'Content-Type: application/json' -d '{"peer": "<agent>"}'`. The pane gains the
+   system line "thread closed by operator", delivered to the agent's session.
+3. Have the agent ask YOU something and answer it: the agent's envelope pointed
+   it at `courtyard_close_thread`, and a well-behaved session closes its thread
+   after your answer settles it - watch for the close in the pane.
+

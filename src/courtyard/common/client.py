@@ -29,6 +29,7 @@ from courtyard.common.models import (
     Message,
     PeersView,
     Team,
+    Thread,
 )
 
 CHANNEL_TOKEN_HEADER = "X-Courtyard-Channel-Token"
@@ -93,10 +94,21 @@ class HubClient:
         """Return a delivery-check token (item 34). False = no open check matched."""
         return bool(self._call("POST", f"/api/agents/{self.name}/ack", {"token": token})["ok"])
 
-    def send(self, to: str, body: str) -> Message:
+    def send(self, to: str, body: str, new_thread: bool = False) -> Message:
         return Message.model_validate(
-            self._call("POST", "/api/lines/send", {"to": to, "body": body})
+            self._call(
+                "POST", "/api/lines/send", {"to": to, "body": body, "new_thread": new_thread}
+            )
         )
+
+    def close_thread(self, peer: str) -> Thread:
+        """Close the open thread on this agent's line with `peer` (D34, initiator only)."""
+        return Thread.model_validate(self._call("POST", "/api/lines/close-thread", {"peer": peer}))
+
+    def line_threads(self, line_id: UUID | str) -> list[Thread]:
+        return [
+            Thread.model_validate(t) for t in self._call("GET", f"/api/lines/{line_id}/threads")
+        ]
 
     def inbox(self) -> list[Message]:
         data = self._call("GET", f"/api/agents/{self.name}/inbox")

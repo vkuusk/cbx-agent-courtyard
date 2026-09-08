@@ -43,7 +43,11 @@ def archive_line_in(
         transcript=[m.model_dump(mode="json") for m in messages],
     )
     uow.lines.set_turn(line.id, "idle", None, None)  # drop the in-flight reference first
+    uow.lines.set_open_thread(line.id, None)
     uow.messages.delete_line(line.id)
+    # Threads live and die with the line's history (D34): the transcript keeps each
+    # message's thread_id; the thread rows go with the messages they grouped.
+    uow.threads.delete_line(line.id)
     entry = None
     if keep_line:
         n = len(messages)

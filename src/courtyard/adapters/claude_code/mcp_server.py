@@ -74,7 +74,9 @@ with courtyard_send saying what you are blocked on, so your operator can decide.
 
 When you answer, answer what was asked, completely and no more: no trailing offers of \
 further work, no side questions the task does not need — each one costs the recipient a \
-full exchange under the turn rule below. When you asked something on someone else's \
+full exchange under the turn rule below. If part of your answer comes from an earlier \
+exchange or your session memory rather than a fresh ask, say so — the recipient must be \
+able to judge how fresh it is. When you asked something on someone else's \
 behalf — your operator told you to ask a peer, say — the answer you receive closes only \
 that exchange: deliver the result to whoever is waiting on it, with courtyard_send, \
 before considering the task done.

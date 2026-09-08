@@ -293,6 +293,14 @@ class PgMessageRepo:
         ).fetchone()
         return row["n"]
 
+    def count_thread(self, thread_id: UUID) -> int:
+        row = self._conn.execute(
+            "SELECT count(*) AS n FROM messages WHERE thread_id = %s AND kind = 'message'"
+            " AND status NOT IN ('returned', 'dropped')",
+            (thread_id,),
+        ).fetchone()
+        return row["n"]
+
     def list_for_recipient(self, agent_id: UUID, limit: int) -> list[Message]:
         rows = self._conn.execute(
             _MESSAGE_SELECT + " WHERE m.recipient = %s ORDER BY m.created_at DESC LIMIT %s",

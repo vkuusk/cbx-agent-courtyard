@@ -306,6 +306,9 @@ peer agents and your operator exchange messages through a central hub.
   tells the peer. Only the opener closes.
 - To start an unrelated ask with the same peer, pass `new_thread` to
   `courtyard_send`; it is refused while a thread is still open.
+- A thread carries an exchange budget: spend it without closure and the hub
+  locks the thread and tells both sides. That means the exchange is over, not
+  that you should retry it elsewhere.
 
 ## Delivery checks
 

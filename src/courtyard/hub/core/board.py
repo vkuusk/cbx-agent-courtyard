@@ -26,6 +26,7 @@ from courtyard.hub.core.errors import (
     NotAllowed,
     NotLinked,
     NotThreadInitiator,
+    ThreadLocked,
     ThreadStillOpen,
 )
 from courtyard.hub.core.events import EventBus
@@ -111,6 +112,7 @@ class Board:
         deliverer: Deliverer,
         default_line_mode: Callable[[], str] | None = None,
         discovery: Callable[[], str] | None = None,
+        thread_budget: Callable[[], int] | None = None,
     ):
         self._storage = storage
         self._registry = registry
@@ -122,6 +124,8 @@ class Board:
         self._default_line_mode = default_line_mode or (lambda: "supervised")
         # §5.8 (D22): under manual discovery an agent-agent send needs an existing line.
         self._discovery = discovery or (lambda: "auto")
+        # D34 §5 item 2: messages per thread before the hub locks it (0 = no budget).
+        self._thread_budget = thread_budget or (lambda: 0)
 
     # -- sending -------------------------------------------------------------------
 
@@ -132,9 +136,16 @@ class Board:
         job is to be refused while the line's thread is still open — a message on a line
         with no open thread opens one whether declared or not, and any other message
         continues the open thread.
+
+        The thread budget (D34 §5 item 2) is checked only on a send that would grow an
+        open thread with a fresh ask or follow-up — a reply always passes, so a line
+        can never jam on an undischargeable obligation. At budget, the thread is locked
+        (committed, with a system line to each side) and the send is refused.
         """
         self._check_body(body)
         opened = None
+        locked = None
+        lock_notices: list[Message] = []
         with self._storage.transaction() as uow:
             recipient = self._registry.resolve(uow, to)
             if recipient.id == sender.id:
@@ -161,12 +172,43 @@ class Board:
                 line = uow.lines.get_locked(line.id)
             plan = turns.plan_message_send(_turn_state(line), sender.id, recipient.id)
             thread_id = line.open_thread
+            budget = self._thread_budget()
             if thread_id is None:
                 # The first message of a new exchange opens the thread — declared or
                 # not, it is the only possibility on a line with none (D34).
                 opened = uow.threads.insert(thread_id=uuid4(), line_id=line.id, opened_by=sender.id)
                 uow.lines.set_open_thread(line.id, opened.id)
                 thread_id = opened.id
+            elif (
+                plan.reply_to is None  # a reply always passes: obligations stay dischargeable
+                and budget > 0
+                and "human" not in (sender.type, recipient.type)  # D9 analog: unbudgeted
+                and uow.messages.count_thread(thread_id) >= budget
+            ):
+                # The budget is spent: lock the thread and tell both sides. The lock
+                # commits (this transaction exits cleanly); the refusal is raised after.
+                locked = uow.threads.end(thread_id, "locked")
+                uow.lines.set_open_thread(line.id, None)
+                for participant in (sender.id, recipient.id):
+                    lock_notices.append(
+                        uow.messages.insert(
+                            message_id=uuid4(),
+                            line_id=line.id,
+                            sender=None,
+                            recipient=participant,
+                            kind="system",
+                            body=(
+                                f"thread locked: its exchange budget ({budget} messages) "
+                                "is spent without closure — the courtyard ended this "
+                                "exchange. Do not restate the same ask in a new thread; "
+                                "if it truly needs more, involve your operator."
+                            ),
+                            reply_to=None,
+                            status="queued",
+                            thread_id=thread_id,
+                        )
+                    )
+                line = uow.lines.get(line.id)
             elif new_thread:
                 thread = uow.threads.get(thread_id)
                 raise ThreadStillOpen(
@@ -176,24 +218,39 @@ class Board:
                     "settled — close it first",
                     opened_by=thread.opened_by_name or str(thread.opened_by),
                 )
-            message = uow.messages.insert(
-                message_id=uuid4(),
-                line_id=line.id,
-                sender=sender.id,
-                recipient=recipient.id,
-                kind="message",
-                body=body,
-                reply_to=plan.reply_to,
-                status=plan.message_status,
-                thread_id=thread_id,
+            if locked is None:
+                message = uow.messages.insert(
+                    message_id=uuid4(),
+                    line_id=line.id,
+                    sender=sender.id,
+                    recipient=recipient.id,
+                    kind="message",
+                    body=body,
+                    reply_to=plan.reply_to,
+                    status=plan.message_status,
+                    thread_id=thread_id,
+                )
+                uow.lines.set_turn(
+                    line.id,
+                    plan.line_state,
+                    plan.awaiting_from,
+                    message.id if plan.track_new_message else None,
+                )
+                line = uow.lines.get(line.id)
+        if locked is not None:
+            # The lock is committed; now tell both sides and refuse the send that hit it.
+            self._events.publish("thread", locked)
+            self._events.publish("line", line)
+            for notice in lock_notices:
+                self._events.publish("message", notice)
+                self._deliverer.deliver(notice)
+            raise ThreadLocked(
+                f"the thread with {recipient.name!r} reached its exchange budget "
+                f"({budget} messages) and the hub has locked it; {recipient.name} was "
+                "told. Your message was NOT sent. Do not restate the same ask in a new "
+                "thread — if it truly needs more exchanges, involve your operator. A "
+                "genuinely different ask may be sent now; it opens a new thread."
             )
-            uow.lines.set_turn(
-                line.id,
-                plan.line_state,
-                plan.awaiting_from,
-                message.id if plan.track_new_message else None,
-            )
-            line = uow.lines.get(line.id)
         if opened is not None:
             self._events.publish("thread", opened)
         self._events.publish("message", message)

@@ -314,6 +314,10 @@ class Settings(BaseModel):
     # 7c: the supervision dial a NEW line starts on (D6 kept supervised as the default;
     # this is its promised relief valve). Existing lines keep whatever they were set to.
     default_line_mode: LineMode = "supervised"
+    # D34 (threads.md §5 item 2): messages per thread before the hub locks it — the
+    # structural answer to item 29 (backpressure per task). 0 = no budget. Threads
+    # with the operator in them are never locked, whatever this says (D9 analog).
+    thread_budget: int = 12
     # §5.8 (D22): switching modes migrates nothing — under manual the lines that exist
     # ARE the links; operator lines are exempt and keep forming on first send.
     discovery: Discovery = "auto"

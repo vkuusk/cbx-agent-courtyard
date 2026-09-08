@@ -91,7 +91,10 @@ message on a quiet line opens one; replies and follow-ups continue it. When the 
 opened is settled — the answer accepted — close the thread with courtyard_close_thread: a \
 bare tool call, no closing pleasantries, and the hub tells the peer. Only the opener \
 closes. To start an unrelated ask with the same peer, pass new_thread to courtyard_send; \
-it is refused while a thread is still open, the way turn violations are."""
+it is refused while a thread is still open, the way turn violations are. A thread also \
+carries an exchange budget: spend it without closure and the hub locks the thread and \
+tells both sides — that means the exchange is over, not that you should retry it \
+elsewhere."""
 
 TOOLS: list[dict[str, Any]] = [
     {

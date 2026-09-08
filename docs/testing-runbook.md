@@ -722,3 +722,36 @@ next ask; `expired` state and its system entry after a forced end shift.
    it at `courtyard_close_thread`, and a well-behaved session closes its thread
    after your answer settles it - watch for the close in the pane.
 
+
+---
+
+## Per-thread budgets (design threads.md section 5 item 2, D34 - slice 2)
+
+**Feature under test:** every agent-agent thread carries an exchange budget
+(Admin default, `thread_budget`, 12 messages; 0 disables it). A reply always
+passes, so a line can never jam on an obligation. The send that would grow a
+spent thread with a fresh ask locks the thread (`locked`, kept in history),
+writes a durable system line to each participant, and is refused with
+`thread_locked`; the next ask opens a fresh thread. Returned and dropped
+messages never count. Threads with the operator in them are never locked.
+
+**Scripted part** (its own throwaway hub; flips the courtyard-wide budget):
+
+```
+uv run python scripts/runbook/thread_budget.py
+```
+
+Checkpoints printed: the default (12) and the dial; the lock with both refusal
+texts; `locked` state surviving the refusal; idle line; two system lines, one
+per side; fresh thread after the lock; a reply passing past the budget; a
+returned message not counting; the operator exempt; 0 = unbudgeted.
+
+**Manual part:**
+
+1. Admin page, Defaults panel: the "Thread budget" input shows 12. Set it to 0
+   and back; a negative value is refused by the input itself.
+2. On a scratch hub (or accepting locked threads on the dev hub), set the
+   budget to 2, let two agents exchange two messages on one ask, then have one
+   send a follow-up: the pane shows the two "thread locked" system lines and
+   the sender's session shows the refusal text.
+

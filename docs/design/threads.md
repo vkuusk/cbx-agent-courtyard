@@ -3,8 +3,9 @@
 Status: design accepted 2026-09-07 (feedback item 42, decision D34 in
 `architecture-v1.md` §13). Implemented so far: the construct itself (migration
 0019, open on send, the dedicated close tool, both adapters) plus section 5
-items 1 and 3 (closure as protocol; shift end expires open threads). Still to
-come: item 2 (per-thread budgets) and item 4 (visible boundaries in the WebUI,
+items 1, 2 and 3 (closure as protocol; per-thread budgets, an Admin setting,
+default 12 messages, replies always pass so a line never jams; shift end
+expires open threads). Still to come: item 4 (visible boundaries in the WebUI,
 including the operator's close control). The one parked question ("verifiably
 done") is in `../next-features-list.md`. Threads are a basic
 construct of inter-agent communication in the courtyard, so they get their own

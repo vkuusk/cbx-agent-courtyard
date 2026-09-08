@@ -244,6 +244,100 @@ class TestOperatorThreads:
         assert resp.json()["error"]["code"] == "not_thread_initiator"
 
 
+class TestBudgets:
+    """D34 §5 item 2: backpressure per task. A reply always passes; the send that would
+    grow a spent thread with a fresh ask locks it (committed even though the send is
+    refused) and both sides are told. Operator threads are never locked (D9 analog)."""
+
+    def set_budget(self, client, n):
+        resp = client.patch("/api/settings", json={"thread_budget": n})
+        assert resp.status_code == 200, resp.text
+
+    def test_the_send_that_grows_a_spent_thread_locks_it(self, client, make_agent):
+        self.set_budget(client, 2)  # q + a spends it
+        msg, alice, _bob = exchange(client, make_agent)
+
+        resp = send(client, alice, "bob", "one more thing")
+
+        assert resp.status_code == 409
+        assert resp.json()["error"]["code"] == "thread_locked"
+        (thread,) = line_threads(client, msg["line_id"])
+        assert thread["state"] == "locked" and thread["ended_at"] is not None
+        line = line_state(client, msg["line_id"])
+        assert line["open_thread"] is None and line["state"] == "idle"
+        history = line_messages(client, msg["line_id"])
+        notices = [m for m in history if m["kind"] == "system"]
+        assert len(notices) == 2  # both sides told, durably
+        assert all("thread locked" in m["body"] for m in notices)
+        assert {m["recipient_name"] for m in notices} == {"alice", "bob"}
+        assert all(m["thread_id"] == msg["thread_id"] for m in notices)
+        # the refused message itself is nowhere in history
+        assert not any("one more thing" in m["body"] for m in history)
+
+    def test_a_reply_passes_even_past_the_budget(self, client, make_agent):
+        self.set_budget(client, 1)  # the ask alone spends it
+        _, alice = make_agent("alice")
+        _, bob = make_agent("bob")
+        msg = send(client, alice, "bob", "q1").json()
+        decide(client, msg["id"], "approve")
+        pull_inbox(client, "bob", bob)
+
+        reply = send(client, bob, "alice", "a1")
+
+        assert reply.status_code == 201  # obligations stay dischargeable, always
+        (thread,) = line_threads(client, msg["line_id"])
+        assert thread["state"] == "open"
+
+    def test_the_next_ask_after_a_lock_opens_a_new_thread(self, client, make_agent):
+        self.set_budget(client, 2)
+        msg, alice, _bob = exchange(client, make_agent)
+        assert send(client, alice, "bob", "over budget").status_code == 409
+
+        second = send(client, alice, "bob", "a different ask")
+
+        assert second.status_code == 201
+        assert second.json()["thread_id"] != msg["thread_id"]
+        states = [t["state"] for t in line_threads(client, msg["line_id"])]
+        assert states == ["locked", "open"]  # the lock survived its own refusal
+
+    def test_operator_threads_are_never_locked(self, client, make_agent):
+        self.set_budget(client, 1)
+        _, bob = make_agent("bob")
+        first = client.post("/api/operator/send", json={"to": "bob", "body": "one"}).json()
+        pull_inbox(client, "bob", bob)
+        send(client, bob, "operator", "reply")  # count now 2, well past budget 1
+
+        followup = client.post("/api/operator/send", json={"to": "bob", "body": "two"})
+
+        assert followup.status_code == 201
+        assert followup.json()["thread_id"] == first["thread_id"]
+
+    def test_zero_budget_means_unbudgeted(self, client, make_agent):
+        self.set_budget(client, 0)
+        msg, alice, _bob = exchange(client, make_agent)
+
+        resp = send(client, alice, "bob", "more")
+
+        assert resp.status_code == 201
+        assert resp.json()["thread_id"] == msg["thread_id"]
+
+    def test_returned_messages_do_not_count(self, client, make_agent):
+        self.set_budget(client, 1)
+        _, alice = make_agent("alice")
+        make_agent("bob")
+        first = send(client, alice, "bob", "q1").json()
+        decide(client, first["id"], "return", "reword")
+
+        revised = send(client, alice, "bob", "q1 reworded")
+
+        assert revised.status_code == 201  # the returned ask never reached anyone
+        assert revised.json()["thread_id"] == first["thread_id"]
+
+    def test_settings_reject_a_negative_budget(self, client):
+        assert client.patch("/api/settings", json={"thread_budget": -1}).status_code == 422
+        assert client.get("/api/settings").json()["thread_budget"] == 12  # the default
+
+
 class TestShiftEndAndArchive:
     def end_shift(self, client):
         assert client.post("/api/shift/start").status_code == 200

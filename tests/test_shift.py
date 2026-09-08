@@ -477,6 +477,7 @@ class TestShiftApi:
             "custom_terminals": [],
             "default_line_mode": "supervised",
             "discovery": "auto",
+            "thread_budget": 12,
         }
         resp = client.patch("/api/settings", json={"terminal_app": "iTerm2"})
         assert resp.status_code == 200

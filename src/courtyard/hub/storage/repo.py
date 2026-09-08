@@ -124,6 +124,11 @@ class MessageRepo(Protocol):
 
     def count_queued_for(self, agent_id: UUID) -> int: ...
 
+    def count_thread(self, thread_id: UUID) -> int:
+        """The thread's budget-relevant size (D34 §5 item 2): its `message`-kind rows,
+        not counting returned or dropped ones — those never reached anyone."""
+        ...
+
     def expire(self, message_id: UUID) -> Message | None:
         """Close an unfinished message as `expired` (D24, end of shift). Only a message
         still open — pending_gate, queued, or delivered — is touched; returns None

@@ -68,6 +68,14 @@ class NoOpenThread(DomainError):
     code = "no_open_thread"
 
 
+class ThreadLocked(DomainError):
+    """D34 (§5 item 2): the send would grow a thread whose exchange budget is spent —
+    the hub locked the thread (that lock is already committed and the peer told) and
+    the send is refused, the way turn violations are."""
+
+    code = "thread_locked"
+
+
 class NotThreadInitiator(DomainError):
     """D34: only the agent that opened a thread may close it (the ask is theirs to
     declare satisfied)."""

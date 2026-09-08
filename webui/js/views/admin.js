@@ -215,6 +215,12 @@ function SettingsSection() {
         options=${[["supervised", "supervised"], ["auto_pass", "auto-pass"]]}
         onChange=${(v) => save({ default_line_mode: v })}
         hint="the dial a brand-new line starts on; each line keeps its own switch, and your own lines are never gated" />
+      <div class="form-row">
+        <span class="small muted" style="min-width:10rem">Thread budget</span>
+        <input type="number" min="0" style="width:5rem" value=${settings.thread_budget}
+          onChange=${(e) => { const n = parseInt(e.target.value, 10); if (n >= 0) save({ thread_budget: n }); }} />
+        <span class="small muted">messages per thread before the hub locks it and tells both agents; 0 = no budget; your own threads are never locked</span>
+      </div>
     </div>
     <div class="panel"><h3>Appearance</h3>
       <${Row} label="Theme" value=${store.ui.theme}

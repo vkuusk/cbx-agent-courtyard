@@ -152,6 +152,7 @@ def create_app(config: Config | None = None) -> FastAPI:
             deliverer,
             default_line_mode=lambda: shift.get_settings().default_line_mode,
             discovery=discovery,
+            thread_budget=lambda: shift.get_settings().thread_budget,
         )
         # Projection (D33) registers agents and links lines through the same services the
         # operator's own gestures use, so events and invariants come along for free.

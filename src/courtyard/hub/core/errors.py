@@ -55,6 +55,35 @@ class AlreadyLinked(DomainError):
     code = "already_linked"
 
 
+class ThreadStillOpen(DomainError):
+    """D34: a declared new ask while the line's thread is still open — refused the way
+    turn violations are, instead of being silently filed into the open thread."""
+
+    code = "thread_open"
+
+
+class NoOpenThread(DomainError):
+    """Close called on a line with no open thread — nothing to close."""
+
+    code = "no_open_thread"
+
+
+class ThreadLocked(DomainError):
+    """D34 (§5 item 2): the send would grow a thread whose exchange budget is spent —
+    the hub locked the thread (that lock is already committed and the peer told) and
+    the send is refused, the way turn violations are."""
+
+    code = "thread_locked"
+
+
+class NotThreadInitiator(DomainError):
+    """D34: only the agent that opened a thread may close it (the ask is theirs to
+    declare satisfied)."""
+
+    code = "not_thread_initiator"
+    http_status = 403
+
+
 class NotPending(DomainError):
     code = "not_pending"
 
@@ -135,6 +164,14 @@ class MalformedMcpJson(DomainError):
 class NothingToUninstall(DomainError):
     code = "nothing_to_uninstall"
     http_status = 404
+
+
+class NoTeam(DomainError):
+    """D33 (revised): a current team is required — files are the source of truth, so
+    the truth needs a home before the first agent. Registration without a current team,
+    clearing the selection, and removing the current team all refuse with this."""
+
+    code = "no_team"
 
 
 class TeamNotFound(DomainError):

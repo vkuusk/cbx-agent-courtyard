@@ -15,15 +15,17 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Json
 from psycopg_pool import ConnectionPool
 
-from courtyard.common.models import Agent, Archive, Channel, Line, Message, Team
+from courtyard.common.models import Agent, Archive, Channel, Line, Message, Team, Thread
 
 _MESSAGE_SELECT = """
 SELECT m.*, sa.name AS sender_name, ra.name AS recipient_name,
        sa.type AS sender_type,
-       sa.sme_domain AS sender_sme_domain, ra.sme_domain AS recipient_sme_domain
+       sa.sme_domain AS sender_sme_domain, ra.sme_domain AS recipient_sme_domain,
+       t.opened_by AS thread_opened_by
 FROM messages m
 LEFT JOIN agents sa ON sa.id = m.sender
 LEFT JOIN agents ra ON ra.id = m.recipient
+LEFT JOIN threads t ON t.id = m.thread_id
 """
 
 _LINE_SELECT = """
@@ -32,6 +34,7 @@ SELECT l.*, aa.name AS agent_a_name, ab.name AS agent_b_name,
     WHERE m.line_id = l.id AND m.status = 'pending_gate') AS pending_count,
   (SELECT count(*) FROM messages m
     WHERE m.line_id = l.id AND m.status = 'queued') AS queued_count,
+  (SELECT count(*) FROM threads t WHERE t.line_id = l.id) AS thread_count,
   (SELECT max(m.created_at) FROM messages m WHERE m.line_id = l.id) AS last_activity_at
 FROM lines l
 JOIN agents aa ON aa.id = l.agent_a
@@ -195,6 +198,9 @@ class PgLineRepo:
             (state, awaiting_from, in_flight_msg, line_id),
         )
 
+    def set_open_thread(self, line_id: UUID, thread_id: UUID | None) -> None:
+        self._conn.execute("UPDATE lines SET open_thread = %s WHERE id = %s", (thread_id, line_id))
+
     def delete(self, line_id: UUID) -> None:
         self._conn.execute("DELETE FROM lines WHERE id = %s", (line_id,))
 
@@ -203,12 +209,25 @@ class PgMessageRepo:
     def __init__(self, conn: Connection):
         self._conn = conn
 
-    def insert(self, *, message_id, line_id, sender, recipient, kind, body, reply_to, status):
+    def insert(
+        self,
+        *,
+        message_id,
+        line_id,
+        sender,
+        recipient,
+        kind,
+        body,
+        reply_to,
+        status,
+        thread_id=None,
+    ):
         self._conn.execute(
             "INSERT INTO messages"
-            " (id, line_id, seq, sender, recipient, kind, body, reply_to, status, delivered_at)"
+            " (id, line_id, seq, sender, recipient, kind, body, reply_to, status, thread_id,"
+            "  delivered_at)"
             " SELECT %(id)s, %(line_id)s, COALESCE(MAX(seq), 0) + 1, %(sender)s, %(recipient)s,"
-            "        %(kind)s, %(body)s, %(reply_to)s, %(status)s,"
+            "        %(kind)s, %(body)s, %(reply_to)s, %(status)s, %(thread_id)s,"
             "        CASE WHEN %(status)s = 'delivered' THEN now() END"
             " FROM messages WHERE line_id = %(line_id)s",
             {
@@ -220,6 +239,7 @@ class PgMessageRepo:
                 "body": body,
                 "reply_to": reply_to,
                 "status": status,
+                "thread_id": thread_id,
             },
         )
         return self.get(message_id)
@@ -248,10 +268,12 @@ class PgMessageRepo:
             "  WHERE recipient = %s AND status = 'queued' RETURNING *)"
             " SELECT t.*, sa.name AS sender_name, ra.name AS recipient_name,"
             "        sa.type AS sender_type,"
-            "        sa.sme_domain AS sender_sme_domain, ra.sme_domain AS recipient_sme_domain"
+            "        sa.sme_domain AS sender_sme_domain, ra.sme_domain AS recipient_sme_domain,"
+            "        th.opened_by AS thread_opened_by"
             " FROM taken t"
             " LEFT JOIN agents sa ON sa.id = t.sender"
             " LEFT JOIN agents ra ON ra.id = t.recipient"
+            " LEFT JOIN threads th ON th.id = t.thread_id"
             " ORDER BY t.created_at, t.seq",
             (agent_id,),
         ).fetchall()
@@ -269,6 +291,14 @@ class PgMessageRepo:
         row = self._conn.execute(
             "SELECT count(*) AS n FROM messages WHERE recipient = %s AND status = 'queued'",
             (agent_id,),
+        ).fetchone()
+        return row["n"]
+
+    def count_thread(self, thread_id: UUID) -> int:
+        row = self._conn.execute(
+            "SELECT count(*) AS n FROM messages WHERE thread_id = %s AND kind = 'message'"
+            " AND status NOT IN ('returned', 'dropped')",
+            (thread_id,),
         ).fetchone()
         return row["n"]
 
@@ -318,6 +348,52 @@ class PgMessageRepo:
 
     def delete_line(self, line_id: UUID) -> int:
         cur = self._conn.execute("DELETE FROM messages WHERE line_id = %s", (line_id,))
+        return cur.rowcount
+
+
+_THREAD_SELECT = (
+    "SELECT t.*, a.name AS opened_by_name FROM threads t JOIN agents a ON a.id = t.opened_by"
+)
+
+
+class PgThreadRepo:
+    def __init__(self, conn: Connection):
+        self._conn = conn
+
+    def insert(self, *, thread_id: UUID, line_id: UUID, opened_by: UUID) -> Thread:
+        self._conn.execute(
+            "INSERT INTO threads (id, line_id, opened_by) VALUES (%s, %s, %s)",
+            (thread_id, line_id, opened_by),
+        )
+        return self.get(thread_id)
+
+    def get(self, thread_id: UUID) -> Thread | None:
+        row = self._conn.execute(_THREAD_SELECT + " WHERE t.id = %s", (thread_id,)).fetchone()
+        return Thread.model_validate(row) if row else None
+
+    def list_line(self, line_id: UUID) -> list[Thread]:
+        rows = self._conn.execute(
+            _THREAD_SELECT + " WHERE t.line_id = %s ORDER BY t.opened_at", (line_id,)
+        ).fetchall()
+        return [Thread.model_validate(r) for r in rows]
+
+    def end(self, thread_id: UUID, state: str) -> Thread | None:
+        row = self._conn.execute(
+            "UPDATE threads SET state = %s, ended_at = now()"
+            " WHERE id = %s AND state = 'open' RETURNING id",
+            (state, thread_id),
+        ).fetchone()
+        return self.get(thread_id) if row else None
+
+    def expire_open(self) -> list[Thread]:
+        rows = self._conn.execute(
+            "UPDATE threads SET state = 'expired', ended_at = now()"
+            " WHERE state = 'open' RETURNING id"
+        ).fetchall()
+        return [self.get(r["id"]) for r in rows]
+
+    def delete_line(self, line_id: UUID) -> int:
+        cur = self._conn.execute("DELETE FROM threads WHERE line_id = %s", (line_id,))
         return cur.rowcount
 
 
@@ -546,6 +622,7 @@ class PgUnitOfWork:
         self.agents = PgAgentRepo(conn)
         self.lines = PgLineRepo(conn)
         self.messages = PgMessageRepo(conn)
+        self.threads = PgThreadRepo(conn)
         self.channels = PgChannelRepo(conn)
         self.archives = PgArchiveRepo(conn)
         self.settings = PgSettingsRepo(conn)

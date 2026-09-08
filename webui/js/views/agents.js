@@ -292,9 +292,11 @@ function AddForm({ onCreated, suggested }) {
     ${charterOf(null)
       ? html`<div class="small muted">The current team has a charter: the new agent is also
           written into <code>${charterOf(null).charter_dir}</code>.</div>`
-      : null}
+      : html`<div class="warn">No team is current: registration is refused until the team's
+          charter directory is chosen — on the Courtyard page's Team panel, or under
+          <a href="#/admin">Admin → Teams</a>.</div>`}
     <div class="form-row">
-      <button class="btn primary">add agent</button>
+      <button class="btn primary" disabled=${!currentTeam()}>add agent</button>
       ${error ? html`<div class="error">${error}</div>` : null}
     </div>
   </form>`;

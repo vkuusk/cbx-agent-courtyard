@@ -8,7 +8,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from courtyard.common.models import Agent, Archive, Line, LineMode, Message
+from courtyard.common.models import Agent, Archive, Line, LineMode, Message, Thread
 from courtyard.hub.api.deps import get_archiver, get_board, require_agent
 from courtyard.hub.core.archive import Archiver
 from courtyard.hub.core.board import Board
@@ -19,6 +19,11 @@ router = APIRouter(prefix="/lines", tags=["lines"])
 class SendRequest(BaseModel):
     to: str  # recipient name or id; the sender is the token owner
     body: str
+    new_thread: bool = False  # the sender's boundary declaration (D34)
+
+
+class CloseThreadRequest(BaseModel):
+    peer: str  # the other participant's name or id; the closer is the token owner
 
 
 class ModeRequest(BaseModel):
@@ -41,7 +46,18 @@ def send(
     sender: Annotated[Agent, Depends(require_agent)],
     board: Annotated[Board, Depends(get_board)],
 ) -> Message:
-    return board.send(sender, body.to, body.body)
+    return board.send(sender, body.to, body.body, body.new_thread)
+
+
+@router.post("/close-thread")
+def close_thread(
+    body: CloseThreadRequest,
+    closer: Annotated[Agent, Depends(require_agent)],
+    board: Annotated[Board, Depends(get_board)],
+) -> Thread:
+    """Close the open thread on the closer's line with a peer (D34): the initiator
+    declares the ask settled. No message, no note — the close is the whole event."""
+    return board.close_thread(closer, body.peer)
 
 
 @router.post("", status_code=201)
@@ -68,6 +84,12 @@ def line_messages(
     after: int | None = None,
 ) -> list[Message]:
     return board.line_messages(line_id, after)
+
+
+@router.get("/{line_id}/threads")
+def line_threads(line_id: UUID, board: Annotated[Board, Depends(get_board)]) -> list[Thread]:
+    """The line's threads, oldest first — the conversation pane's grouping data (D34)."""
+    return board.line_threads(line_id)
 
 
 @router.post("/{line_id}/mode")

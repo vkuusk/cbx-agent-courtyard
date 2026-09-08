@@ -4,11 +4,12 @@
 import { html, useEffect, useRef, useState } from "../../vendor/htm-preact-standalone.module.js";
 import {
   store, select, setPanelMax, teamAgents, isOperatorLine, isInactive, hasNewActivity, unreadWith, agentName,
-  operatorLineWith, currentTeam,
+  operatorLineWith, currentTeam, applyTeams,
 } from "../store.js";
 import { useStore, fmtAgo, minutesSince } from "../ui.js";
 import { Conversation } from "../conversation.js";
 import { api, ApiError } from "../api.js";
+import { DirPicker } from "./agents.js";
 
 const NO_REPLY_MINUTES = 15;
 
@@ -116,13 +117,17 @@ function Wire({ line }) {
   const selected = sel?.kind === "line" && sel.id === line.id;
   const s = wireStatus(line);
   const mode = line.mode === "supervised" ? "supervised" : "auto-pass";
+  // D34 §5 item 4: the scroll counted in asks — "3 threads, 1 open" beats undifferentiated.
+  const threads = line.thread_count
+    ? ` · ${line.thread_count} thread${line.thread_count === 1 ? "" : "s"}${line.open_thread ? ", 1 open" : ""}`
+    : "";
   const node = (id, name) =>
     html`<span class="node" data-color=${store.agents.get(id)?.color}><span class="dot ${store.agents.get(id)?.status ?? ""}" />${name ?? agentName(id)}</span>`;
   return html`<button class="line ${selected ? "selected" : ""}"
       onClick=${() => select({ kind: "line", id: line.id })}>
     ${node(line.agent_a, line.agent_a_name)}
     <span class="wire ${s.cls}"><span class="tag">${s.label}</span>
-      <span class="sub">${mode} · ${fmtAgo(line.last_activity_at ?? line.created_at)}</span></span>
+      <span class="sub">${mode}${threads} · ${fmtAgo(line.last_activity_at ?? line.created_at)}</span></span>
     ${node(line.agent_b, line.agent_b_name)}
   </button>`;
 }
@@ -334,6 +339,29 @@ function LinkAgents() {
   </div>`;
 }
 
+// D33 (revised): a current team is required before the first agent — the empty
+// courtyard asks for the team's directory first. A directory with a charter is loaded
+// as the team; an empty one is initialized after the operator names the team.
+function TeamFirst() {
+  const activate = (team) => api.setCurrentTeam(team.id).then(applyTeams).catch((e) => alert(e.message));
+  const pick = (dir) =>
+    api.addTeam(dir)
+      .then(activate)
+      .catch((e) => {
+        if (e.code !== "charter_name_required") return alert(e.message);
+        const name = prompt(
+          `${dir} has no team charter yet.\n\nName the team to initialize one there:`,
+        );
+        if (name?.trim()) api.addTeam(dir, name.trim()).then(activate).catch((err) => alert(err.message));
+      });
+  return html`<div class="team-first">
+    <span class="small muted">Choose the team's directory first — the courtyard keeps the team
+      definition there, and agents cannot be registered before it. A directory with a charter is
+      loaded; an empty one is initialized.</span>
+    <${DirPicker} prompt="Choose the team charter directory" onPick=${pick} />
+  </div>`;
+}
+
 export function Board() {
   useStore();
   const team = teamAgents();
@@ -352,8 +380,10 @@ export function Board() {
     <div class="board-panel panel-team ${checking ? "checking" : ""}" style=${panelStyle("team")}>
       <div class="eyebrow-row"><div class="eyebrow">Team${currentTeam()?.name ? ` · ${currentTeam().name}` : ""}</div><${ShiftPill} /></div>
       <div class="team">
-        ${team.map((a) => html`<${AgentCard} key=${a.id} agent=${a} />`)}
-        <a class="agent add" href="#/agents"><span class="plus">+</span><span>${team.length ? "add" : "add your first agent"}</span></a>
+        ${currentTeam() || team.length
+          ? html`${team.map((a) => html`<${AgentCard} key=${a.id} agent=${a} />`)}
+              <a class="agent add" href="#/agents"><span class="plus">+</span><span>${team.length ? "add" : "add your first agent"}</span></a>`
+          : html`<${TeamFirst} />`}
       </div>
     </div>
     <${Resizer} which="team" />

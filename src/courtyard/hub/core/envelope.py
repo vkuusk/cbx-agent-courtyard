@@ -79,6 +79,17 @@ _CLOSING_FOOTER = (
     "peer), deliver them the answer now with the courtyard MCP tool `courtyard_send` —\n"
     "text printed in your terminal reaches nobody."
 )
+# D34: when the recipient is the thread's initiator, acceptance is a protocol event —
+# the close tool — not prose. Told only to the one agent the hub would accept it from.
+_CLOSING_FOOTER_INITIATOR = (
+    "This answers your earlier message. If it settles what you asked, accept it by\n"
+    'calling the courtyard MCP tool `courtyard_close_thread` with peer "{sender}" —\n'
+    "a bare tool call, no reply message; until you close, no new ask can start on this\n"
+    "line. If it does not settle it, continue with `courtyard_send`. If you asked on\n"
+    "someone else's behalf (your operator, a peer), deliver them the answer now with\n"
+    "the courtyard MCP tool `courtyard_send` — text printed in your terminal reaches\n"
+    "nobody."
+)
 # Item 24: an operator note (today: the comment riding an approved message) is commentary,
 # not a turn — but if it asks for something, the answer must still travel the reply path.
 _NOTE_FOOTER = (
@@ -151,6 +162,8 @@ def render(message: Message) -> str:
     if message.kind == "message":
         if message.reply_to is None:
             text = _REPLY_FOOTER
+        elif message.thread_opened_by is not None and message.thread_opened_by == message.recipient:
+            text = _CLOSING_FOOTER_INITIATOR.format(sender=sender)
         else:
             text = _CLOSING_FOOTER.format(sender=sender)
         footer = f"────\n{text}\n"
@@ -217,8 +230,13 @@ def preview() -> list[dict[str, str | int]]:
         ),
         (
             "An answer from a peer",
-            "the reply that closes the exchange",
-            sample(reply_to=UUID(int=3)),
+            "the reply to your ask — as the thread's initiator you are pointed at the close tool",
+            sample(reply_to=UUID(int=3), thread_id=UUID(int=4), thread_opened_by=UUID(int=2)),
+        ),
+        (
+            "An answer to someone else's thread",
+            "a reply to a message you sent inside a thread another agent opened",
+            sample(reply_to=UUID(int=3), thread_id=UUID(int=4), thread_opened_by=UUID(int=1)),
         ),
         (
             "A question from a domain owner",

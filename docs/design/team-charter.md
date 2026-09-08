@@ -7,8 +7,10 @@ section, reload, current selection), landed 2026-09-07; slice 2, projection
 into registrations and lines (section 6, with the mechanics settled at
 implementation recorded in section 3), landed the same day; slice 3,
 write-back from the agent forms (the mechanics likewise in section 3), landed
-2026-09-08. This document holds the charter design in one place; other
-documents reference it rather than repeating it.
+2026-09-08; the required current team (refusal, adoption, the team-first
+board flow, `courtyard-invite --team-dir`) landed the same day. This document
+holds the charter design in one place; other documents reference it rather
+than repeating it.
 
 ## 1. The problem
 
@@ -78,10 +80,24 @@ team's name on the Courtyard page; Admin gets a Teams section: add a team by
 directory (the browse dialog from the workdir picker, reused) and a pulldown
 selecting the current team. In v1 this is registration and selection only:
 what switching the current team does to a running hub (agents, lines, history)
-is postponed past v1 (recorded in `../next-features-list.md`). No team
-registered means the hub behaves exactly as today, so the charter is opt-in
-and an existing hub migrates at no cost. The hub stays git-agnostic: it reads
-and writes charter files; commits, history and review are the operator's.
+is postponed past v1 (recorded in `../next-features-list.md`). The hub stays
+git-agnostic: it reads and writes charter files; commits, history and review
+are the operator's.
+
+**A current team is required** (decided 2026-09-07, revised 2026-09-08). The
+courtyard's team always has a charter directory: files are the source of
+truth, so the truth needs a home before the first agent exists. The
+requirement is deliberately cheap - one directory, chosen once, outside every
+agent's workdir - and it gives the team definition a filesystem backup (and a
+git home) from day one. The hub refuses agent registration while no team is
+current, with the 409 idiom (`no_team`). An empty courtyard asks for the team
+directory first: a directory already holding a charter is loaded, an empty one
+is initialized (the existing name-prompt flow). When the first team is chosen
+on a hub that already holds agents, they are adopted: written into the charter
+as cards, explicitly, at that moment. There is always exactly one current
+team; "no current team" survives only as the transient state of a hub whose
+team has not been chosen yet, in which only team registration itself is
+possible.
 
 **The team defines itself in `team-definition.yml`** (decided 2026-09-07).
 Inside the charter directory, one YAML index defines one team (single team
@@ -170,15 +186,16 @@ silent; a non-empty but broken directory (missing or invalid YAML, dangling
 and reloading the current team while a shift is on needs a guard, since it
 changes registrations under live agents (implemented lean, slice 2: reloading
 or selecting the current team during a shift is refused with the 409 idiom,
-code `shift_active`, end the shift first; clearing the selection projects
-nothing and stays allowed; a cousin of the postponed team switching).
+code `shift_active`, end the shift first; a cousin of the postponed team
+switching).
 
 **Agent edits write back to the charter** (decided 2026-09-07). When the team
 has a charter, the WebUI's add and edit agent forms write the card files and
 the yml, not only the database; the database stays the projection of section
 6. Removal necessarily follows the same rule: an agent removed only from the
-database would come back at the next reload. With no team registered the
-forms write the database only, exactly as today.
+database would come back at the next reload. While no team is current, agent
+registration is refused (`no_team`, see "A current team is required" above):
+write-back has nowhere to write until the charter has its home.
 
 Mechanics settled at implementation (slice 3, 2026-09-08). Write-back hooks
 the registration endpoints, not the WebUI, so `courtyard-invite` and any other
@@ -194,9 +211,11 @@ field deletes its file, the exact inverse of the loader's
 missing-file-clears-the-field rule. Removing a charter agent takes out its yml
 entry, the links naming it, its overlay entry and its configuration directory
 (kept when another entry shares the directory); git history preserves the
-prose. An agent outside the current charter, registered before the team or
-while none was current, stays database-only: its master never moved, and the
-charter never adopts it silently. Two honesty rules round it off: a current
+prose. An agent outside the current charter (it belongs to another registered
+team) is edited in the database only: its master is elsewhere, and a charter
+never adopts an agent silently - adoption happens once, explicitly, when the
+first team is chosen on a hub that already holds agents. Two honesty rules
+round it off: a current
 team whose charter did not load refuses agent changes (`charter_not_loaded`)
 before the database is touched, since the hub can neither read the membership
 nor write the files; and the yml rewrite goes through a yaml round-trip that

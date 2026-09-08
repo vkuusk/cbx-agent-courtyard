@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from courtyard.common.models import (
     CustomTerminal,
@@ -60,6 +60,8 @@ class SettingsPatch(BaseModel):
     custom_terminals: list[CustomTerminal] | None = None  # item 20: operator-defined apps
     default_line_mode: LineMode | None = None  # 7c: the dial a NEW line starts on
     discovery: Discovery | None = None  # §5.8 (D22): who forms the team's wiring
+    # D34: messages per thread before the hub locks it; 0 = no budget
+    thread_budget: int | None = Field(default=None, ge=0)
 
 
 @router.get("/settings")

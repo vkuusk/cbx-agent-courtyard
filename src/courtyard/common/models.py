@@ -20,6 +20,9 @@ ChannelFlag = Literal["present", "absent", "unknown"]
 DeliveryCheck = Literal["pending", "verified", "failed"]
 LineMode = Literal["supervised", "auto_pass"]
 LineState = Literal["idle", "pending_gate", "awaiting_reply"]
+# Threads (design threads.md, D34): `closed` is the healthy ending (the initiator is
+# satisfied); `expired` = the shift ended with it open; `locked` = the system ended it.
+ThreadState = Literal["open", "closed", "expired", "locked"]
 MessageKind = Literal["message", "operator_note", "system"]
 MessageStatus = Literal["pending_gate", "queued", "delivered", "dropped", "returned", "expired"]
 # `drop` (item 24, 2026-08-28; renames the original `reject` — too close to "return to
@@ -58,6 +61,20 @@ class Agent(BaseModel):
     delivery_checked_at: datetime | None = None
 
 
+class Thread(BaseModel):
+    """One bounded exchange about one ask (design threads.md, D34). Lives on a line;
+    every post-migration message belongs to exactly one."""
+
+    id: UUID
+    line_id: UUID
+    state: ThreadState
+    opened_by: UUID
+    opened_at: datetime
+    ended_at: datetime | None = None
+    # display enrichment, filled by the storage layer's join
+    opened_by_name: str | None = None
+
+
 class Line(BaseModel):
     id: UUID
     agent_a: UUID
@@ -66,6 +83,7 @@ class Line(BaseModel):
     state: LineState
     awaiting_from: UUID | None = None
     in_flight_msg: UUID | None = None
+    open_thread: UUID | None = None  # serial v1 (D34): the line's one open thread
     created_at: datetime
     # display enrichment, filled by the storage layer's joins/aggregates (None on
     # locked reads inside transactions, which only the turn machine consumes)
@@ -73,6 +91,7 @@ class Line(BaseModel):
     agent_b_name: str | None = None
     pending_count: int | None = None  # messages held at the gate
     queued_count: int | None = None  # accepted, not yet delivered
+    thread_count: int | None = None  # threads this history holds (D34 §5 item 4)
     last_activity_at: datetime | None = None
 
 
@@ -85,6 +104,7 @@ class Message(BaseModel):
     kind: MessageKind
     body: str
     reply_to: UUID | None = None
+    thread_id: UUID | None = None  # None only for pre-migration history (D34: no backfill)
     status: MessageStatus
     gate_verdict: GateVerdict | None = None
     gate_note: str | None = None
@@ -100,6 +120,9 @@ class Message(BaseModel):
     sender_type: AgentType | None = None
     sender_sme_domain: str | None = None
     recipient_sme_domain: str | None = None
+    # who opened the message's thread (joined) — the envelope tells exactly the thread's
+    # initiator, and nobody else, to close it when an answer settles the ask (D34)
+    thread_opened_by: UUID | None = None
     # filled by the hub on every agent-facing delivery (channel push, inbox pull): the
     # authority-graded envelope (design §7.5), ready for the model verbatim. Absent on
     # operator-facing reads (board, line history), which show the raw body.
@@ -292,6 +315,10 @@ class Settings(BaseModel):
     # 7c: the supervision dial a NEW line starts on (D6 kept supervised as the default;
     # this is its promised relief valve). Existing lines keep whatever they were set to.
     default_line_mode: LineMode = "supervised"
+    # D34 (threads.md §5 item 2): messages per thread before the hub locks it — the
+    # structural answer to item 29 (backpressure per task). 0 = no budget. Threads
+    # with the operator in them are never locked, whatever this says (D9 analog).
+    thread_budget: int = 12
     # §5.8 (D22): switching modes migrates nothing — under manual the lines that exist
     # ARE the links; operator lines are exempt and keep forming on first send.
     discovery: Discovery = "auto"

@@ -162,11 +162,12 @@ class ShiftService:
         books first, then begin fresh."""
         expired_lines: list = []
         board_events: list = []
+        expired_threads: list = []
         with self._lock:
             if self._doc.get("state") != "off":
                 if not self._stale():
                     return self._status()
-                expired_lines, board_events = self._end_locked(force=True)
+                expired_lines, board_events, expired_threads = self._end_locked(force=True)
             now = self._clock()
             # D28 (item 31): stored liveness may be the dead last shift's claim — ask
             # the liveness layer to flip green to `unknown` and reopen judging; the
@@ -189,7 +190,7 @@ class ShiftService:
             self._persist()
             logger.info("shift: starting (grace until %s)", self._doc["grace_until"])
             status = self._status()
-        self._publish_board(board_events, expired_lines)
+        self._publish_board(board_events, expired_lines, expired_threads)
         self._publish(status)
         return self.tick() or status
 
@@ -232,9 +233,9 @@ class ShiftService:
         with self._lock:
             if self._doc.get("state") == "off":
                 return self._status()
-            expired_lines, board_events = self._end_locked(force)
+            expired_lines, board_events, expired_threads = self._end_locked(force)
             status = self._status()
-        self._publish_board(board_events, expired_lines)
+        self._publish_board(board_events, expired_lines, expired_threads)
         self._publish(status)
         return status
 
@@ -265,12 +266,13 @@ class ShiftService:
         # unanswered in-flight message is undischargeable — release the lines, mark
         # the unfinished messages expired, keep everything in history.
         with self._storage.transaction() as uow:
-            expired_lines, board_events = expire_open_work(uow)
+            expired_lines, board_events, expired_threads = expire_open_work(uow)
         logger.info(
-            "shift: ended (closed: %s; failed: %s; expired lines: %d)",
+            "shift: ended (closed: %s; failed: %s; expired lines: %d; expired threads: %d)",
             closed or "-",
             failed or "-",
             len(expired_lines),
+            len(expired_threads),
         )
         # keep what the ended shift did, for post-mortems (overwritten by the next one)
         self._doc = {
@@ -280,16 +282,21 @@ class ShiftService:
                 "closed": closed,
                 "failed": failed,
                 "expired_lines": len(expired_lines),
+                "expired_threads": len(expired_threads),
             },
         }
         self._persist()
-        return expired_lines, board_events
+        return expired_lines, board_events, expired_threads
 
-    def _publish_board(self, board_events: list, expired_lines: list) -> None:
+    def _publish_board(
+        self, board_events: list, expired_lines: list, expired_threads: list
+    ) -> None:
         for message in board_events:
             self._events.publish("message", message)
         for line in expired_lines:
             self._events.publish("line", line)
+        for thread in expired_threads:
+            self._events.publish("thread", thread)
 
     def tick(self) -> ShiftStatus | None:
         """Advance the machine; returns the new status when something changed."""

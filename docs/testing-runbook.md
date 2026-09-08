@@ -655,8 +655,9 @@ uv run python scripts/runbook/team_charter.py
    disk" reports nothing and does not resurrect it.
 5. Break `team-definition.yml` on disk (e.g. `team: [broken`), reload the team,
    then try to add an agent: refused with `charter_not_loaded` and nothing is
-   registered. Clear the "Current team" selection: adding works again (database
-   only). Restore the file.
+   registered. The selection cannot be cleared (the courtyard always has a
+   current team); to keep working, restore the file and reload, or select a
+   healthy team.
 
 ## Log level: one knob, honest severity (COURTYARD_LOG_LEVEL)
 
@@ -681,3 +682,147 @@ uv run python scripts/runbook/log_level.py
    a charter and cancel the name prompt): the 422 line appears, labeled WARNING.
 2. Stop, run plain `make run`: the familiar INFO lines are back, and the same
    422 shows as WARNING among them.
+
+---
+
+## Threads: the quant of conversation (design threads.md, D34 - slice 1)
+
+**Feature under test:** every message belongs to a thread, one bounded exchange
+about one ask. Serial v1: at most one open thread per line. The first message on
+a quiet line opens one (declared or not); a declared new ask (`new_thread` on the
+send) while a thread is open is refused like a turn violation. Close is a
+dedicated tool call (`courtyard_close_thread`), initiator-only, with no message
+and no note: it resolves the line's reply obligation and the peer gets the fixed
+system line "thread closed by X". The answer's envelope points the initiator, and
+only the initiator, at the close tool. End shift marks open threads `expired`.
+The operator's threads need no declaration and close through
+`POST /api/operator/close-thread` (the pane's "close thread" control, slice 3).
+
+**Scripted part** (against a live hub; the expiry checkpoint skips itself unless
+every other line is idle and no real claude-code agent is down):
+
+```
+make run                        # hub in another terminal
+uv run python scripts/runbook/threads.py
+```
+
+Checkpoints printed: same thread id on ask and answer; the `thread_open` refusal
+text; the close-tool pointer in the rendered answer; the `not_thread_initiator`
+refusal; closed state + idle line + the peer's notice; a fresh thread for the
+next ask; `expired` state and its system entry after a forced end shift.
+
+**Manual part** (needs a live agent session, e.g. the comms round trip setup):
+
+1. Ask a connected agent something and read its answer in the conversation pane;
+   check the hub log or `GET /api/lines/<id>/threads` shows one open thread
+   opened by `operator`.
+2. Close it: `curl -X POST http://127.0.0.1:2626/api/operator/close-thread -H
+   'Content-Type: application/json' -d '{"peer": "<agent>"}'`. The pane gains the
+   system line "thread closed by operator", delivered to the agent's session.
+3. Have the agent ask YOU something and answer it: the agent's envelope pointed
+   it at `courtyard_close_thread`, and a well-behaved session closes its thread
+   after your answer settles it - watch for the close in the pane.
+
+
+---
+
+## Per-thread budgets (design threads.md section 5 item 2, D34 - slice 2)
+
+**Feature under test:** every agent-agent thread carries an exchange budget
+(Admin default, `thread_budget`, 12 messages; 0 disables it). A reply always
+passes, so a line can never jam on an obligation. The send that would grow a
+spent thread with a fresh ask locks the thread (`locked`, kept in history),
+writes a durable system line to each participant, and is refused with
+`thread_locked`; the next ask opens a fresh thread. Returned and dropped
+messages never count. Threads with the operator in them are never locked.
+
+**Scripted part** (its own throwaway hub; flips the courtyard-wide budget):
+
+```
+uv run python scripts/runbook/thread_budget.py
+```
+
+Checkpoints printed: the default (12) and the dial; the lock with both refusal
+texts; `locked` state surviving the refusal; idle line; two system lines, one
+per side; fresh thread after the lock; a reply passing past the budget; a
+returned message not counting; the operator exempt; 0 = unbudgeted.
+
+**Manual part:**
+
+1. Admin page, Defaults panel: the "Thread budget" input shows 12. Set it to 0
+   and back; a negative value is refused by the input itself.
+2. On a scratch hub (or accepting locked threads on the dev hub), set the
+   budget to 2, let two agents exchange two messages on one ask, then have one
+   send a follow-up: the pane shows the two "thread locked" system lines and
+   the sender's session shows the refusal text.
+
+
+---
+
+## Threads in the WebUI: boundaries, counts, the close control (D34 - slice 3)
+
+**Feature under test:** the conversation pane groups messages by thread: a divider
+chip at each thread's first message names its number, opener and state (open is
+blue, locked amber, closed and expired muted); messages older than the threads
+migration stay ungrouped at the top. The wire on the Lines panel counts the asks:
+"supervised · 3 threads, 1 open · 2m ago". The pane header of your own line shows
+a "close thread" button exactly when the open thread is one you initiated; it
+confirms, then invokes the same hub operation as the agents' close tool, and the
+divider flips live over SSE.
+
+**Scripted part:** the hub half is `scripts/runbook/threads.py` (see the slice 1
+entry); the UI is verified by hand.
+
+**Manual part** (`make demo` or any hub with two agents that have talked):
+
+1. Lines panel: a wire whose pair has exchanged messages reads "N threads" in its
+   sub-line, with ", 1 open" while an ask is unsettled.
+2. Select that line: divider chips split the scroll by ask, each naming who opened
+   the thread and its state; a "thread closed by X" system line sits at each
+   healthy ending. No "close thread" button appears here (the initiator closes,
+   and that is not you).
+3. Message an agent from its card. Your open thread shows a blue "thread N · you ·
+   open" chip and the header gains "close thread". Click it, accept the confirm:
+   the chip flips to closed without a reload, the button goes away, and the agent
+   receives the system line.
+4. Have the agent message you first (or use a dummy): the chip reads its name as
+   opener and the header shows no close button - that thread is the agent's to
+   close.
+
+
+---
+
+## A current team is required (team-charter.md section 3, D33 revised)
+
+**Feature under test:** the courtyard always has a current team once one was
+chosen. Agent registration with no current team is refused (`no_team`); the
+empty Courtyard page asks for the team's charter directory first (a directory
+with a charter is loaded, an empty one is initialized after naming the team);
+choosing a team on a hub that already holds agents adopts the ones no
+registered team's charter names; the selection can move but never clear, and
+the current team cannot be removed. `courtyard-invite --team-dir <dir>
+[--team-name <name>]` does the same from a terminal; `make demo` creates its
+own team in `.demo/team-charter` when the hub has none.
+
+**Scripted part** (checkpoints 0 and 11 of the charter script, own throwaway
+hub):
+
+```
+uv run python scripts/runbook/team_charter.py
+```
+
+**Manual part** (a fresh hub: `make db-nuke`, `make run`):
+
+1. The Courtyard page's Team panel shows no "add your first agent" tile but the
+   directory choice; the pane text says to choose the team's directory first.
+   The Agents page's add form is disabled with the same message.
+2. Pick an empty directory, name the team at the prompt: the team appears
+   (Team panel eyebrow names it), `team-definition.yml` exists on disk, and
+   adding agents works - each lands in the charter directory as card files.
+3. Admin - Teams: the current team's remove button is disabled; the current
+   pulldown has no empty choice.
+4. Point "add a team" at a directory that already holds a charter (e.g. a copy
+   of `examples/team-charters/aws-devops`), select it as current: its agents
+   project onto the board, and any agent of no other team is adopted into it
+   (its card files appear in the new charter directory).
+

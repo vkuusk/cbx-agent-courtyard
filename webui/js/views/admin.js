@@ -151,11 +151,12 @@ function TeamsSection() {
     <div class="eyebrow" style="margin-top:1.2rem">Teams</div>
     <div class="panel"><h3>Team charters</h3>
       <div class="small muted" style="margin-bottom:.6rem">A team is a charter directory of files;
-        the hub reads it when you add or reload it, never behind your back. One team is current;
-        with none, the hub works exactly as before.</div>
+        the hub reads it when you add or reload it, never behind your back. One team is always
+        current once chosen — agents cannot be registered before it, and the selection moves,
+        it never clears.</div>
       ${teams.length
         ? html`<${Row} label="Current team" value=${currentId(teams)}
-            options=${[["", "none"], ...teams.map((t) => [t.id, nameOf(t)])]}
+            options=${[...(currentId(teams) ? [] : [["", "none yet"]]), ...teams.map((t) => [t.id, nameOf(t)])]}
             onChange=${(v) => api.setCurrentTeam(v || null).then(applyTeams).catch((e) => setError(e.message))}
             hint="shown on the Courtyard page" />`
         : null}
@@ -166,7 +167,9 @@ function TeamsSection() {
           ${t.is_current ? html`<span class="small muted">current</span>` : null}
           ${t.load_report.length ? html`<span class="error small">${t.load_report.length} problem${t.load_report.length > 1 ? "s" : ""}</span>` : null}
           <span class="small muted">${t.charter?.agents?.length ?? 0} agents</span>
-          <button class="btn danger" style="margin-left:auto" onClick=${() => remove(t)}>remove</button>
+          <button class="btn danger" style="margin-left:auto" disabled=${t.is_current}
+            title=${t.is_current ? "the current team cannot be removed; select another first" : ""}
+            onClick=${() => remove(t)}>remove</button>
         </div>
         ${open === t.id ? html`<${TeamDetail} team=${t} refresh=${refreshOne} />` : null}
       </div>`)}
@@ -215,6 +218,12 @@ function SettingsSection() {
         options=${[["supervised", "supervised"], ["auto_pass", "auto-pass"]]}
         onChange=${(v) => save({ default_line_mode: v })}
         hint="the dial a brand-new line starts on; each line keeps its own switch, and your own lines are never gated" />
+      <div class="form-row">
+        <span class="small muted" style="min-width:10rem">Thread budget</span>
+        <input type="number" min="0" style="width:5rem" value=${settings.thread_budget}
+          onChange=${(e) => { const n = parseInt(e.target.value, 10); if (n >= 0) save({ thread_budget: n }); }} />
+        <span class="small muted">messages per thread before the hub locks it and tells both agents; 0 = no budget; your own threads are never locked</span>
+      </div>
     </div>
     <div class="panel"><h3>Appearance</h3>
       <${Row} label="Theme" value=${store.ui.theme}

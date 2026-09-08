@@ -49,7 +49,16 @@ printf '# infra notes\n' > ~/courtyard-quickstart/infra-claude/README.md
 Real project directories work just as well; the only files courtyard puts there are
 the two config files written in the next step.
 
-## 3. Register the agents and let the hub write their config
+## 3. Choose the team's directory, then register the agents
+
+A courtyard team is defined as files in one directory, the team charter, and the
+hub requires it before the first agent. The empty Courtyard page asks for it:
+press **browse**, pick a directory outside the agents' project directories (for
+the example, `~/courtyard-quickstart/team`), and name the team when asked - the
+hub writes `team-definition.yml` there and the team is current from then on.
+Every agent you register next is also written into that directory as its card
+files, so the team design lives on disk, reviewable and portable (its own git
+repo is the natural home).
 
 On the **Agents** page (side bar), add each agent: name, type **claude-code**, a
 description of what it can do, what it owns, its project directory, optionally the
@@ -87,10 +96,12 @@ time), plus **launch config** (this panel again) and **rotate token** (after whi
 the agent needs the new file and a restart). **remove** asks whether to also clean
 the courtyard pieces back out of the agent's project directory.
 
-The same from a terminal, if you prefer:
+The same from a terminal, if you prefer (the `--team` flags on the first command
+choose the charter directory when the hub has no team yet):
 
 ```sh
-uv run courtyard-invite --register --name main-admin \
+uv run courtyard-invite --team-dir ~/courtyard-quickstart/team --team-name quickstart \
+    --register --name main-admin \
     --sme-domain "the admin workbench" --workdir ~/courtyard-quickstart/main-admin
 uv run courtyard-invite --register --name infra-claude \
     --sme-domain "infrastructure and terraform" --workdir ~/courtyard-quickstart/infra-claude

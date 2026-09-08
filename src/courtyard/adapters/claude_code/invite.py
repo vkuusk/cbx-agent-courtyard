@@ -11,6 +11,11 @@ courtyard MCP server — the operator never hand-edits the file.
     courtyard-invite --register --name coding --type claude-code \\
         --sme-domain "the payments service" --workdir ~/proj/payments
 
+    # fresh hub: a current team is required before the first agent (D33) — choose
+    # the team's charter directory in the same command (empty dir = initialized):
+    courtyard-invite --team-dir ~/teams/devops --team-name devops \\
+        --register --name coding --type claude-code --workdir ~/proj/payments
+
     # undo it:
     courtyard-invite --name coding --workdir ~/proj/payments --remove
 
@@ -23,8 +28,22 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 from courtyard.common.client import DEFAULT_HUB_URL, HubClient, HubError
+
+
+def _ensure_team(client: HubClient, team_dir: str, name: str | None) -> None:
+    """Register the charter directory if the hub does not know it, then make it
+    current (D33: a current team is required before agents can register)."""
+    path = str(Path(team_dir).expanduser().resolve())
+    team = next((t for t in client.teams() if t.charter_dir == path), None)
+    if team is None:
+        team = client.add_team(path, name)
+        print(f"registered team {team.name!r} from {path}")
+    if not team.is_current:
+        client.set_current_team(team.id)
+        print(f"made {team.name!r} the current team")
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -43,6 +62,16 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--anti-scope", help="what NOT to ask this agent (when --register)")
     p.add_argument("--color", help="board colour: red orange yellow green teal blue purple pink")
     p.add_argument("--model", help="model for the agent's runtime, e.g. sonnet (when --register)")
+    p.add_argument(
+        "--team-dir",
+        help="the team's charter directory: registered with the hub and made current if "
+        "needed (a current team is required before the first --register on a fresh hub)",
+    )
+    p.add_argument(
+        "--team-name",
+        help="team name when --team-dir points at a directory without a charter yet "
+        "(the directory is then initialized)",
+    )
     return p
 
 
@@ -61,6 +90,8 @@ def cli(argv: list[str] | None = None) -> None:
             print(f"courtyard-invite: {how} at {where}")
             return
 
+        if args.team_dir:
+            _ensure_team(client, args.team_dir, args.team_name)
         token = args.token
         if args.register:
             _agent, token = client.register_agent(

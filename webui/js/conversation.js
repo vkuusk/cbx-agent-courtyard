@@ -6,7 +6,7 @@ import { html, useEffect, useLayoutEffect, useRef, useState } from "../vendor/ht
 import { api } from "./api.js";
 import {
   store, selectedAgent, selectedLine, agentName, operatorId,
-  loadMessages, dropMessages, markLineSeen,
+  loadMessages, dropMessages, markLineSeen, threadsOn, currentTeam,
 } from "./store.js";
 import { useStore, fmtClock } from "./ui.js";
 
@@ -69,6 +69,15 @@ export function Bubble({ m, readOnly }) {
   </div>`;
 }
 
+// A thread boundary (D34 §5 item 4): a rule with a chip naming the thread's number,
+// its opener and its state. The endings themselves (closed by whom, expired, locked)
+// are already system lines in the history; the chip marks where each ask began.
+function ThreadDivider({ thread, n }) {
+  const opener = thread.opened_by === operatorId() ? "you" : (thread.opened_by_name ?? "?");
+  return html`<div class="thread-sep ${thread.state}"><span class="rule" />
+    <span class="chip">thread ${n} · ${opener} · ${thread.state}</span><span class="rule" /></div>`;
+}
+
 // Archive the history so far (design §5.7): a confirm that says exactly what goes with it.
 function archiveAction(line) {
   return () => {
@@ -98,10 +107,20 @@ function Header({ line }) {
           ? `your line · ${agent.name} owes you a reply`
           : "your line · waiting for your reply"
         : "your line · never gated";
+    // The close control (D34): the same hub operation the agents' close tool invokes,
+    // rendered only when the open thread on this line is one YOU initiated.
+    const open = line?.open_thread ? store.threads.get(line.id)?.get(line.open_thread) : null;
+    const closable = open && open.opened_by === operatorId();
+    const closeThread = () => {
+      if (confirm(`Close this thread? ${agent.name} is told your ask is settled; your next message starts a new one.`)) {
+        api.closeThread(agent.name).catch((err) => alert(err.message));
+      }
+    };
     return html`<div class="conv-head"><h2 class="mono">${agent.name}</h2>
       <span class="meta">${meta}</span>
       ${line
         ? html`<span class="act">
+            ${closable ? html`<button class="btn" onClick=${closeThread}>close thread</button>` : null}
             ${line.state === "awaiting_reply" ? html`<button class="btn" onClick=${release}>release</button>` : null}
             <button class="btn" onClick=${archiveAction(line)}>archive</button></span>`
         : null}</div>`;
@@ -172,10 +191,15 @@ export function Conversation() {
 
   let body;
   if (!store.ui.selected) {
-    body = empty(
-      "Your courtyard is empty",
-      "Add an agent, let the hub write its .mcp.json, start it in its own terminal, and its dot turns green here.",
-    );
+    body = currentTeam()
+      ? empty(
+          "Your courtyard is empty",
+          "Add an agent, let the hub write its .mcp.json, start it in its own terminal, and its dot turns green here.",
+        )
+      : empty(
+          "Your courtyard is empty",
+          "Choose the team's directory in the Team panel above — the courtyard keeps the team definition there. Then add your agents.",
+        );
   } else if (agent && !line) {
     body = empty(null, `No messages between you and ${agent.name} yet. Write below to start the line.`);
   } else if (!line) {
@@ -185,7 +209,19 @@ export function Conversation() {
   } else if (!msgs.length) {
     body = empty(null, "No messages on this line yet.");
   } else {
-    body = msgs.map((m) => html`<${Bubble} key=${m.id} m=${m} />`);
+    // Group by thread (D34 §5 item 4): a divider where each ask begins. Messages older
+    // than the threads migration carry no thread and stay ungrouped at the top.
+    const order = new Map(threadsOn(lineId).map((t, i) => [t.id, { t, n: i + 1 }]));
+    const marked = new Set();
+    body = [];
+    for (const m of msgs) {
+      const entry = m.thread_id && !marked.has(m.thread_id) ? order.get(m.thread_id) : null;
+      if (entry) {
+        marked.add(m.thread_id);
+        body.push(html`<${ThreadDivider} key=${`sep-${m.thread_id}`} thread=${entry.t} n=${entry.n} />`);
+      }
+      body.push(html`<${Bubble} key=${m.id} m=${m} />`);
+    }
   }
   return html`<section class="conv"><${Header} line=${line} />
     <div class="history" ref=${ref} onScroll=${onScroll}>${body}</div></section>`;

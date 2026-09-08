@@ -329,6 +329,7 @@ class ChannelService:
                 ),
                 reply_to=message.id,
                 status="delivered",
+                thread_id=message.thread_id,
             )
             logger.info("rearm: seq %s on line %s -> %s", message.seq, message.line_id, agent.name)
             published.extend([message, entry])

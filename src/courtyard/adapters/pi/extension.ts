@@ -7,8 +7,8 @@
  *  - a channel: the hub pushes each message to a local endpoint, and this
  *    extension injects it into the session via pi.sendMessage (triggerTurn wakes
  *    an idle session; deliverAs "followUp" queues politely on a busy one);
- *  - a toolbox: courtyard_send / courtyard_inbox / courtyard_peers /
- *    courtyard_ack, registered natively;
+ *  - a toolbox: courtyard_send / courtyard_close_thread / courtyard_inbox /
+ *    courtyard_peers / courtyard_ack, registered natively;
  *  - a hub adapter: attaches with a channel endpoint, heartbeats, detaches at
  *    session end. Attach retries forever, so hub/agent launch order is free.
  *
@@ -279,6 +279,13 @@ export default function (pi) {
       properties: {
         to: { type: "string", description: "the recipient agent's name (see courtyard_peers)" },
         message: { type: "string", description: "what you want to say" },
+        new_thread: {
+          type: "boolean",
+          description:
+            "declare that this message starts a NEW independent ask, unrelated to the " +
+            "exchange in progress. Refused while a thread with this peer is still open — " +
+            "close yours first, or leave this unset to continue the open thread.",
+        },
       },
       required: ["to", "message"],
     },
@@ -286,7 +293,11 @@ export default function (pi) {
       const to = (params.to || "").trim();
       const body = params.message || "";
       if (!to || !body.trim()) throw new Error("both `to` and `message` are required");
-      const message = await api("POST", "/api/lines/send", { to, body });
+      const message = await api("POST", "/api/lines/send", {
+        to,
+        body,
+        new_thread: Boolean(params.new_thread),
+      });
       let text;
       if (message.status === "pending_gate") {
         text =
@@ -302,6 +313,37 @@ export default function (pi) {
           `will hand it over when they attach. The line is awaiting their reply.`;
       }
       return { content: [{ type: "text", text }], details: {} };
+    },
+  });
+
+  pi.registerTool({
+    name: "courtyard_close_thread",
+    label: "Courtyard Close Thread",
+    description:
+      "Close the thread you opened with a peer: your ask is settled, the answer " +
+      "accepted. A bare protocol event — no message rides it; if you have something " +
+      "substantive left to say, send it with courtyard_send first, then close. Only " +
+      "the agent that opened a thread can close it. The peer is told by the hub.",
+    parameters: {
+      type: "object",
+      properties: {
+        peer: { type: "string", description: "the other agent on the thread's line" },
+      },
+      required: ["peer"],
+    },
+    async execute(_toolCallId, params) {
+      const peer = (params.peer || "").trim();
+      if (!peer) throw new Error("`peer` is required");
+      await api("POST", "/api/lines/close-thread", { peer });
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Thread closed; the hub has told ${peer}. A new ask with ${peer} may start now.`,
+          },
+        ],
+        details: {},
+      };
     },
   });
 

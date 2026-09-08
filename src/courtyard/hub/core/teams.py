@@ -34,6 +34,7 @@ from courtyard.hub.core.errors import (
     CharterNotLoaded,
     CharterWriteFailed,
     DomainError,
+    NoTeam,
     ShiftActive,
     TeamExists,
     TeamNotFound,
@@ -126,18 +127,42 @@ class TeamService:
         return updated
 
     def set_current(self, team_id: UUID | None) -> list[Team]:
-        """Select the current team. Becoming current is the initialization gesture, so
-        it reloads and projects the charter right away; clearing the selection changes
-        no registrations and needs no guard."""
-        if team_id is not None and self._shift_active():
+        """Select the current team. Becoming current is the initialization gesture: it
+        adopts any agent no registered team's charter names, then reloads and projects
+        the charter. The courtyard always has a current team once one was chosen
+        (D33, revised): the selection cannot be cleared, only moved."""
+        if team_id is None:
+            if self.current() is not None:
+                raise NoTeam(
+                    "the courtyard always has a current team; select another team "
+                    "instead of clearing the selection"
+                )
+            return self.list()  # nothing was current; nothing to clear
+        if self._shift_active():
             raise ShiftActive("a shift is running; end it before changing the current team")
         with self._storage.transaction() as uow:
-            if team_id is not None and not uow.teams.get(team_id):
+            if not uow.teams.get(team_id):
                 raise TeamNotFound("no such team")
             uow.teams.set_current(team_id)
-        if team_id is not None:
-            self.reload(team_id)
+        self._adopt_orphans()
+        self.reload(team_id)
         return self.list()
+
+    def _adopt_orphans(self) -> None:
+        """D33 (revised): choosing a team on a hub that already holds agents adopts the
+        ones no registered team's charter names — they are written into the now-current
+        team's charter as cards, explicitly, at this gesture. A charter that did not
+        load adopts nothing (the load report already says why)."""
+        team = self.current()
+        if team is None or team.charter is None:
+            return
+        claimed = {card.name for t in self.list() if t.charter for card in t.charter.agents}
+        with self._storage.transaction() as uow:
+            agents = uow.agents.list()
+        for agent in agents:
+            if agent.type == "human" or agent.removed_at is not None or agent.name in claimed:
+                continue
+            self.writeback_created(agent)
 
     def set_workdir(self, team_id: UUID, agent_name: str, workdir: str) -> Team:
         """Answer the per-machine workdir question for one charter agent (ask-at-init,
@@ -156,26 +181,39 @@ class TeamService:
 
     def remove(self, team_id: UUID) -> Team:
         """Drop the registry entry; the charter files are the operator's and stay, and
-        so does everything an earlier projection created — removal is not teardown."""
+        so does everything an earlier projection created — removal is not teardown.
+        The current team cannot be removed (D33, revised): select another first."""
         with self._storage.transaction() as uow:
             team = uow.teams.get(team_id)
             if not team:
                 raise TeamNotFound("no such team")
+            if team.is_current:
+                raise NoTeam(
+                    "this team is current and the courtyard always has one; "
+                    "select another team before removing it"
+                )
             uow.teams.delete(team_id)
             return team
 
     # -- write-back from the agent forms (design team-charter.md §3, slice 3) ---------
-    # The registration endpoints call these around the registry's own operations: when a
-    # team is current, an agent added, edited or removed through the hub is also written
-    # into (or out of) the charter files, so the files stay the master and the next
-    # reload finds nothing to disagree with. No current team = database only, as before.
+    # The registration endpoints call these around the registry's own operations: an
+    # agent added, edited or removed through the hub is also written into (or out of)
+    # the current team's charter files, so the files stay the master and the next
+    # reload finds nothing to disagree with. No current team = refused (`no_team`).
     # No shift guard here: single-agent edits were always allowed mid-shift, and the
     # database change already happened through the registry, events and all.
 
     def check_writeback(self) -> None:
         """Called before a registration change so a doomed write-back refuses BEFORE
         the database is touched; without this the agent would land in the database
-        with no charter entry, a divergence the additive reload never heals."""
+        with no charter entry, a divergence the additive reload never heals. No
+        current team refuses too (D33, revised): the charter is the source of truth,
+        so it needs a home before the first agent."""
+        if self.current() is None:
+            raise NoTeam(
+                "no team is current; choose the team's charter directory first "
+                "(Admin -> Teams: an empty directory is initialized for you)"
+            )
         self._writeback_team()
 
     def writeback_created(self, agent: Agent, declared_color: str | None = None) -> None:
@@ -213,8 +251,8 @@ class TeamService:
 
     def writeback_updated(self, agent: Agent, patch: dict) -> None:
         """An edit of a charter agent lands on its card files; a patched workdir lands
-        on the overlay. Agents outside the charter (registered before the team, or
-        while no team was current) stay database-only: their master never moved."""
+        on the overlay. An agent outside the current charter (it belongs to another
+        registered team) is edited in the database only: its master is elsewhere."""
         team = self._writeback_team()
         if team is None:
             return
@@ -255,9 +293,10 @@ class TeamService:
 
     def _writeback_team(self) -> Team | None:
         """The team agent changes write back to: the current one, charter loaded. None
-        means no current team, so the change is database-only. A current team whose
-        charter did not load refuses instead: the hub cannot write into files it could
-        not read, and it cannot even tell which agents the charter holds."""
+        only in the transient pre-team state (check_writeback refuses registration
+        there first). A current team whose charter did not load refuses instead: the
+        hub cannot write into files it could not read, and it cannot even tell which
+        agents the charter holds."""
         team = self.current()
         if team is None:
             return None

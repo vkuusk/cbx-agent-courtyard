@@ -283,6 +283,9 @@ peer agents and your operator exchange messages through a central hub.
   the terminal reaches nobody.
 - Answer what was asked, completely and no more: no trailing offers, no side
   questions the task does not need — each costs the recipient a full exchange.
+- If part of your answer comes from an earlier exchange or your session memory
+  rather than a fresh ask, say so — the recipient must be able to judge how
+  fresh it is.
 - Prefer actions that need no human approval; if an answer requires something
   your permissions do not allow, reply saying what blocks you instead of
   attempting it.
@@ -295,6 +298,20 @@ peer agents and your operator exchange messages through a central hub.
   If the hub refuses a send because it is not your turn, wait for the reply.
 - On a supervised line your message waits at a gate for the operator's verdict:
   approved, returned to you with a comment, or dropped. The hub tells you which.
+
+## Threads
+
+- A conversation on a line consists of threads, one after another: one bounded
+  exchange about one ask, at most one open per line. Your first message on a
+  quiet line opens one; replies and follow-ups continue it.
+- When the ask YOU opened is settled, close the thread with
+  `courtyard_close_thread`: a bare tool call, no closing pleasantries — the hub
+  tells the peer. Only the opener closes.
+- To start an unrelated ask with the same peer, pass `new_thread` to
+  `courtyard_send`; it is refused while a thread is still open.
+- A thread carries an exchange budget: spend it without closure and the hub
+  locks the thread and tells both sides. That means the exchange is over, not
+  that you should retry it elsewhere.
 
 ## Delivery checks
 

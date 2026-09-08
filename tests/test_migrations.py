@@ -2,7 +2,7 @@ import psycopg
 
 from courtyard.hub.storage.migrate import apply_migrations, migration_files
 
-EXPECTED_TABLES = {"schema_migrations", "agents", "lines", "messages", "channels"}
+EXPECTED_TABLES = {"schema_migrations", "agents", "lines", "messages", "threads", "channels"}
 
 
 def test_migrations_are_idempotent(config):

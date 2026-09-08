@@ -18,8 +18,10 @@ Needs the compose postgres up (`make db-up`). Run:
 
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 from courtyard.common.client import ChannelReceiver, HubClient
@@ -77,6 +79,9 @@ def row(admin, name):
 psql(f"DROP DATABASE IF EXISTS {DB_NAME}", f"CREATE DATABASE {DB_NAME}")
 proc, admin = start_hub()
 try:
+    # D33: a current team is required before agents can register
+    team_dir = tempfile.mkdtemp(prefix="runbook-team-")
+    admin.set_current_team(admin.add_team(team_dir, "runbook").id)
     hr("1. THE CHANNEL FLAG (item 33): attach reports how the session was launched")
     _, token = admin.register_agent("deaf-dummy", "dummy", "launched without the flag")
     deaf = HubClient(HUB, "deaf-dummy", token)
@@ -124,6 +129,7 @@ try:
     late.close()
     print("\nAll four checkpoints shown.")
 finally:
+    shutil.rmtree(team_dir, ignore_errors=True)
     admin.close()
     proc.terminate()
     proc.wait(timeout=10)

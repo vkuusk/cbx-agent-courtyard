@@ -7,7 +7,7 @@ from contextlib import AbstractContextManager
 from typing import Any, Protocol
 from uuid import UUID
 
-from courtyard.common.models import Agent, Archive, Channel, Line, Message, Team
+from courtyard.common.models import Agent, Archive, Channel, Line, Message, Team, Thread
 
 
 class AgentRepo(Protocol):
@@ -84,8 +84,10 @@ class LineRepo(Protocol):
         self, line_id: UUID, state: str, awaiting_from: UUID | None, in_flight_msg: UUID | None
     ) -> None: ...
 
+    def set_open_thread(self, line_id: UUID, thread_id: UUID | None) -> None: ...
+
     def delete(self, line_id: UUID) -> None:
-        """Remove the line row (its messages must already be gone — archive first)."""
+        """Remove the line row (its messages and threads must already be gone)."""
         ...
 
 
@@ -101,6 +103,7 @@ class MessageRepo(Protocol):
         body: str,
         reply_to: UUID | None,
         status: str,
+        thread_id: UUID | None = None,
     ) -> Message:
         """Insert with the next per-line seq. Caller must hold the line row lock."""
         ...
@@ -120,6 +123,11 @@ class MessageRepo(Protocol):
         ...
 
     def count_queued_for(self, agent_id: UUID) -> int: ...
+
+    def count_thread(self, thread_id: UUID) -> int:
+        """The thread's budget-relevant size (D34 §5 item 2): its `message`-kind rows,
+        not counting returned or dropped ones — those never reached anyone."""
+        ...
 
     def expire(self, message_id: UUID) -> Message | None:
         """Close an unfinished message as `expired` (D24, end of shift). Only a message
@@ -147,6 +155,30 @@ class MessageRepo(Protocol):
 
     def delete_line(self, line_id: UUID) -> int:
         """Delete every message of a line (after it was archived). Returns the count."""
+        ...
+
+
+class ThreadRepo(Protocol):
+    """Threads (design threads.md, D34). Callers hold the line row lock for every
+    mutation — thread state and the line's `open_thread` pointer move together."""
+
+    def insert(self, *, thread_id: UUID, line_id: UUID, opened_by: UUID) -> Thread: ...
+
+    def get(self, thread_id: UUID) -> Thread | None: ...
+
+    def list_line(self, line_id: UUID) -> list[Thread]: ...
+
+    def end(self, thread_id: UUID, state: str) -> Thread | None:
+        """open -> closed | expired | locked, with ended_at = now(). None when the
+        thread was not open (already ended: nothing to do, nothing overwritten)."""
+        ...
+
+    def expire_open(self) -> list[Thread]:
+        """End of shift (D34 extends D24): every open thread becomes `expired`."""
+        ...
+
+    def delete_line(self, line_id: UUID) -> int:
+        """Delete a line's threads (its messages must already be gone — archive first)."""
         ...
 
 
@@ -253,6 +285,7 @@ class UnitOfWork(Protocol):
     agents: AgentRepo
     lines: LineRepo
     messages: MessageRepo
+    threads: ThreadRepo
     channels: ChannelRepo
     archives: ArchiveRepo
     settings: SettingsRepo

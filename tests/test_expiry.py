@@ -106,7 +106,8 @@ class TestEndShiftClosesTheBooks:
         ] == "expired"
         assert pull_inbox(client, "bob", bob_token) == []  # expired is not queued
 
-    def test_idle_lines_are_left_alone(self, client, make_agent):
+    def test_settled_lines_are_left_alone(self, client, make_agent):
+        # Settled means idle AND thread-closed (D34): alice accepted bob's answer.
         _, alice = make_agent("alice")
         _, bob_token = make_agent("bob")
         msg = send(client, alice, "bob", "q1").json()
@@ -114,6 +115,8 @@ class TestEndShiftClosesTheBooks:
         pull_inbox(client, "bob", bob_token)
         reply = send(client, bob_token, "alice", "a1").json()
         decide(client, reply["id"], "approve")
+        resp = client.post("/api/lines/close-thread", json={"peer": "bob"}, headers=auth(alice))
+        assert resp.status_code == 200, resp.text
         before = line_messages(client, msg["line_id"])
 
         end_shift(client)

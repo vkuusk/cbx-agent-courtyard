@@ -656,7 +656,8 @@ uv run python scripts/runbook/team_charter.py
 5. Break `team-definition.yml` on disk (e.g. `team: [broken`), reload the team,
    then try to add an agent: refused with `charter_not_loaded` and nothing is
    registered. Clear the "Current team" selection: adding works again (database
-   only). Restore the file.
+   only), and the add form now says so - "No team is current: this agent goes
+   into the database only", with a link to Admin. Restore the file.
 
 ## Log level: one knob, honest severity (COURTYARD_LOG_LEVEL)
 

@@ -292,7 +292,10 @@ function AddForm({ onCreated, suggested }) {
     ${charterOf(null)
       ? html`<div class="small muted">The current team has a charter: the new agent is also
           written into <code>${charterOf(null).charter_dir}</code>.</div>`
-      : null}
+      : html`<div class="small muted">No team is current: this agent goes into the database
+          only, no charter files are written anywhere. To keep the team as files, add a
+          charter and make it current first (<a href="#/admin">Admin → Teams</a>) — agents
+          registered before that stay database-only.</div>`}
     <div class="form-row">
       <button class="btn primary">add agent</button>
       ${error ? html`<div class="error">${error}</div>` : null}

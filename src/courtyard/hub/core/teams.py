@@ -3,11 +3,13 @@ of them current. Slice 1 was the read path (register, load, display, reload, sel
 slice 2 adds projection: whenever the CURRENT team's charter is (re)loaded, its cards
 become registrations and its links become lines, so the database stays the projection of
 the files. Loads happen only on explicit operator gestures (add, reload, select, a
-workdir answer); the hub never watches the filesystem.
+workdir answer, a write-back); the hub never watches the filesystem.
 
 Projection is additive and idempotent: it creates what is missing and mirrors the
-charter-owned fields onto what exists; it never removes an agent or a line (removal is
-the write-back direction, slice 3 — an agent leaves the team by leaving the files).
+charter-owned fields onto what exists; it never removes an agent or a line. Removal is
+the write-back direction (slice 3): while a team is current, agent add/edit/remove
+through the hub also writes the charter files, so an agent leaves the team by leaving
+the files — whether the operator edited them by hand or the hub did it for them.
 Problems land in the team's load report next to the loader's own, because the WebUI's
 job is to display what happened, not to abort on it.
 
@@ -23,12 +25,14 @@ from collections.abc import Callable
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from courtyard.common.models import Charter, CharterCard, Team
+from courtyard.common.models import Agent, Charter, CharterCard, Team
 from courtyard.hub.core import charter
 from courtyard.hub.core.board import Board
 from courtyard.hub.core.errors import (
     AlreadyLinked,
     CharterNameRequired,
+    CharterNotLoaded,
+    CharterWriteFailed,
     DomainError,
     ShiftActive,
     TeamExists,
@@ -159,6 +163,123 @@ class TeamService:
                 raise TeamNotFound("no such team")
             uow.teams.delete(team_id)
             return team
+
+    # -- write-back from the agent forms (design team-charter.md §3, slice 3) ---------
+    # The registration endpoints call these around the registry's own operations: when a
+    # team is current, an agent added, edited or removed through the hub is also written
+    # into (or out of) the charter files, so the files stay the master and the next
+    # reload finds nothing to disagree with. No current team = database only, as before.
+    # No shift guard here: single-agent edits were always allowed mid-shift, and the
+    # database change already happened through the registry, events and all.
+
+    def check_writeback(self) -> None:
+        """Called before a registration change so a doomed write-back refuses BEFORE
+        the database is touched; without this the agent would land in the database
+        with no charter entry, a divergence the additive reload never heals."""
+        self._writeback_team()
+
+    def writeback_created(self, agent: Agent, declared_color: str | None = None) -> None:
+        """A new registration joins the current team's charter: yml entry, config dir,
+        card files, and its workdir into the per-machine overlay. The colour goes into
+        card.yml only when the request declared one; a hub-picked colour stays the
+        hub's, exactly as projection treats an undeclared colour."""
+        team = self._writeback_team()
+        if team is None or agent.type == "human":
+            return
+        charter_dir = Path(team.charter_dir)
+        try:
+            rel = charter.add_agent_entry(charter_dir, agent.name)
+            charter.write_card(
+                charter_dir,
+                rel,
+                {
+                    "type": agent.type,
+                    "model": agent.model,
+                    "color": declared_color,
+                    "description": agent.description,
+                    "sme_domain": agent.sme_domain,
+                    "anti_scope": agent.anti_scope,
+                },
+            )
+            if agent.workdir:
+                charter.set_workdir(charter_dir, agent.name, agent.workdir)
+        except (OSError, ValueError) as exc:
+            raise CharterWriteFailed(
+                f"{agent.name} is registered on the hub, but writing it into the team "
+                f"charter failed: {exc}. Fix the charter directory and either remove "
+                "the agent or add it to the files by hand, then reload."
+            ) from exc
+        self._refresh(team)
+
+    def writeback_updated(self, agent: Agent, patch: dict) -> None:
+        """An edit of a charter agent lands on its card files; a patched workdir lands
+        on the overlay. Agents outside the charter (registered before the team, or
+        while no team was current) stay database-only: their master never moved."""
+        team = self._writeback_team()
+        if team is None:
+            return
+        card = next((c for c in team.charter.agents if c.name == agent.name), None)
+        if card is None:
+            return
+        charter_dir = Path(team.charter_dir)
+        try:
+            fields = {k: v for k, v in patch.items() if k != "workdir"}
+            if fields:
+                charter.write_card(charter_dir, card.config_dir, fields)
+            if "workdir" in patch:
+                charter.set_workdir(charter_dir, agent.name, patch["workdir"])
+        except (OSError, ValueError) as exc:
+            raise CharterWriteFailed(
+                f"{agent.name} is updated on the hub, but writing the team charter "
+                f"failed: {exc}. Fix the charter directory, mirror the edit into the "
+                "files by hand if needed, then reload."
+            ) from exc
+        self._refresh(team)
+
+    def writeback_removed(self, name: str) -> None:
+        """A removed charter agent leaves the files too — its yml entry, links, overlay
+        workdir and configuration directory — else the next reload would report the
+        permanent name as unregisterable forever."""
+        team = self._writeback_team()
+        if team is None or all(c.name != name for c in team.charter.agents):
+            return
+        try:
+            charter.remove_agent_entry(Path(team.charter_dir), name)
+        except (OSError, ValueError) as exc:
+            raise CharterWriteFailed(
+                f"{name} is removed from the hub, but taking it out of the team charter "
+                f"failed: {exc}. Remove it from the files by hand, or every reload will "
+                "report the name (removed names are permanent)."
+            ) from exc
+        self._refresh(team)
+
+    def _writeback_team(self) -> Team | None:
+        """The team agent changes write back to: the current one, charter loaded. None
+        means no current team, so the change is database-only. A current team whose
+        charter did not load refuses instead: the hub cannot write into files it could
+        not read, and it cannot even tell which agents the charter holds."""
+        team = self.current()
+        if team is None:
+            return None
+        if team.charter is None:
+            raise CharterNotLoaded(
+                "the current team's charter did not load; fix the files and reload the "
+                "team, or clear the team selection, before changing agents"
+            )
+        return team
+
+    def _refresh(self, team: Team) -> None:
+        """Re-read the charter right after a write-back so the cached copy matches the
+        files the hub just wrote. No projection: the database change already went
+        through the registry, this only keeps the Teams view honest."""
+        loaded, report = charter.load_charter(Path(team.charter_dir))
+        with self._storage.transaction() as uow:
+            uow.teams.set_loaded(
+                team.id,
+                loaded.name if loaded else team.name,
+                loaded.model_dump() if loaded else None,
+                report,
+            )
 
     # -- projection (design team-charter.md §6) ---------------------------------------
 

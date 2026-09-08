@@ -8,17 +8,14 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from courtyard.common.models import Team
+from courtyard.hub.api.deps import get_teams
 from courtyard.hub.core.teams import TeamService
 
 router = APIRouter(prefix="/teams", tags=["teams"])
-
-
-def get_teams(request: Request) -> TeamService:
-    return request.app.state.teams
 
 
 class TeamAdd(BaseModel):

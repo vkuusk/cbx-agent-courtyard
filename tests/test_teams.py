@@ -1,12 +1,15 @@
 """The team charter registry (design team-charter.md, D33): loader units against the
 committed fixture charter in tests/team-charter/, the API round trip (add, reload,
-current selection, remove), and slice 2 — projection of the current team's charter into
-registrations and lines, the per-machine workdir overlay, and the shift guard."""
+current selection, remove), slice 2 — projection of the current team's charter into
+registrations and lines, the per-machine workdir overlay, and the shift guard — and
+slice 3, write-back: agent add/edit/remove landing on the charter files."""
 
 from __future__ import annotations
 
 import shutil
 from pathlib import Path
+
+import yaml
 
 from courtyard.hub.core.charter import load_charter
 
@@ -31,10 +34,13 @@ def test_fixture_charter_loads_clean():
     assert "cloud" in infra.description
     assert infra.sme_domain.startswith("The AWS estate")
     assert "tf-dev writes them" in infra.anti_scope
-    # gaps are allowed, not reported: tf-dev has no model or anti-scope, scribe only prose
+    # gaps are allowed, not reported: tf-dev has no model or anti-scope, scribe only prose.
+    # These also trip if a test ever write-backs into the committed fixture (slice 3):
+    # tests that make a team current and touch agents must use fixture_copy.
     assert charter.agents[1].model is None
     assert charter.agents[2].type == "pi"
     assert charter.agents[2].sme_domain is None
+    assert charter.agents[2].anti_scope is None
     # the declared topology (slice 2): two links, one with a mode, scribe-tf-dev none
     assert [(li.a, li.b, li.mode) for li in charter.links] == [
         ("infra", "tf-dev", "auto_pass"),
@@ -413,12 +419,14 @@ def test_shift_guard_refuses_projection_while_a_shift_runs(client):
     assert client.post("/api/teams/current", json={"team_id": team_id}).status_code == 200
 
 
-def test_anti_scope_reaches_the_peers_roster(client):
+def test_anti_scope_reaches_the_peers_roster(client, tmp_path):
     """One "not for:" line per peer (D33), collapsed to a single line however the
     anti-scope.md file was wrapped."""
     from conftest import auth
 
-    _make_current(client, FIXTURE)
+    # a COPY: the patch below write-backs into the charter files (slice 3), and the
+    # committed fixture must never be edited by the suite
+    _make_current(client, fixture_copy(tmp_path))
     token = client.get("/api/agents/tf-dev/token").json()["token"]
     view = client.get("/api/agents/tf-dev/peers", headers=auth(token))
     assert view.status_code == 200, view.text
@@ -430,3 +438,197 @@ def test_anti_scope_reaches_the_peers_roster(client):
     # editable on the agent form too, like the other prose fields
     patched = client.patch("/api/agents/scribe", json={"anti_scope": "code of any kind"})
     assert patched.json()["anti_scope"] == "code of any kind"
+
+
+# ---- slice 3: write-back from the agent forms ---------------------------------------
+
+
+def _read_yaml(path: Path):
+    return yaml.safe_load(path.read_text())
+
+
+def test_adding_an_agent_writes_it_into_the_charter(client, tmp_path):
+    """With a current team, a registration also lands in the files: yml entry, config
+    dir, card.yml, prose files, and the workdir in the per-machine overlay."""
+    charter_dir = fixture_copy(tmp_path)
+    _make_current(client, charter_dir)
+    project = tmp_path / "scout-project"
+    project.mkdir()
+    created = client.post(
+        "/api/agents",
+        json={
+            "name": "scout",
+            "type": "claude-code",
+            "description": "finds prior art",
+            "sme_domain": "the research index",
+            "anti_scope": "writing code",
+            "model": "sonnet",
+            "color": "teal",
+            "workdir": str(project),
+        },
+    )
+    assert created.status_code == 201, created.text
+    index = _read_yaml(charter_dir / "team-definition.yml")
+    assert index["team"]["agents"]["scout"] == {"agent-config-dir": "scout"}
+    card = _read_yaml(charter_dir / "scout" / "card.yml")
+    assert card == {"type": "claude-code", "model": "sonnet", "color": "teal"}
+    assert (charter_dir / "scout" / "description.md").read_text() == "finds prior art\n"
+    assert (charter_dir / "scout" / "owns.md").read_text() == "the research index\n"
+    assert (charter_dir / "scout" / "anti-scope.md").read_text() == "writing code\n"
+    assert _read_yaml(charter_dir / "workdirs.local.yml")["workdirs"]["scout"] == str(project)
+    # the rewrite kept what the index already had
+    assert set(index["team"]["agents"]) == {"infra", "tf-dev", "scribe", "scout"}
+    assert index["team"]["discovery"] == "manual" and len(index["team"]["links"]) == 2
+    # the hub's cached charter follows the files it just wrote, without a manual reload
+    team = client.get("/api/teams").json()[0]
+    assert "scout" in [a["name"] for a in team["charter"]["agents"]]
+    assert team["load_report"] == []
+    # and a reload finds nothing to disagree with: write-back round-trips exactly
+    before = _agents_by_name(client)["scout"]
+    assert client.post(f"/api/teams/{team['id']}/reload").json()["load_report"] == []
+    assert _agents_by_name(client)["scout"] == before
+
+
+def test_hub_picked_color_stays_undeclared_in_the_card(client, tmp_path):
+    """A colour the request did not declare is the hub's nicety, not charter content —
+    card.yml stays without one, matching how projection treats an undeclared colour."""
+    charter_dir = fixture_copy(tmp_path)
+    _make_current(client, charter_dir)
+    made = client.post("/api/agents", json={"name": "quiet", "type": "dummy"})
+    assert made.status_code == 201, made.text
+    assert made.json()["agent"]["color"] is not None  # the hub picked one
+    assert _read_yaml(charter_dir / "quiet" / "card.yml") == {"type": "dummy"}
+    # no prose was given, so no prose files exist
+    assert sorted(p.name for p in (charter_dir / "quiet").iterdir()) == ["card.yml"]
+
+
+def test_without_a_current_team_the_files_are_untouched(client, tmp_path):
+    """Registered but not current = display only; no team at all = today's behaviour.
+    Write-back is bound to the current team and nothing else."""
+    charter_dir = fixture_copy(tmp_path)
+    made = client.post("/api/teams", json={"charter_dir": str(charter_dir)})
+    assert made.status_code == 201
+    index_before = (charter_dir / "team-definition.yml").read_text()
+    assert client.post("/api/agents", json={"name": "solo", "type": "dummy"}).status_code == 201
+    assert client.patch("/api/agents/solo", json={"description": "db only"}).status_code == 200
+    assert client.delete("/api/agents/solo").status_code == 200
+    assert (charter_dir / "team-definition.yml").read_text() == index_before
+    assert not (charter_dir / "solo").exists()
+
+
+def test_editing_a_charter_agent_writes_the_card_files(client, tmp_path):
+    charter_dir = fixture_copy(tmp_path)
+    _make_current(client, charter_dir)
+    patched = client.patch(
+        "/api/agents/infra",
+        json={"description": "Runs GCP now.", "anti_scope": None, "model": "opus"},
+    )
+    assert patched.status_code == 200, patched.text
+    assert (charter_dir / "infra" / "description.md").read_text() == "Runs GCP now.\n"
+    assert not (charter_dir / "infra" / "anti-scope.md").exists()  # cleared = file gone
+    card = _read_yaml(charter_dir / "infra" / "card.yml")
+    assert card["model"] == "opus" and card["type"] == "claude-code"  # untouched keys stay
+    assert (charter_dir / "infra" / "owns.md").exists()  # unpatched prose untouched
+    # a patched workdir goes to the overlay, and clearing it drops the entry
+    project = tmp_path / "infra-project"
+    project.mkdir()
+    client.patch("/api/agents/infra", json={"workdir": str(project)})
+    assert _read_yaml(charter_dir / "workdirs.local.yml")["workdirs"] == {"infra": str(project)}
+    client.patch("/api/agents/infra", json={"workdir": None})
+    assert _read_yaml(charter_dir / "workdirs.local.yml")["workdirs"] == {}
+    # the cached charter followed along; a reload agrees with the database
+    team = client.get("/api/teams").json()[0]
+    assert team["load_report"] == []
+    assert client.post(f"/api/teams/{team['id']}/reload").json()["load_report"] == []
+    infra = _agents_by_name(client)["infra"]
+    assert infra["description"] == "Runs GCP now." and infra["anti_scope"] is None
+
+
+def test_editing_an_agent_outside_the_charter_stays_db_only(client, make_agent, tmp_path):
+    """An agent registered before the team was current keeps the database as its
+    master; the charter never learns about it (design team-charter.md §3)."""
+    make_agent("veteran")
+    charter_dir = fixture_copy(tmp_path)
+    _make_current(client, charter_dir)
+    index_before = (charter_dir / "team-definition.yml").read_text()
+    assert client.patch("/api/agents/veteran", json={"description": "still db"}).status_code == 200
+    assert client.delete("/api/agents/veteran").status_code == 200
+    assert (charter_dir / "team-definition.yml").read_text() == index_before
+    assert not (charter_dir / "veteran").exists()
+
+
+def test_removing_a_charter_agent_leaves_the_files_too(client, tmp_path):
+    """Removal write-back: the yml entry, the links naming the agent, the overlay entry
+    and the configuration directory all go — a reload cannot resurrect the agent."""
+    charter_dir = fixture_copy(tmp_path)
+    team_id = _make_current(client, charter_dir)
+    project = tmp_path / "infra-project"
+    project.mkdir()
+    client.post(f"/api/teams/{team_id}/workdirs", json={"agent": "infra", "workdir": str(project)})
+    removed = client.delete("/api/agents/infra")
+    assert removed.status_code == 200, removed.text
+    team = _read_yaml(charter_dir / "team-definition.yml")["team"]
+    assert set(team["agents"]) == {"tf-dev", "scribe"}
+    assert "links" not in team  # both fixture links named infra
+    assert not (charter_dir / "infra").exists()
+    assert (charter_dir / "tf-dev" / "card.yml").exists()  # the others untouched
+    assert _read_yaml(charter_dir / "workdirs.local.yml")["workdirs"] == {}
+    # the cached charter followed, and a reload reports nothing: no resurrection
+    reloaded = client.post(f"/api/teams/{team_id}/reload").json()
+    assert reloaded["load_report"] == []
+    assert [a["name"] for a in reloaded["charter"]["agents"]] == ["tf-dev", "scribe"]
+    assert _agents_by_name(client)["infra"]["removed_at"] is not None
+
+
+def test_agent_changes_refuse_while_the_current_charter_is_broken(client, tmp_path):
+    """A current team whose charter did not load cannot be written back into, so the
+    change refuses BEFORE the database is touched — no divergence to reconcile."""
+    charter_dir = fixture_copy(tmp_path)
+    team_id = _make_current(client, charter_dir)
+    (charter_dir / "team-definition.yml").write_text("team: [broken")
+    assert client.post(f"/api/teams/{team_id}/reload").status_code == 200  # report, no charter
+    refused = client.post("/api/agents", json={"name": "late", "type": "dummy"})
+    assert refused.status_code == 409
+    assert refused.json()["error"]["code"] == "charter_not_loaded"
+    assert "late" not in _agents_by_name(client)  # the database was never touched
+    assert client.patch("/api/agents/infra", json={"model": "opus"}).status_code == 409
+    assert client.delete("/api/agents/infra").status_code == 409
+    # clearing the selection restores database-only behaviour
+    assert client.post("/api/teams/current", json={"team_id": None}).status_code == 200
+    assert client.post("/api/agents", json={"name": "late", "type": "dummy"}).status_code == 201
+
+
+def test_write_failure_reports_the_half_state(client, tmp_path):
+    """When the files cannot be written after the database was, the error says exactly
+    what state that leaves. Rare (the dir was writable at load time), so honesty over
+    rollback machinery."""
+    charter_dir = fixture_copy(tmp_path)
+    _make_current(client, charter_dir)
+    charter_dir.chmod(0o555)  # the hub can read the charter but not write it
+    try:
+        failed = client.post("/api/agents", json={"name": "walled", "type": "dummy"})
+        assert failed.status_code == 409, failed.text
+        assert failed.json()["error"]["code"] == "charter_write_failed"
+        assert "registered on the hub" in failed.json()["error"]["message"]
+        assert "walled" in _agents_by_name(client)  # the half-state the message names
+    finally:
+        charter_dir.chmod(0o755)
+
+
+def test_config_dir_name_avoids_clashes(client, tmp_path):
+    """The new agent's directory is named after it; a name already used by another
+    entry's directory (or a plain file) gets a numbered suffix instead."""
+    charter_dir = fixture_copy(tmp_path)
+    (charter_dir / "blocked").write_text("a file where the dir would go")
+    index = _read_yaml(charter_dir / "team-definition.yml")
+    index["team"]["agents"]["oddly"] = {"agent-config-dir": "taken"}
+    (charter_dir / "taken").mkdir()
+    (charter_dir / "taken" / "card.yml").write_text("type: dummy\n")
+    (charter_dir / "team-definition.yml").write_text(yaml.safe_dump(index, sort_keys=False))
+    _make_current(client, charter_dir)
+    assert client.post("/api/agents", json={"name": "blocked", "type": "dummy"}).status_code == 201
+    assert client.post("/api/agents", json={"name": "taken", "type": "dummy"}).status_code == 201
+    agents = _read_yaml(charter_dir / "team-definition.yml")["team"]["agents"]
+    assert agents["blocked"] == {"agent-config-dir": "blocked-2"}
+    assert agents["taken"] == {"agent-config-dir": "taken-2"}
+    assert _read_yaml(charter_dir / "taken" / "card.yml") == {"type": "dummy"}  # untouched

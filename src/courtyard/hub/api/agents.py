@@ -9,11 +9,12 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from courtyard.common.models import Agent, AgentColor, AgentType, Message, PeersView
-from courtyard.hub.api.deps import get_board, get_registry, require_agent
+from courtyard.hub.api.deps import get_board, get_registry, get_teams, require_agent
 from courtyard.hub.core import install as install_core
 from courtyard.hub.core.board import Board
 from courtyard.hub.core.errors import InvalidToken, NotAllowed, WorkdirNotFound
 from courtyard.hub.core.registry import Registry
+from courtyard.hub.core.teams import TeamService
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
@@ -41,8 +42,13 @@ class AgentCreated(BaseModel):
 
 @router.post("", status_code=201)
 def create_agent(
-    body: AgentCreate, registry: Annotated[Registry, Depends(get_registry)]
+    body: AgentCreate,
+    registry: Annotated[Registry, Depends(get_registry)],
+    teams: Annotated[TeamService, Depends(get_teams)],
 ) -> AgentCreated:
+    # Registration changes write back to the current team's charter (D33, slice 3):
+    # check first so a doomed write-back refuses before the database gains a row.
+    teams.check_writeback()
     agent, token = registry.create(
         body.name,
         body.type,
@@ -54,6 +60,7 @@ def create_agent(
         body.model,
         body.anti_scope,
     )
+    teams.writeback_created(agent, declared_color=body.color)
     return AgentCreated(agent=agent, token=token)
 
 
@@ -87,13 +94,25 @@ def update_agent(
     name_or_id: str,
     body: AgentPatch,
     registry: Annotated[Registry, Depends(get_registry)],
+    teams: Annotated[TeamService, Depends(get_teams)],
 ) -> Agent:
-    return registry.update(name_or_id, body.model_dump(exclude_unset=True))
+    teams.check_writeback()
+    patch = body.model_dump(exclude_unset=True)
+    agent = registry.update(name_or_id, patch)
+    teams.writeback_updated(agent, patch)
+    return agent
 
 
 @router.delete("/{name_or_id}")
-def remove_agent(name_or_id: str, registry: Annotated[Registry, Depends(get_registry)]) -> Agent:
-    return registry.remove(name_or_id)
+def remove_agent(
+    name_or_id: str,
+    registry: Annotated[Registry, Depends(get_registry)],
+    teams: Annotated[TeamService, Depends(get_teams)],
+) -> Agent:
+    teams.check_writeback()
+    agent = registry.remove(name_or_id)
+    teams.writeback_removed(agent.name)
+    return agent
 
 
 @router.get("/{name_or_id}/inbox")

@@ -5,8 +5,17 @@
 
 import { html, useEffect, useState } from "../../vendor/htm-preact-standalone.module.js";
 import { api, ApiError } from "../api.js";
-import { store, select } from "../store.js";
+import { store, select, currentTeam, applyTeams } from "../store.js";
 import { useStore, fmtAgo, CopyButton, COLORS, leastUsedColor } from "../ui.js";
+
+// Write-back (design team-charter.md, D33 slice 3): while a team is current, agent
+// changes are also written into its charter files — these helpers say so on the forms.
+const charterOf = (agentName) => {
+  const team = currentTeam();
+  if (!team?.charter) return null;
+  if (agentName && !team.charter.agents.some((a) => a.name === agentName)) return null;
+  return team;
+};
 
 // The launch command; the agent's declared model rides along so nobody forgets to set it.
 // The channels preview drifted twice in four days (feedback item 11): 2.1.241 stopped
@@ -280,6 +289,10 @@ function AddForm({ onCreated, suggested }) {
       placeholder="what does it own? (e.g. the AWS estate); it raises its standing there when it messages peers"></textarea>
     <textarea name="anti_scope" rows="2"
       placeholder="what is it NOT for? (optional); tells peers whom not to ask"></textarea>
+    ${charterOf(null)
+      ? html`<div class="small muted">The current team has a charter: the new agent is also
+          written into <code>${charterOf(null).charter_dir}</code>.</div>`
+      : null}
     <div class="form-row">
       <button class="btn primary">add agent</button>
       ${error ? html`<div class="error">${error}</div>` : null}
@@ -338,6 +351,11 @@ function EditPanel({ agent, onLaunch, onRotate, onClose }) {
         defaultValue=${agent.sme_domain ?? ""}></textarea>
       <textarea name="anti_scope" rows="2" placeholder="what is it NOT for? (tells peers whom not to ask)"
         defaultValue=${agent.anti_scope ?? ""}></textarea>
+      ${charterOf(agent.name)
+        ? html`<div class="small muted">${agent.name} is a charter agent of the current team:
+            saved changes are also written into <code>${charterOf(agent.name).charter_dir}</code>
+            (the project directory goes to <code>workdirs.local.yml</code>, per machine).</div>`
+        : null}
       <div class="form-row">
         <button class="btn primary">save</button>
         <button type="button" class="btn" onClick=${() => onLaunch(agent)}>launch config</button>
@@ -379,6 +397,11 @@ function RemoveDialog({ agent, onClose }) {
       <h3>Remove ${agent.name} from the courtyard?</h3>
       <p>Its token stops working at once; its conversations move to the Archive. The name
         stays taken; names are permanent identities.</p>
+      ${charterOf(agent.name)
+        ? html`<p>${agent.name} is a charter agent of the current team: it is also removed
+            from the charter files (its entry, links and configuration directory in
+            <code>${charterOf(agent.name).charter_dir}</code>).</p>`
+        : null}
       ${agent.workdir
         ? html`<label class="small" style="display:flex;gap:.5rem;align-items:baseline">
             <input type="checkbox" checked=${cleanup} onChange=${(e) => setCleanup(e.target.checked)} />
@@ -441,14 +464,21 @@ export function Agents() {
       alert(err.message);
     }
   };
+  // Add/remove can change the current team's charter membership (write-back, D33
+  // slice 3); teams have no SSE event, so refresh them for the form hints.
+  const refreshTeams = () => {
+    if (currentTeam()) api.teams().then(applyTeams).catch(() => {});
+  };
   const closeRemove = (removed) => {
     if (removed && panel?.agent.id === removing?.id) setPanel(null);
+    if (removed) refreshTeams();
     setRemoving(null);
   };
   const onCreated = (c) => {
     store.agents.set(c.agent.id, c.agent); // the SSE event follows; don't wait for it
     setPanel({ agent: c.agent, token: c.token, note: "Registered." });
     select({ kind: "agent", id: c.agent.id });
+    refreshTeams();
   };
   const stop = (fn) => (e) => {
     e.stopPropagation();

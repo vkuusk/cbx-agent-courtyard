@@ -1253,7 +1253,21 @@ D22, and the charter never infers manual from links alone); migration 0018 `agen
 `workdirs.local.yml` per-machine overlay filled from the Teams view
 (`POST /api/teams/{id}/workdirs`, never-commit header); shift guard = 409
 `shift_active` on reload/select of the current team mid-shift. 248 tests,
-runbook extended (10 checkpoints), Playwright 6/6. Next slice: write-back.
+runbook extended (10 checkpoints), Playwright 6/6. **Slice 3 (write-back)
+implemented 2026-09-08**: while a team is current, agent add/edit/remove
+through the registration endpoints (WebUI forms and `courtyard-invite` alike)
+also writes the charter files — add = yml entry + config dir named after the
+agent + card.yml/prose files + overlay workdir (colour only when the request
+declared one); edit = the patched fields onto the card files, cleared field
+deletes its file; remove = yml entry, links naming the agent, overlay entry
+and config dir all taken out, so reload cannot resurrect. Agents outside the
+current charter stay database-only; a current team whose charter did not load
+refuses agent changes with 409 `charter_not_loaded` before the database is
+touched; a file-write failure after the database change answers 409
+`charter_write_failed` naming the half-state. The yml rewrite keeps unknown
+keys but not comments (header says so; git reviews). Forms carry write-back
+notes; the remove dialog states the file removal. 259 tests, runbook step 9 +
+testing-runbook entry, design doc §3 mechanics paragraph.
 
 ### 42. Threads: a bounded exchange about one ask, inside a line
 

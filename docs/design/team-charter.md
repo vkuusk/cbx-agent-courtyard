@@ -5,9 +5,10 @@ Status: design accepted 2026-09-07 (feedback item 41, branch
 Implementation slice 1, the read path (teams registry, loader, Admin Teams
 section, reload, current selection), landed 2026-09-07; slice 2, projection
 into registrations and lines (section 6, with the mechanics settled at
-implementation recorded in section 3), landed the same day. Write-back from
-the agent forms is next. This document holds the charter design in one place;
-other documents reference it rather than repeating it.
+implementation recorded in section 3), landed the same day; slice 3,
+write-back from the agent forms (the mechanics likewise in section 3), landed
+2026-09-08. This document holds the charter design in one place; other
+documents reference it rather than repeating it.
 
 ## 1. The problem
 
@@ -179,6 +180,31 @@ the yml, not only the database; the database stays the projection of section
 database would come back at the next reload. With no team registered the
 forms write the database only, exactly as today.
 
+Mechanics settled at implementation (slice 3, 2026-09-08). Write-back hooks
+the registration endpoints, not the WebUI, so `courtyard-invite` and any other
+API client follow the same rule; it is bound to the current team only, and it
+runs after the database change, through the same file formats the loader
+reads, so a reload right after finds nothing to disagree with. Adding an agent
+writes its yml entry and a configuration directory named after it (a suffix on
+a clash), `card.yml` with type and model, the prose files, and the workdir
+into the per-machine overlay; the colour goes into `card.yml` only when the
+request declared one, mirroring how projection treats an undeclared colour as
+the hub's own nicety. Editing touches only the patched fields, and a cleared
+field deletes its file, the exact inverse of the loader's
+missing-file-clears-the-field rule. Removing a charter agent takes out its yml
+entry, the links naming it, its overlay entry and its configuration directory
+(kept when another entry shares the directory); git history preserves the
+prose. An agent outside the current charter, registered before the team or
+while none was current, stays database-only: its master never moved, and the
+charter never adopts it silently. Two honesty rules round it off: a current
+team whose charter did not load refuses agent changes (`charter_not_loaded`)
+before the database is touched, since the hub can neither read the membership
+nor write the files; and the yml rewrite goes through a yaml round-trip that
+keeps unknown keys but not comments, which the hub-written header states, so
+review of a hand-annotated charter belongs to git. Single-agent edits stay
+allowed during a shift, as they always were; only reload and selection carry
+the shift guard.
+
 **Hook-loaded hub context is postponed from v1** (decided 2026-09-07, recorded
 in `../next-features-list.md`). Everything a session-start hook would deliver
 is covered by a channel that already works: the MCP instructions load at
@@ -288,8 +314,8 @@ deleted file clears the field; the colour is hub-assigned unless the card
 declares one; the workdir comes only from the per-machine overlay), and
 creates declared lines that are missing. It never removes an agent or a line:
 removal is the write-back direction, an agent leaves the team by leaving the
-files, and until write-back lands a row deleted only from the database would
-return at the next reload by design. The courtyard's permanent identities win
+files, and since slice 3 a removal through the hub edits the files too, so the
+two directions meet. The courtyard's permanent identities win
 over what a charter claims: a name that is already registered with another
 type keeps its type, a removed name stays removed, and the operator is never a
 charter agent (D9); each such conflict, like a card without a type, is

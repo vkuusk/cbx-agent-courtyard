@@ -612,9 +612,72 @@ uv run python scripts/runbook/team_charter.py
 4. Register an agent by hand, reload the team: it is untouched — projection adds and
    mirrors, never removes.
 5. The anti-scope: on the Agents page, infra's edit view shows the "not for" text
-   from `anti-scope.md`; the field is editable on both agent forms (a hand edit is
-   overwritten at the next reload while the team is current — the files are the
-   master).
+   from `anti-scope.md`; the field is editable on both agent forms (and while the
+   team is current, saving the form writes the file too: write-back, next entry).
 6. Start a shift, try "⟳ reload from disk" on the current team: refused with "a
    shift is running; end it before reloading the current team". The "Current team"
    pulldown refuses the same way. End the shift: both work again.
+
+## Charter write-back: the agent forms write the files (team-charter.md §3, D33, slice 3)
+
+**Feature under test:** while a team is current, agent registration changes made
+through the hub also land on the charter files, so the files stay the master: add
+writes the yml entry, the configuration directory with `card.yml` and the prose
+files, and the workdir into `workdirs.local.yml`; an edit of a charter agent
+rewrites its card files (a cleared field deletes its file); removal takes the yml
+entry, the links naming the agent, the overlay entry and the configuration
+directory back out. Agents registered without a current team, or before the team
+was current, stay database-only. Do the manual part on a scratch hub with a COPY of
+`tests/team-charter` (write-back edits the charter directory, and registering
+agents burns permanent names).
+
+**Scripted part** (step 9 of the same script):
+
+```
+uv run python scripts/runbook/team_charter.py
+```
+
+**Manual part** (a scratch hub, the WebUI, a copied charter dir set as current):
+
+1. On the Agents page, open "+ Add an agent": the form carries a note that the new
+   agent is also written into the charter directory. Register one with all fields
+   filled and a workdir picked: the charter directory gains `<name>/` with
+   `card.yml`, `description.md`, `owns.md`, `anti-scope.md`, the yml gains the
+   agent entry, and `workdirs.local.yml` gains the workdir. The team view (Admin →
+   Teams) already lists the new agent without a reload.
+2. Edit that agent: change the model, clear the anti-scope, save. `card.yml` shows
+   the new model; `anti-scope.md` is gone; the note above the save button names the
+   charter directory.
+3. Edit an agent that is NOT in the charter (registered before the team was
+   current): no note on the form, and the charter files do not change.
+4. Remove the charter agent: the dialog states it leaves the files too. After
+   remove, the yml entry, its links and its directory are gone; "⟳ reload from
+   disk" reports nothing and does not resurrect it.
+5. Break `team-definition.yml` on disk (e.g. `team: [broken`), reload the team,
+   then try to add an agent: refused with `charter_not_loaded` and nothing is
+   registered. Clear the "Current team" selection: adding works again (database
+   only). Restore the file.
+
+## Log level: one knob, honest severity (COURTYARD_LOG_LEVEL)
+
+**Feature under test:** `COURTYARD_LOG_LEVEL` (in `.env` or the environment; INFO
+default, WARNING, ERROR, and DEBUG for development) sets the hub's stdout
+verbosity in one place: the hub's own loggers, uvicorn's, and the request lines.
+Request lines log at their real severity instead of uvicorn's always-INFO: below
+400 INFO, 4xx WARNING, 5xx ERROR. So WARNING keeps failures visible while routine
+200 lines go quiet (the startup banner goes quiet too; that is what WARNING
+means).
+
+**Scripted part** (its own throwaway hub, runs the hub twice):
+
+```
+uv run python scripts/runbook/log_level.py
+```
+
+**Manual part:**
+
+1. `COURTYARD_LOG_LEVEL=WARNING make run`: no startup banner, no request lines
+   while the WebUI loads. Trigger a refusal (add a team from a directory without
+   a charter and cancel the name prompt): the 422 line appears, labeled WARNING.
+2. Stop, run plain `make run`: the familiar INFO lines are back, and the same
+   422 shows as WARNING among them.

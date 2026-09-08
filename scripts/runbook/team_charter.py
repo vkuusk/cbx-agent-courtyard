@@ -1,5 +1,6 @@
 """Runbook check: the team charter (design team-charter.md, D33) — the read path
-(slice 1) and the projection into registrations and lines (slice 2).
+(slice 1), the projection into registrations and lines (slice 2), and write-back
+from the agent forms (slice 3).
 
 Runs against its OWN throwaway hub on a scratch database — never the dev hub — because
 registering teams, choosing the current one and projecting a charter is courtyard-wide
@@ -16,8 +17,11 @@ state.
   7. answering an agent's workdir writes the per-machine overlay + the registration
   8. the files are the master: an edited description lands at reload, a declared
      line mode is reasserted over a WebUI flip
-  9. the shift guard: the current team cannot be reloaded while a shift runs
- 10. exactly one current team; clearing works; remove leaves the files
+  9. write-back: registering an agent while the team is current writes its yml
+     entry, card files and overlay workdir; an edit lands on the card files;
+     removal takes the entry, links and config dir back out — reload agrees
+ 10. the shift guard: the current team cannot be reloaded while a shift runs
+ 11. exactly one current team; clearing works; remove leaves the files
 
 Needs the compose postgres up (`make db-up`). Run:
     uv run python scripts/runbook/team_charter.py
@@ -31,6 +35,8 @@ import tempfile
 import time
 from pathlib import Path
 
+import yaml
+
 from courtyard.common.client import HubClient, HubError
 
 PORT = 3635
@@ -43,6 +49,10 @@ FIXTURE = Path(__file__).resolve().parents[2] / "tests" / "team-charter"
 
 def hr(title):
     print("\n" + "=" * 78 + f"\n{title}\n" + "=" * 78)
+
+
+def _read_yaml(path):
+    return yaml.safe_load(path.read_text())
 
 
 def psql(*statements, db="postgres"):
@@ -153,7 +163,45 @@ try:
     declared = next(li for li in admin.lines() if li.id == declared.id)
     print(f"declared mode     : back to [{declared.mode}] (the charter says auto_pass)")
 
-    hr("9. THE SHIFT GUARD: NO RELOAD OF THE CURRENT TEAM MID-SHIFT")
+    hr("9. WRITE-BACK: AGENT ADD/EDIT/REMOVE LAND ON THE CHARTER FILES")
+    scout_dir = scratch / "scout-project"
+    scout_dir.mkdir()
+    admin.register_agent(
+        "scout",
+        "claude-code",
+        description="finds prior art",
+        sme_domain="the research index",
+        anti_scope="writing code",
+        model="sonnet",
+        color="teal",
+        workdir=str(scout_dir),
+    )
+    print("registered scout  : the files followed —")
+    print(
+        "  the index entry :",
+        _read_yaml(copy_dir / "team-definition.yml")["team"]["agents"]["scout"],
+    )
+    print("  scout/card.yml  :", _read_yaml(copy_dir / "scout" / "card.yml"))
+    print("  description.md  :", (copy_dir / "scout" / "description.md").read_text().strip())
+    print("  overlay workdir :", _read_yaml(copy_dir / "workdirs.local.yml")["workdirs"]["scout"])
+    admin._call("PATCH", "/api/agents/scout", {"anti_scope": None, "model": "opus"})
+    print(
+        "after an edit     : card.yml model =", _read_yaml(copy_dir / "scout" / "card.yml")["model"]
+    )
+    print("cleared anti-scope: file exists =", (copy_dir / "scout" / "anti-scope.md").exists())
+    admin.remove_agent("scout")
+    print(
+        "after remove      : yml agents =",
+        list(_read_yaml(copy_dir / "team-definition.yml")["team"]["agents"]),
+    )
+    print("                    scout/ dir exists =", (copy_dir / "scout").exists())
+    team = admin.reload_team(team.id)
+    print(
+        f"reload agrees     : report {team.load_report or 'clean'}, "
+        f"agents {[a.name for a in team.charter.agents]}"
+    )
+
+    hr("10. THE SHIFT GUARD: NO RELOAD OF THE CURRENT TEAM MID-SHIFT")
     admin._call("POST", "/api/shift/start")
     try:
         admin.reload_team(team.id)
@@ -163,7 +211,7 @@ try:
     admin._call("POST", "/api/shift/end", {"force": True})
     print(f"after end shift   : reload OK ({admin.reload_team(team.id).name})")
 
-    hr("10. CURRENT TEAM: EXACTLY ONE, CLEARABLE; REMOVE LEAVES THE FILES")
+    hr("11. CURRENT TEAM: EXACTLY ONE, CLEARABLE; REMOVE LEAVES THE FILES")
     teams = admin.set_current_team(team.id)
     print(f"current flags     : { {t.name: t.is_current for t in teams} }")
     teams = admin.set_current_team(None)

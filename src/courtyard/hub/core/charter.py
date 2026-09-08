@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 from pathlib import Path
 
 import yaml
@@ -193,11 +194,14 @@ def _apply_workdirs(charter_dir: Path, cards: list[CharterCard], report: list[st
             card.workdir = workdir
 
 
-def set_workdir(charter_dir: Path, agent_name: str, workdir: str) -> None:
+def set_workdir(charter_dir: Path, agent_name: str, workdir: str | None) -> None:
     """Record one agent's per-machine project directory in the overlay, keeping the
-    other entries. Hub-written like the index, so the file exists the moment the
-    operator answers the workdir question (ask-at-init, D33)."""
+    other entries; None drops the entry (write-back of a cleared or removed agent).
+    Hub-written like the index, so the file exists the moment the operator answers
+    the workdir question (ask-at-init, D33)."""
     path = charter_dir / WORKDIRS_FILE
+    if workdir is None and not path.is_file():
+        return  # nothing to drop; do not create an empty overlay
     workdirs: dict[str, str] = {}
     if path.is_file():
         try:
@@ -206,7 +210,10 @@ def set_workdir(charter_dir: Path, agent_name: str, workdir: str) -> None:
                 workdirs = doc["workdirs"]
         except yaml.YAMLError:
             pass  # unreadable overlay: rewrite it clean; load_charter reported the damage
-    workdirs[agent_name] = workdir
+    if workdir is None:
+        workdirs.pop(agent_name, None)
+    else:
+        workdirs[agent_name] = workdir
     path.write_text(
         "# Written by the courtyard (design docs/design/team-charter.md). Per-machine\n"
         "# project directories for this charter's agents. Never commit this file:\n"
@@ -219,9 +226,152 @@ def create_charter(charter_dir: Path, name: str) -> None:
     """Bootstrap an empty directory into a charter: the first instance of the WebUI's
     write-back direction — the hub writes the index, then reads its own file back."""
     (charter_dir / CHARTER_FILE).write_text(
-        "# Written by the courtyard (team charter, design docs/design/team-charter.md).\n"
-        "# One directory = one team; agents map to subdirectories of configuration files.\n"
-        "team:\n"
-        f"  name: {json.dumps(name)}\n"  # a JSON string is a valid YAML scalar, any name
-        "  agents: {}\n"
+        _INDEX_HEADER
+        + "team:\n"
+        + f"  name: {json.dumps(name)}\n"  # a JSON string is a valid YAML scalar, any name
+        + "  agents: {}\n"
     )
+
+
+# -- write-back from the agent forms (design team-charter.md §3, slice 3) --------------
+# When a team is current, the WebUI's add/edit/remove agent gestures land here so the
+# files stay the master. The index and card.yml are rewritten via yaml round-trip, which
+# keeps unknown keys but not comments; the header says so, and git is the review
+# mechanism the design leans on.
+
+_INDEX_HEADER = (
+    "# Written by the courtyard (team charter, design docs/design/team-charter.md).\n"
+    "# One directory = one team; agents map to subdirectories of configuration files.\n"
+    "# The hub rewrites this file when the WebUI adds or removes an agent; comments\n"
+    "# do not survive that rewrite. Review changes through git.\n"
+)
+_CARD_HEADER = "# Short structured facts; the prose lives in the .md files beside this one.\n"
+_CARD_KEYS = ("type", "model", "color")
+_PROSE_BY_FIELD = {field: filename for filename, field in _PROSE_FILES}
+
+
+def _read_index(charter_dir: Path) -> dict:
+    """The parsed index for a read-modify-write. Raises ValueError on a charter the hub
+    could not read — write-back refuses rather than rewriting a broken file clean."""
+    try:
+        doc = yaml.safe_load((charter_dir / CHARTER_FILE).read_text())
+    except yaml.YAMLError as exc:
+        raise ValueError(f"{CHARTER_FILE} is not valid YAML: {exc}") from exc
+    if not isinstance(doc, dict) or not isinstance(doc.get("team"), dict):
+        # ValueError, not TypeError: a malformed user file is a value problem, not a code bug
+        raise ValueError(  # noqa: TRY004
+            f"{CHARTER_FILE} has no `team:` mapping at the root"
+        )
+    return doc
+
+
+def _write_index(charter_dir: Path, doc: dict) -> None:
+    (charter_dir / CHARTER_FILE).write_text(
+        _INDEX_HEADER + yaml.safe_dump(doc, default_flow_style=False, sort_keys=False)
+    )
+
+
+def _config_dir_of(charter_dir: Path, rel: str) -> Path:
+    """Resolve an agent-config-dir for writing; refuse anything the loader would refuse,
+    plus the charter root itself (an entry of `.` must never make rmtree eat the team)."""
+    config_dir = (charter_dir / rel).resolve() if rel else None
+    root = charter_dir.resolve()
+    if config_dir is None or config_dir == root or not config_dir.is_relative_to(root):
+        raise ValueError(f"agent-config-dir {rel!r} is not usable; fix the charter and reload")
+    return config_dir
+
+
+def add_agent_entry(charter_dir: Path, name: str) -> str:
+    """Give a new agent its yml entry and configuration directory; returns the relative
+    dirname. The directory is named after the agent (the convention the fixture and the
+    example use); a clash with another entry's directory or a plain file gets a suffix."""
+    doc = _read_index(charter_dir)
+    team = doc["team"]
+    agents = team.get("agents") if isinstance(team.get("agents"), dict) else {}
+    existing = agents.get(name)
+    if isinstance(existing, dict) and isinstance(existing.get("agent-config-dir"), str):
+        return existing["agent-config-dir"]  # already in the charter; nothing to add
+    taken = {
+        entry.get("agent-config-dir")
+        for entry_name, entry in agents.items()
+        if entry_name != name and isinstance(entry, dict)
+    }
+    rel, n = name, 1
+    while rel in taken or ((charter_dir / rel).exists() and not (charter_dir / rel).is_dir()):
+        n += 1
+        rel = f"{name}-{n}"
+    _config_dir_of(charter_dir, rel).mkdir(exist_ok=True)
+    agents[name] = {"agent-config-dir": rel}
+    team["agents"] = agents
+    _write_index(charter_dir, doc)
+    return rel
+
+
+def write_card(charter_dir: Path, rel: str, fields: dict) -> None:
+    """Mirror registration fields onto an agent's card files. Only the given keys are
+    touched; None clears — the card.yml key or prose file is removed, the exact inverse
+    of the loader's missing-file-clears-the-field rule."""
+    config_dir = _config_dir_of(charter_dir, rel)
+    config_dir.mkdir(exist_ok=True)  # a dangling entry heals instead of failing
+    card_updates = {k: v for k, v in fields.items() if k in _CARD_KEYS}
+    if card_updates:
+        path = config_dir / "card.yml"
+        card: dict = {}
+        if path.is_file():
+            try:
+                doc = yaml.safe_load(path.read_text())
+                if isinstance(doc, dict):
+                    card = doc  # unknown keys survive; the loader reports them instead
+            except yaml.YAMLError:
+                pass  # unreadable card: rewritten clean; the load report showed the damage
+        for key, value in card_updates.items():
+            if value is None:
+                card.pop(key, None)
+            else:
+                card[key] = value
+        if card:
+            path.write_text(_CARD_HEADER + yaml.safe_dump(card, sort_keys=False))
+        elif path.is_file():
+            path.unlink()  # no structured facts left: no file, like the prose
+    for field, value in fields.items():
+        filename = _PROSE_BY_FIELD.get(field)
+        if filename is None:
+            continue
+        path = config_dir / filename
+        if value:
+            path.write_text(value.strip() + "\n")  # .strip() mirrors the loader exactly
+        elif path.is_file():
+            path.unlink()
+
+
+def remove_agent_entry(charter_dir: Path, name: str) -> None:
+    """Take one agent out of the charter files: its yml entry, any links naming it, its
+    overlay workdir, and its configuration directory (unless another entry shares it).
+    The inverse of add + write_card, so a reload cannot resurrect the agent."""
+    doc = _read_index(charter_dir)
+    team = doc["team"]
+    agents = team.get("agents") if isinstance(team.get("agents"), dict) else {}
+    entry = agents.pop(name, None)
+    if isinstance(team.get("links"), list):
+        team["links"] = [
+            link
+            for link in team["links"]
+            if not (isinstance(link, dict) and name in (link.get("between") or []))
+        ]
+        if not team["links"]:
+            del team["links"]
+    if entry is not None:
+        _write_index(charter_dir, doc)
+    set_workdir(charter_dir, name, None)
+    rel = entry.get("agent-config-dir") if isinstance(entry, dict) else None
+    if not isinstance(rel, str) or not rel:
+        return
+    shared = {e.get("agent-config-dir") for e in agents.values() if isinstance(e, dict)}
+    if rel in shared:
+        return
+    try:
+        config_dir = _config_dir_of(charter_dir, rel)
+    except ValueError:
+        return  # an entry pointing outside the charter is never deleted from here
+    if config_dir.is_dir():
+        shutil.rmtree(config_dir)

@@ -37,6 +37,54 @@ def domain_error_handler(_request: Request, exc: DomainError) -> JSONResponse:
     )
 
 
+access_logger = logging.getLogger("courtyard.access")
+
+
+class AccessLog:
+    """Access log with honest severity. uvicorn logs every request line at INFO, error
+    responses included; here a 4xx logs as WARNING and a 5xx as ERROR, so
+    COURTYARD_LOG_LEVEL=WARNING keeps failures visible while routine 200 lines go
+    quiet. A pure ASGI pass-through that only watches `http.response.start` — it never
+    wraps the response body, so SSE keeps streaming (the middleware lesson from the
+    static-files days). Applied around the app in `cli()`, replacing uvicorn's access
+    log; tests build the bare FastAPI app and log nothing, as before."""
+
+    def __init__(self, app):
+        self._app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self._app(scope, receive, send)
+            return
+
+        async def sending(message):
+            if message["type"] == "http.response.start":
+                status = message["status"]
+                level = (
+                    logging.ERROR
+                    if status >= 500
+                    else logging.WARNING
+                    if status >= 400
+                    else logging.INFO
+                )
+                client = scope.get("client") or ("-", 0)
+                query = scope.get("query_string", b"").decode()
+                target = scope["path"] + (f"?{query}" if query else "")
+                access_logger.log(
+                    level,
+                    '%s:%s - "%s %s HTTP/%s" %s',
+                    client[0],
+                    client[1],
+                    scope["method"],
+                    target,
+                    scope.get("http_version", "1.1"),
+                    status,
+                )
+            await send(message)
+
+        await self._app(scope, receive, sending)
+
+
 class RevalidatingStaticFiles(StaticFiles):
     """WebUI files change with every edit, and the browser loads them as modules that import
     each other. Without a cache header a normal reload can mix cached old modules with new
@@ -163,6 +211,15 @@ def create_app(config: Config | None = None) -> FastAPI:
 
 
 def cli() -> None:
-    logging.basicConfig(level=logging.INFO)
     cfg = load_config()
-    uvicorn.run(create_app(cfg), host=cfg.host, port=cfg.port)
+    # One knob for stdout verbosity (COURTYARD_LOG_LEVEL): the hub's own loggers via
+    # the root config, uvicorn's via its log_level. uvicorn's access log is replaced
+    # by AccessLog so error responses carry their real severity instead of INFO.
+    logging.basicConfig(level=cfg.log_level)
+    uvicorn.run(
+        AccessLog(create_app(cfg)),
+        host=cfg.host,
+        port=cfg.port,
+        log_level=cfg.log_level.lower(),
+        access_log=False,
+    )

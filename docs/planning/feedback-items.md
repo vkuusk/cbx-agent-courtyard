@@ -4,7 +4,7 @@ The architect tests the courtyard with real Claude Code agents and records what 
 observes here, one item per observation or question, **stated but not answered**. Action
 items are discussed and decided only after a review cycle is complete; until then every
 item is *open*. Decisions taken from an item are recorded in the design doc's decision log
-(`docs/design/architecture-v1-2026-08-18.md` §13) and the step plan
+(`docs/design/architecture-v1.md` §13) and the step plan
 (`v1-implementation-steps.md`), and the item is marked with a pointer to them.
 
 Conventions: items keep the architect's numbering; the *Touches* line lists where the
@@ -1100,6 +1100,230 @@ docs, design §7.4 with a rename note). History keeps the old word: the decision
 this file's earlier items, and the planning steps are records, not living docs.
 225 tests green. His next `make demo` is the live check of the renamed cast.
 
+### 39. Hub-side memory: learn lessons from inter-agent collaboration
+
+**Asked (architect, 2026-09-06).** Courtyard deliberately leaves craft memory to the
+agents themselves: each specialist grows its own experience (memories, skills) in its
+own directory, and the hub stays out of it. The open question is whether the hub
+should keep a memory of its own — distilled not from any agent's work but from what
+only the hub sees: the complete inter-agent record and the operator's verdicts. Could
+the team learn lessons from how its collaborations went?
+
+**Ideas (discussion, same day).** One design principle first: a memory layer is only
+real once there is a path that delivers it back into an agent's context; extraction
+into storage that nothing reads back is a dashboard feature, not memory. So design
+the retrieval hop before the extraction. The hub already owns two proven delivery
+paths — the envelope and the hub tools — and the envelope's token overhead is already
+measured and watched (item 29), which argues for pull over push. Candidate memory
+types, ranked:
+
+1. **Conversation outcome digests.** At end shift, when the books close, distill each
+   finished conversation into a short record: who asked whom, what was asked, what
+   was decided. End shift is a natural consolidation moment — a boundary that already
+   exists and already means "the day's work is complete". Retrieval pull-based: a
+   hub tool in the spirit of the existing ones (a `courtyard_recall`) that lets an
+   agent ask "has the team discussed X before" and get the digest instead of
+   re-opening a line and spending a peer's turn. Zero standing token cost.
+2. **Verdict lessons.** A return-to-sender with the operator's comment is a labeled
+   example: this message, on this line, was wrong, and here is why. These are the
+   highest-signal events the hub records, and today they evaporate into the archive.
+   Distilled per agent, they could be delivered as a short hub notice at shift start
+   or on the next send on that line — turning supervision into standing guidance,
+   which is exactly how a line earns auto-pass.
+3. **Evidence-based routing.** The roster's capability/SME descriptions are static
+   and human-written; the hub sees who actually answered what, and where an asker
+   picked the wrong SME. A periodic digest could suggest description refinements —
+   shown to the operator, never auto-applied; team design stays the operator's.
+4. **Operator-side memory.** Not for the agents: surface the operator's own patterns
+   back to them ("three messages of this shape returned this week"), reducing
+   supervision burden. Cheapest of the four — a query over data already in Postgres
+   plus a UI panel.
+
+Deliberately not the starting point: an embedding/vector store. Digests and verdict
+lessons are few and small; plain Postgres queries (or full-text search) cover
+retrieval until they number in the hundreds. Start from the trusted delivery paths,
+an extraction pass at end shift, and plain storage.
+
+**Touches.** End shift (consolidation moment); envelope / hub tools (the retrieval
+paths); storage (new tables); Admin/WebUI (whatever is surfaced to the operator).
+
+**Status.** open — ideas recorded, no decision; touches end shift, the envelope and
+possibly a new tool, so it wants a design discussion (and a D-number) before any code.
+
+### 40. `courtyard-invite --remove` undoes the install but not the registration
+
+**Flagged (senior engineer, 2026-09-01; recorded 2026-09-06).** The register and
+remove paths are asymmetric. `--register` does two things: registers the agent on the
+hub, then writes the files into the workdir. `--remove` does one: it uninstalls the
+files (`invite.py` calls only `client.uninstall`) and leaves the registration on the
+hub, so the agent stays on the roster with no configured workdir. AGENTS.md says
+"Undo with the same command using `--remove`", which reads as a full undo. The WebUI's
+remove flow, by contrast, already does both in the right order (uninstall before
+delete, item 15).
+
+An observation to weigh rather than answer here: registration delete is a soft
+remove and the name is a permanent identity, so a full-undo `--remove` would burn
+the name — which is fine for a genuine undo but wrong for "detach this directory,
+keep the agent". The fix may be wording (AGENTS.md saying exactly what `--remove`
+does), behavior (`--remove` also deletes, perhaps behind a second flag), or both.
+
+**Touches.** `courtyard-invite` (`invite.py`); `HubClient.uninstall`; AGENTS.md
+wording; parity with the WebUI remove flow (item 15).
+
+**Status.** open.
+
+### 41. Team charter: the team defined as files
+
+**Asked (architect, 2026-09-07).** Three problems in one feature: (1) creating a
+team means registering one agent at a time in the WebUI, typing long descriptions
+into form fields; (2) each agent's registration card and the team's rules of
+engagement belong together in one `team-charter` directory of files, used to
+initialize the team; (3) team creation should work from the UI or from the files,
+kept in sync with the DB. Wider than registration: (a) an existing agent joining
+the team needs rules of engagement larger than the MCP surface carries; (b) hub
+context possibly loaded via the agent's hooks so a session always stays aware of
+the hub; (c) the charter directory as the home for content read by several hub
+subsystems. Named after human team charters; the mapping between the standard
+human charter and courtyard features is kept explicit as a completeness check.
+
+**Decided so far (architect):** files are the source of truth (the
+WebUI becomes an editor/viewer that writes back; no two-master sync), and
+enforced-versus-advisory is decided per item at implementation time (both
+2026-09-07); **charter location** (2026-09-07) — its own directory, chosen by
+the operator, typically the root of its own git repo; never inside an agent's
+workdir (an agent could rewrite its own team's rules); his driving use case:
+team setups shareable between engineers by publishing the charter repo;
+**teams registry** (2026-09-07) — the hub registers several team charter
+directories (possibly subdirs of one repo) and one is current; Courtyard page
+shows the current team's name, Admin gets a Teams section (add by directory,
+current-team pulldown); v1 = registration and selection only, switching a
+running hub postponed (docs/next-features-list.md created for postponed
+features, no version assignments); no team registered = today's behavior
+(charter opt-in); hub git-agnostic; **team-definition.yml** (2026-09-07) —
+YAML index in the charter dir, single team root, maps agents to relative
+`agent-config-dir` subdirectories whose files fill the registration; long
+prose splits into its own files; the registry reads and caches the name
+(settles where-the-name-lives); the key name is deliberately distinct from
+the agent's project directory, which is machine-specific, never in the shared
+charter, and gets its own per-machine change point (mechanism at
+implementation); **sync mechanics** (2026-09-07, his proposal + agreed
+additions) — add-team picks a directory, hub reads and displays it (empty dir:
+prompt for name, hub creates the yml with no agents); edit view = what the hub
+loaded + reload button + loaded-at timestamp; the hub never watches the
+filesystem (sharing workflow = git pull, then reload); broken dir renders as a
+validation report; reload-of-current-team during a shift needs a guard (lean:
+409 refuse); **agent add/edit/remove forms write the card files and yml, not
+only the database** (DB stays the projection; no-team hubs unchanged);
+**agent-config-dir file set** (2026-09-07) — name = yml key only, card.yml
+(type/model/colour), description.md, owns.md, anti-scope.md; team rules =
+sibling prose files, exact set at rules implementation; **hook-loaded context
+postponed from v1** (2026-09-07, next-features-list) — MCP instructions +
+skill + envelope cover it (the thread-close instruction rides the envelope
+footer + tool description, not session-start prose); returns if acceptance
+runs show ignorant sessions.
+
+**Design:** `docs/design/team-charter.md` (scope in four categories: identity
+cards + anti-scope, rules of engagement, topology, lifecycle; out of scope:
+budgets, typed artifacts, stall detection, per-task assembly items; open
+questions listed there). Branch `feature/add-team-charter`.
+
+**Touches.** Registration/install; manual links; envelope roster; adapter
+skills; WebUI Agents; a new sync path.
+
+**Status.** design accepted 2026-09-07 (**D33**; every open question decided or
+postponed to next-features-list — incl. **envelope delta = one anti-scope line
+per peer, nothing more**, and **hooks postponed**). **Slice 1 (read path)
+implemented 2026-09-07**: migration 0017 `teams`, `core/charter.py` loader
+(lenient, report-everything), `core/teams.py` + `/api/teams` (add; a charter-less dir, empty or not, draws
+422 `charter_name_required` = the UI's initialize offer, name confirms —
+refined same day from an empty-only bootstrap after his live check; reload,
+current, remove),
+Admin Teams section + current team on the board eyebrow, fixture charter in
+`tests/team-charter/` (3 agents), 8 tests, runbook `team_charter.py`,
+Playwright 9/9. **Slice 2 (projection) implemented 2026-09-07**: selecting a
+team as current (or reloading the current team) projects the charter — cards
+become registrations (charter-owned fields mirror the files exactly; additive,
+never removes; identity conflicts go to the load report), `team.links`
+(`between: [a, b]` + optional `mode`) become lines with declared modes
+reasserted on reload; optional `team.discovery: auto|manual` projects onto the
+Settings dial (declared = reasserted on reload, omitted = the operator's;
+under auto, links are only mode presets — manual makes them the permission,
+D22, and the charter never infers manual from links alone); migration 0018 `agents.anti_scope` + form field, invite
+`--anti-scope`, one "not for:" line per peer in the rendered roster;
+`workdirs.local.yml` per-machine overlay filled from the Teams view
+(`POST /api/teams/{id}/workdirs`, never-commit header); shift guard = 409
+`shift_active` on reload/select of the current team mid-shift. 248 tests,
+runbook extended (10 checkpoints), Playwright 6/6. **Slice 3 (write-back)
+implemented 2026-09-08**: while a team is current, agent add/edit/remove
+through the registration endpoints (WebUI forms and `courtyard-invite` alike)
+also writes the charter files — add = yml entry + config dir named after the
+agent + card.yml/prose files + overlay workdir (colour only when the request
+declared one); edit = the patched fields onto the card files, cleared field
+deletes its file; remove = yml entry, links naming the agent, overlay entry
+and config dir all taken out, so reload cannot resurrect. Agents outside the
+current charter stay database-only; a current team whose charter did not load
+refuses agent changes with 409 `charter_not_loaded` before the database is
+touched; a file-write failure after the database change answers 409
+`charter_write_failed` naming the half-state. The yml rewrite keeps unknown
+keys but not comments (header says so; git reviews). Forms carry write-back
+notes; the remove dialog states the file removal. 259 tests, runbook step 9 +
+testing-runbook entry, design doc §3 mechanics paragraph.
+
+### 42. Threads: a bounded exchange about one ask, inside a line
+
+**Asked (architect, 2026-09-07).** Real work showed it is difficult to control
+how agents talk about one task; skills and envelope wording were fighting it
+piecemeal. Introduce the **thread**: starts with an independent ask, ends when
+the sender is satisfied (answer accepted or task verifiably done) or the system
+closes it; every message belongs to a thread; a line's conversation is a
+sequence of threads. Unifies five existing pains: item 3.3 boundary violations,
+the "no reply is owed" footer (closure as prose), item 29's endless exchanges
+(no protocol "enough"), D24's message-level expiry, and item 39's missing
+digest unit.
+
+**Decided so far (architect):** **serial in v1** — one open thread
+per line (agents change infrastructure; parallel threads would need proof they
+do not touch the same piece of it; turn machine untouched); own design doc as
+a basic construct of inter-agent communication; **sender declares thread
+boundaries** (2026-09-07) — the hub never infers new-ask-vs-clarification from
+text; a declared new ask on an open thread is refused like a turn violation;
+**open = parameter on send, close = dedicated tool call, no note field**
+(2026-09-07) — zero-token deterministic close; anything to say goes as a
+message before closing; lessons belong to item-39 digests or the operator's
+own records; peer sees a fixed hub-rendered "thread closed by X" line;
+**operator threads unbudgeted** (D9 analog; serial costs the operator nothing:
+close, then send) and **no history backfill** — threads start at the
+migration, old messages stay thread-less (both 2026-09-07).
+
+**Design:** `docs/design/threads.md` (lifecycle open/closed/expired/locked;
+enforcement candidates: closure as protocol, per-thread budgets, shift-end
+close, visible boundaries; operator close = pane control, same hub op as the
+tool, placement at implementation time). Design-complete 2026-09-07 except
+"verifiably done" (parked, out of v1).
+
+**Touches.** Domain model §5; messages storage (`thread_id`, a threads table);
+turn machine boundary; envelope footers; end shift; conversation pane.
+
+**Status.** design accepted 2026-09-07 (**D34**; "verifiably done" parked in
+next-features-list); implementation not started.
+
+---
+
+### 43. The directory picker should look standard (2026-09-07)
+
+**Observation (architect):** the from-scratch browse dialog (item 37) does not look
+professional; wants a standard dialog — the macOS system one, or the browser's.
+
+**Resolution (same day):** browser pickers cannot do the job — web APIs never reveal
+an absolute path to the page, and the hub needs one. The hub instead opens the REAL
+macOS folder dialog via `osascript` (same operator-screen premise as the shift's
+Terminal windows): `core/fs_pick.py` + `POST /api/fs/pick-dir`; cancel returns null;
+`browse…` everywhere (workdirs, charter dir) uses it. The in-page dialog stays as the
+fallback on `native_picker_unavailable` (not macOS, no GUI, `COURTYARD_NATIVE_PICKER=0`,
+a remote hub one day). 6 tests; runbook teams entry updated.
+
+**Status.** implemented, awaiting his check.
+
 ---
 
 ## Work packages (discussion outcome, 2026-08-24)
@@ -1167,3 +1391,8 @@ that review.
 | 36 | The pi adapter: one native extension file, option A of the research (sendMessage injection, no flag class) | adapters / install / shift | implemented 2026-09-01 (**D32**, §7.3) + native-surface addendum (status, /courtyard, skill, log, renderer); awaiting real-pi check |
 | 37 | Directory picker for the workdir (browse the hub's disk from the add/edit forms) | WebUI / API | implemented 2026-09-01; awaiting his look |
 | 38 | Rename puppet → dummy (the Puppet-the-product collision for devops readers) | vocabulary / everywhere living | implemented 2026-09-01 (migration 0016); demo run pending |
+| 39 | Hub-side memory: learn lessons from inter-agent collaboration (digests, verdict lessons, routing evidence, operator patterns) | shift / envelope / storage | open — ideas recorded, awaiting design discussion |
+| 40 | `courtyard-invite --remove` uninstalls the files but leaves the registration (AGENTS.md implies full undo) | invite CLI / docs | open |
+| 41 | Team charter: the team defined as files (cards + rules of engagement + topology, files as source of truth) | registration / install / links / envelope / WebUI | open — design in `docs/design/team-charter.md` |
+| 42 | Threads: a bounded exchange about one ask inside a line (serial in v1; lifecycle open/closed/expired/locked) | domain model / storage / envelope / shift / WebUI | open — design in `docs/design/threads.md` |
+| 43 | The directory picker should look standard → native macOS folder dialog via the hub, in-page dialog as fallback | WebUI / api/fs | implemented, awaiting his check |

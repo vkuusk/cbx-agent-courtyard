@@ -4,7 +4,7 @@
 import { html, useEffect, useRef, useState } from "../../vendor/htm-preact-standalone.module.js";
 import {
   store, select, setPanelMax, teamAgents, isOperatorLine, isInactive, hasNewActivity, unreadWith, agentName,
-  operatorLineWith,
+  operatorLineWith, currentTeam,
 } from "../store.js";
 import { useStore, fmtAgo, minutesSince } from "../ui.js";
 import { Conversation } from "../conversation.js";
@@ -350,7 +350,7 @@ export function Board() {
 
   return html`
     <div class="board-panel panel-team ${checking ? "checking" : ""}" style=${panelStyle("team")}>
-      <div class="eyebrow-row"><div class="eyebrow">Team</div><${ShiftPill} /></div>
+      <div class="eyebrow-row"><div class="eyebrow">Team${currentTeam()?.name ? ` · ${currentTeam().name}` : ""}</div><${ShiftPill} /></div>
       <div class="team">
         ${team.map((a) => html`<${AgentCard} key=${a.id} agent=${a} />`)}
         <a class="agent add" href="#/agents"><span class="plus">+</span><span>${team.length ? "add" : "add your first agent"}</span></a>

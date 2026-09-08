@@ -21,7 +21,15 @@ from uuid import UUID
 
 import httpx
 
-from courtyard.common.models import Agent, Archive, AttachSummary, Line, Message, PeersView
+from courtyard.common.models import (
+    Agent,
+    Archive,
+    AttachSummary,
+    Line,
+    Message,
+    PeersView,
+    Team,
+)
 
 CHANNEL_TOKEN_HEADER = "X-Courtyard-Channel-Token"
 DEFAULT_HUB_URL = "http://127.0.0.1:2626"
@@ -114,6 +122,7 @@ class HubClient:
         workdir: str | None = None,
         color: str | None = None,
         model: str | None = None,
+        anti_scope: str | None = None,
     ) -> tuple[Agent, str]:
         data = self._call(
             "POST",
@@ -123,6 +132,7 @@ class HubClient:
                 "type": type,
                 "description": description,
                 "sme_domain": sme_domain,
+                "anti_scope": anti_scope,
                 "workdir": workdir,
                 "color": color,
                 "model": model,
@@ -211,6 +221,34 @@ class HubClient:
 
     def patch_settings(self, patch: dict) -> dict:
         return self._call("PATCH", "/api/settings", patch)
+
+    # -- the team charter registry (design team-charter.md, D33) -----------------------
+
+    def teams(self) -> list[Team]:
+        return [Team.model_validate(t) for t in self._call("GET", "/api/teams")]
+
+    def add_team(self, charter_dir: str, name: str | None = None) -> Team:
+        return Team.model_validate(
+            self._call("POST", "/api/teams", {"charter_dir": charter_dir, "name": name})
+        )
+
+    def reload_team(self, team_id: UUID | str) -> Team:
+        return Team.model_validate(self._call("POST", f"/api/teams/{team_id}/reload"))
+
+    def set_current_team(self, team_id: UUID | str | None) -> list[Team]:
+        body = {"team_id": str(team_id) if team_id else None}
+        return [Team.model_validate(t) for t in self._call("POST", "/api/teams/current", body)]
+
+    def set_team_workdir(self, team_id: UUID | str, agent: str, workdir: str) -> Team:
+        """Answer one agent's per-machine workdir (overlay file + reload, D33)."""
+        return Team.model_validate(
+            self._call(
+                "POST", f"/api/teams/{team_id}/workdirs", {"agent": agent, "workdir": workdir}
+            )
+        )
+
+    def remove_team(self, team_id: UUID | str) -> Team:
+        return Team.model_validate(self._call("DELETE", f"/api/teams/{team_id}"))
 
 
 class ChannelReceiver:

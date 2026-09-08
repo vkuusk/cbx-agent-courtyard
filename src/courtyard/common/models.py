@@ -42,6 +42,7 @@ class Agent(BaseModel):
     type: AgentType
     description: str | None = None  # operator-curated: what this agent is for
     sme_domain: str | None = None  # operator-curated: what this agent OWNS (§7.5 grading)
+    anti_scope: str | None = None  # what NOT to ask this agent (D33; one roster line per peer)
     workdir: str | None = None
     model: str | None = None  # operator-declared model for the agent's runtime (WP-A);
     # install writes it into the agent's settings so nobody forgets to set it
@@ -149,6 +150,7 @@ class PeerInfo(BaseModel):
     type: AgentType
     description: str | None = None
     sme_domain: str | None = None
+    anti_scope: str | None = None  # rendered as one "not for:" line per peer (D33)
     status: AgentStatus
 
 
@@ -178,6 +180,61 @@ class AttachSummary(BaseModel):
     roster: list[PeerInfo]
     lines: list[LineSummary]
     queued: int  # backlog size; the hub pushes these right after this response is built
+
+
+class CharterCard(BaseModel):
+    """One agent as the charter files describe it (design team-charter.md, D33): the
+    yml key plus whatever the agent's configuration directory held. Everything but the
+    name is optional — the loader reports gaps, it does not refuse them."""
+
+    name: str
+    config_dir: str  # the agent-config-dir value, relative to the charter directory
+    type: AgentType | None = None
+    model: str | None = None
+    color: AgentColor | None = None
+    description: str | None = None  # description.md
+    sme_domain: str | None = None  # owns.md
+    anti_scope: str | None = None  # anti-scope.md: what NOT to ask this agent
+    # from workdirs.local.yml, the per-machine overlay (D33) — never from shared files
+    workdir: str | None = None
+
+
+class CharterLink(BaseModel):
+    """One declared line of the team's topology (design team-charter.md §4 category 3):
+    the two agents, by their charter names, and optionally the line's gate mode.
+    A link without a mode gets the hub's default when the line is created and keeps
+    whatever the operator later set; a declared mode is reasserted on every reload."""
+
+    a: str
+    b: str
+    mode: LineMode | None = None
+
+
+class Charter(BaseModel):
+    """What one load of team-definition.yml produced."""
+
+    name: str
+    agents: list[CharterCard] = []
+    links: list[CharterLink] = []
+    # the team's discovery regime (D33): a charter that declares links usually means
+    # "this IS the topology", which only `manual` enforces (D22). None = not declared;
+    # the hub's Settings dial stays the operator's.
+    discovery: Discovery | None = None
+
+
+class Team(BaseModel):
+    """A registered charter directory (D33). `charter` and `load_report` are what the
+    hub read at `loaded_at` — the files are the master and may be newer (explicit
+    reload, never a filesystem watch)."""
+
+    id: UUID
+    charter_dir: str
+    name: str | None = None  # cached from the charter; None when the load failed
+    is_current: bool = False
+    charter: Charter | None = None
+    load_report: list[str] = []  # problems found by the last load, for the operator
+    loaded_at: datetime | None = None
+    created_at: datetime
 
 
 TeamMode = Literal["on_shift", "always_on"]  # design §8.1 (D23); v1 implements on_shift

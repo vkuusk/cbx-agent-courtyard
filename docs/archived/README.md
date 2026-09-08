@@ -1,7 +1,7 @@
 # Archived support material
 
 Files here backed decisions that are already made and recorded in the design
-document's decision log (`docs/design/architecture-v1-2026-08-18.md`, section 13).
+document's decision log (`docs/design/architecture-v1.md`, section 13).
 They are kept for reference only; nothing current depends on them.
 
 - `spikes/6a-delivery/`: the delivery-mechanism spike behind the D-spike and D14

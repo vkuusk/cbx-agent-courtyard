@@ -104,7 +104,9 @@ def test_pi_extension_end_to_end(live_hub, tmp_path):
         assert agent.channel_flag == "present"  # the extension IS the channel
         # The footer status is the live pi analog of the claude status line (item 2).
         harness.wait_for(
-            lambda e: e["event"] == "setStatus" and "connected" in e["text"] and "pibot" in e["text"],
+            lambda e: (
+                e["event"] == "setStatus" and "connected" in e["text"] and "pibot" in e["text"]
+            ),
             what="footer status",
         )
         # /courtyard answers in the TUI without involving the LLM.

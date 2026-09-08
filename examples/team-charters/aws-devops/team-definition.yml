@@ -1,0 +1,27 @@
+# An example team charter: a small AWS devops team of three agents. Copy this
+# directory and adapt it; the format is described in docs/design/team-charter.md.
+# Project directories are per machine and never belong here: the hub asks for
+# them in the Teams view and keeps them in workdirs.local.yml, which stays out
+# of version control.
+team:
+  name: aws-devops
+  # The links below are the whole topology, so declare manual discovery: a pair
+  # without a line cannot talk until the operator links them. Without this key
+  # the links are only gate-mode presets and any pair can still form a line.
+  discovery: manual
+  agents:
+    infra-agent:
+      agent-config-dir: infra-agent
+    tf-developer:
+      agent-config-dir: tf-developer
+    argocd-agent:
+      agent-config-dir: argocd-agent
+  links:
+    # module questions are low-risk chatter, so this line skips the gate
+    - between: [infra-agent, tf-developer]
+      mode: auto_pass
+    # cluster and delivery changes stay on the hub's default (supervised unless
+    # the operator changed the Admin default)
+    - between: [infra-agent, argocd-agent]
+    # tf-developer and argocd-agent have no line on purpose: module authoring
+    # and application delivery meet only through the infrastructure owner

@@ -536,3 +536,148 @@ uv run pytest tests/test_pi_adapter.py -q
    `.courtyard/adapter.log` in the workdir logs every delivery.
 4. Mixed team: one claude-code agent and one pi agent on a line, a relayed question
    through the gate — same turn-taking, same envelope, both directions.
+
+## The team charter registry, read path (design team-charter.md, D33 — slice 1)
+
+**Feature under test:** registering team charter directories with the hub, loading and
+displaying what the files say, explicit reload, and current-team selection. A hub with
+no team registered behaves exactly as before. Slice 2 (below) adds projection: since
+then, selecting or reloading the CURRENT team also changes registrations and lines.
+
+**Scripted part** (its own throwaway hub; add the committed demo charter, initialize a
+charter-less dir, edit-then-reload, broken charter renders a report, current selection,
+remove leaves the files — plus the slice 2 checkpoints of the next entry):
+
+```
+uv run python scripts/runbook/team_charter.py
+```
+
+**Manual part** (any hub, the WebUI):
+
+1. Admin → Teams → "add a team" → browse. On macOS the REAL system folder dialog
+   opens (browser pickers cannot return absolute paths, so the hub shows its own
+   native dialog; the old in-page browse dialog remains as the fallback and can be
+   forced with `COURTYARD_NATIVE_PICKER=0` on the hub — the scripted checks do).
+   Pick `tests/team-charter` in the repo: the team appears as `demo-devops`,
+   "3 agents", no problems; expanding it shows the agent table (infra with
+   type/model/colour and all three prose fields) and "loaded at". Cancelling the
+   dialog does nothing. The same native dialog now serves the workdir pickers on
+   the Agents page.
+2. Pick a directory without a `team-definition.yml` instead (empty or not): the panel
+   offers to initialize it as a team charter; typing a name and pressing initialize
+   creates a commented `team-definition.yml` there, existing files untouched. Cancel
+   writes nothing.
+3. Edit that file by hand (change the name), reload the Admin page: the hub still shows
+   the old name. Press "⟳ reload from disk": the new name appears.
+4. Break the file (delete a quote), reload from disk: a readable problem report shows
+   in the expanded view; the row survives.
+5. Set "Current team" to `demo-devops`: the Courtyard page's Team panel eyebrow reads
+   "Team · demo-devops". Set it back to none: plain "Team".
+6. Remove a team: a confirm names it, the row goes, the files stay on disk.
+
+## Charter projection: cards become the team (team-charter.md §6, D33 — slice 2)
+
+**Feature under test:** selecting a team as current (or reloading the current team)
+projects the charter into the database: cards become registrations, declared links
+become lines with their gate modes, the per-machine workdir overlay fills workdirs,
+and the anti-scope reaches the peers roster. Additive only: nothing is ever removed
+by a reload. Do the manual part on a scratch hub, not the dev hub — selecting a team
+registers its agents for good (names are permanent).
+
+**Scripted part** (rides the same script as slice 1: projection on select, the
+workdir answer and overlay file, edit-then-reload mirroring, declared-mode reassert,
+the shift guard):
+
+```
+uv run python scripts/runbook/team_charter.py
+```
+
+**Manual part** (a scratch hub, the WebUI):
+
+1. Admin → Teams → add `tests/team-charter` and set it as "Current team": three
+   agents appear on the Courtyard page (infra blue, claude-code, model sonnet), and
+   the Lines panel shows infra↔tf-dev (auto-pass, as declared) and infra↔scribe
+   (the Admin default). Nothing was typed into an agent form. The Discovery dial
+   under Settings → Team now reads manual — the charter declares it (the expanded
+   team view says "discovery: manual (declared)"), and a hand flip to auto is
+   reasserted at the next reload. A charter without the key leaves the dial alone.
+2. In the expanded team view, every agent row carries a "directory on this machine"
+   cell reading "not set". Press browse on infra and pick a directory: the overlay
+   file `workdirs.local.yml` appears in the charter directory (with its never-commit
+   header) and infra's registration carries the workdir (Agents page shows it).
+3. Edit `infra/description.md` on disk, press "⟳ reload from disk": the new text is
+   on infra's card and in the team view. Flip the infra↔tf-dev line to supervised in
+   the pane, reload again: it returns to auto-pass (the charter declares that mode);
+   a flip on infra↔scribe survives reloads (no declared mode).
+4. Register an agent by hand, reload the team: it is untouched — projection adds and
+   mirrors, never removes.
+5. The anti-scope: on the Agents page, infra's edit view shows the "not for" text
+   from `anti-scope.md`; the field is editable on both agent forms (and while the
+   team is current, saving the form writes the file too: write-back, next entry).
+6. Start a shift, try "⟳ reload from disk" on the current team: refused with "a
+   shift is running; end it before reloading the current team". The "Current team"
+   pulldown refuses the same way. End the shift: both work again.
+
+## Charter write-back: the agent forms write the files (team-charter.md §3, D33, slice 3)
+
+**Feature under test:** while a team is current, agent registration changes made
+through the hub also land on the charter files, so the files stay the master: add
+writes the yml entry, the configuration directory with `card.yml` and the prose
+files, and the workdir into `workdirs.local.yml`; an edit of a charter agent
+rewrites its card files (a cleared field deletes its file); removal takes the yml
+entry, the links naming the agent, the overlay entry and the configuration
+directory back out. Agents registered without a current team, or before the team
+was current, stay database-only. Do the manual part on a scratch hub with a COPY of
+`tests/team-charter` (write-back edits the charter directory, and registering
+agents burns permanent names).
+
+**Scripted part** (step 9 of the same script):
+
+```
+uv run python scripts/runbook/team_charter.py
+```
+
+**Manual part** (a scratch hub, the WebUI, a copied charter dir set as current):
+
+1. On the Agents page, open "+ Add an agent": the form carries a note that the new
+   agent is also written into the charter directory. Register one with all fields
+   filled and a workdir picked: the charter directory gains `<name>/` with
+   `card.yml`, `description.md`, `owns.md`, `anti-scope.md`, the yml gains the
+   agent entry, and `workdirs.local.yml` gains the workdir. The team view (Admin →
+   Teams) already lists the new agent without a reload.
+2. Edit that agent: change the model, clear the anti-scope, save. `card.yml` shows
+   the new model; `anti-scope.md` is gone; the note above the save button names the
+   charter directory.
+3. Edit an agent that is NOT in the charter (registered before the team was
+   current): no note on the form, and the charter files do not change.
+4. Remove the charter agent: the dialog states it leaves the files too. After
+   remove, the yml entry, its links and its directory are gone; "⟳ reload from
+   disk" reports nothing and does not resurrect it.
+5. Break `team-definition.yml` on disk (e.g. `team: [broken`), reload the team,
+   then try to add an agent: refused with `charter_not_loaded` and nothing is
+   registered. Clear the "Current team" selection: adding works again (database
+   only). Restore the file.
+
+## Log level: one knob, honest severity (COURTYARD_LOG_LEVEL)
+
+**Feature under test:** `COURTYARD_LOG_LEVEL` (in `.env` or the environment; INFO
+default, WARNING, ERROR, and DEBUG for development) sets the hub's stdout
+verbosity in one place: the hub's own loggers, uvicorn's, and the request lines.
+Request lines log at their real severity instead of uvicorn's always-INFO: below
+400 INFO, 4xx WARNING, 5xx ERROR. So WARNING keeps failures visible while routine
+200 lines go quiet (the startup banner goes quiet too; that is what WARNING
+means).
+
+**Scripted part** (its own throwaway hub, runs the hub twice):
+
+```
+uv run python scripts/runbook/log_level.py
+```
+
+**Manual part:**
+
+1. `COURTYARD_LOG_LEVEL=WARNING make run`: no startup banner, no request lines
+   while the WebUI loads. Trigger a refusal (add a team from a directory without
+   a charter and cancel the name prompt): the 422 line appears, labeled WARNING.
+2. Stop, run plain `make run`: the familiar INFO lines are back, and the same
+   422 shows as WARNING among them.

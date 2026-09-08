@@ -135,3 +135,45 @@ class MalformedMcpJson(DomainError):
 class NothingToUninstall(DomainError):
     code = "nothing_to_uninstall"
     http_status = 404
+
+
+class TeamNotFound(DomainError):
+    code = "team_not_found"
+    http_status = 404
+
+
+class TeamExists(DomainError):
+    """That charter directory is already registered."""
+
+    code = "team_exists"
+
+
+class ShiftActive(DomainError):
+    """Reloading or selecting the current team is refused while a shift runs: projection
+    changes registrations under live agents. End the shift first (D33, lean guard)."""
+
+    code = "shift_active"
+
+
+class CharterNotLoaded(DomainError):
+    """Agent registration changes write back to the current team's charter (D33,
+    slice 3), and a charter that did not load cannot be written into. Fix the files
+    and reload the team, or clear the team selection, then retry."""
+
+    code = "charter_not_loaded"
+
+
+class CharterWriteFailed(DomainError):
+    """The database change went through but writing the charter files did not; the
+    message states what half-state that leaves and how to reconcile it."""
+
+    code = "charter_write_failed"
+
+
+class CharterNameRequired(DomainError):
+    """The directory has no team-definition.yml; it can be initialized into a charter,
+    but the team needs a name first — the WebUI catches this code and offers exactly
+    that, and the name doubles as the operator's confirmation to write the file."""
+
+    code = "charter_name_required"
+    http_status = 422

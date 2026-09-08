@@ -26,6 +26,7 @@ export const api = {
   config: () => call("GET", "/api/config"),
   envelope: () => call("GET", "/api/envelope"),
   fsDirs: (path) => call("GET", `/api/fs/dirs${path ? `?path=${encodeURIComponent(path)}` : ""}`),
+  pickDir: (prompt) => call("POST", "/api/fs/pick-dir", { prompt }),
   agents: () => call("GET", "/api/agents"),
   createAgent: (payload) => call("POST", "/api/agents", payload),
   removeAgent: (name) => call("DELETE", `/api/agents/${encodeURIComponent(name)}`),
@@ -60,4 +61,11 @@ export const api = {
   shiftEnd: (force) => call("POST", "/api/shift/end", { force: Boolean(force) }),
   settings: () => call("GET", "/api/settings"),
   patchSettings: (patch) => call("PATCH", "/api/settings", patch),
+  teams: () => call("GET", "/api/teams"),
+  addTeam: (charterDir, name) => call("POST", "/api/teams", { charter_dir: charterDir, name: name || null }),
+  reloadTeam: (id) => call("POST", `/api/teams/${id}/reload`),
+  setCurrentTeam: (id) => call("POST", "/api/teams/current", { team_id: id }),
+  setTeamWorkdir: (id, agent, workdir) =>
+    call("POST", `/api/teams/${id}/workdirs`, { agent, workdir }),
+  removeTeam: (id) => call("DELETE", `/api/teams/${id}`),
 };

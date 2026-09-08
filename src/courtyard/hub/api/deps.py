@@ -9,6 +9,7 @@ from courtyard.hub.core.archive import Archiver
 from courtyard.hub.core.board import Board
 from courtyard.hub.core.errors import InvalidToken
 from courtyard.hub.core.registry import Registry
+from courtyard.hub.core.teams import TeamService
 
 
 def get_registry(request: Request) -> Registry:
@@ -21,6 +22,10 @@ def get_board(request: Request) -> Board:
 
 def get_archiver(request: Request) -> Archiver:
     return request.app.state.archiver
+
+
+def get_teams(request: Request) -> TeamService:
+    return request.app.state.teams
 
 
 def require_agent(request: Request) -> Agent:

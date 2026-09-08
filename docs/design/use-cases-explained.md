@@ -1,6 +1,6 @@
 # Use Cases, Explained
 
-Companion to [`architecture-v1-2026-08-18.md`](architecture-v1-2026-08-18.md). Each entry
+Companion to [`architecture-v1.md`](architecture-v1.md). Each entry
 answers one "how does this actually work?" question that came up during review, in enough
 detail that a developer new to the project understands the design intent — not just the
 mechanics. Add new entries as questions come up.

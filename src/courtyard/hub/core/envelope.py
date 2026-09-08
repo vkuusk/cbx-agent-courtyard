@@ -275,8 +275,12 @@ def preview() -> list[dict[str, str | int]]:
         # Otherwise: the envelope around the body, so the placeholder body comes off.
         wrapper = text if message.sender is None else text.replace(message.body, "", 1)
         blocks.append(
-            {"title": title, "note": note, "text": text,
-             "overhead_tokens": estimate_tokens(wrapper)}
+            {
+                "title": title,
+                "note": note,
+                "text": text,
+                "overhead_tokens": estimate_tokens(wrapper),
+            }
         )
     return blocks
 

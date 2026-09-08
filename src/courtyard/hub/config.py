@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
+# Standard python logging level names the hub accepts; DEBUG included for development.
+LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
 
 
 def default_database_url(env: Mapping[str, str]) -> str:
@@ -33,6 +35,8 @@ class Config:
     sweep_seconds: float  # how often the hub re-evaluates liveness
     push_timeout: float  # hub -> channel endpoint HTTP timeout
     verify_timeout: float  # unacked delivery check (item 34) fails after this
+    log_level: str  # stdout verbosity: one of LOG_LEVELS; access lines log at their
+    # real severity (4xx WARNING, 5xx ERROR), so WARNING keeps failures visible
 
 
 def _default_webui_dir() -> Path:
@@ -48,6 +52,11 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
             f"refusing to bind {host!r}: courtyard v1 is a localhost-only service "
             "(design doc, security model). Set COURTYARD_ALLOW_NONLOCAL_BIND=1 to override."
         )
+    log_level = env.get("COURTYARD_LOG_LEVEL", "INFO").upper()
+    if log_level not in LOG_LEVELS:
+        raise ValueError(
+            f"COURTYARD_LOG_LEVEL must be one of {', '.join(LOG_LEVELS)}, got {log_level!r}"
+        )
     return Config(
         host=host,
         port=int(env.get("COURTYARD_PORT", "2626")),
@@ -61,4 +70,5 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
         sweep_seconds=float(env.get("COURTYARD_SWEEP_SECONDS", "10")),
         push_timeout=float(env.get("COURTYARD_PUSH_TIMEOUT", "3")),
         verify_timeout=float(env.get("COURTYARD_VERIFY_TIMEOUT_SECONDS", "60")),
+        log_level=log_level,
     )

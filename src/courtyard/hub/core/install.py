@@ -245,9 +245,7 @@ def install(
 def pi_extension(hub_url: str, agent_name: str, token: str) -> str:
     """Item 36 (D32): the pi adapter, rendered from the packaged template with the
     agent's connection substituted (token inline + chmod 600, the D15 precedent)."""
-    template = (
-        resources.files("courtyard.adapters.pi").joinpath("extension.ts").read_text()
-    )
+    template = resources.files("courtyard.adapters.pi").joinpath("extension.ts").read_text()
     return (
         template.replace("__COURTYARD_HUB_URL__", hub_url)
         .replace("__COURTYARD_AGENT_NAME__", agent_name)
@@ -398,7 +396,9 @@ def uninstall_pi(workdir: str) -> UninstallResult:
     anything = restored or removed or script_restored or script_removed
     anything = anything or skill_restored or skill_removed
     if not anything:
-        raise NothingToUninstall(f"no courtyard extension and no backup at {target} — nothing to undo.")
+        raise NothingToUninstall(
+            f"no courtyard extension and no backup at {target} — nothing to undo."
+        )
     return UninstallResult(
         str(target),
         restored_from_backup=restored,

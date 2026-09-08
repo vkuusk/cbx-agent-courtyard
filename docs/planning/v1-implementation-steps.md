@@ -2,7 +2,7 @@
 
 - **Date:** 2026-08-18
 - **Status:** Draft for architect review
-- **Design doc:** [`docs/design/architecture-v1-2026-08-18.md`](../design/architecture-v1-2026-08-18.md)
+- **Design doc:** [`docs/design/architecture-v1.md`](../design/architecture-v1.md)
 
 ## Ground rules
 

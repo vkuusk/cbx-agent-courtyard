@@ -5,8 +5,9 @@
 
 import { html, useEffect, useState } from "../../vendor/htm-preact-standalone.module.js";
 import { api } from "../api.js";
-import { store, isInactive, setTheme, effectiveTheme, applySettings } from "../store.js";
+import { store, isInactive, setTheme, effectiveTheme, applySettings, applyTeams } from "../store.js";
 import { useStore } from "../ui.js";
+import { DirPicker } from "./agents.js";
 
 const BUILTIN_TERMINALS = ["Terminal", "iTerm2"];
 
@@ -75,6 +76,115 @@ function TerminalSection({ settings, save, error }) {
     ${error ? html`<div class="error" style="margin-top:.4rem">${error}</div>` : null}
   </div>`;
 }
+
+// The team charter registry (design team-charter.md, D33): the files are the source of
+// truth; this section shows what the hub last loaded and reloads only on the operator's
+// click — the hub never watches the filesystem, so "loaded at" says how stale the view is.
+function TeamDetail({ team, refresh }) {
+  const agents = team.charter?.agents ?? [];
+  const links = team.charter?.links ?? [];
+  const setWorkdir = (agent) => (dir) =>
+    api.setTeamWorkdir(team.id, agent, dir).then(refresh).catch((e) => alert(e.message));
+  return html`<div style="margin:.4rem 0 .6rem;padding-left:.8rem;border-left:2px solid var(--border)">
+    <div class="small muted">${team.charter_dir} ·
+      loaded ${team.loaded_at ? new Date(team.loaded_at).toLocaleString() : "never"} ·
+      the files are the master; edit or pull them, then reload</div>
+    ${team.load_report.length
+      ? html`<div class="error" style="margin:.4rem 0;white-space:pre-wrap">${team.load_report.join("\n")}</div>`
+      : null}
+    ${agents.length
+      ? html`<table style="margin:.4rem 0">
+          <thead><tr><th>agent</th><th>type</th><th>model</th><th>what it is for</th><th>owns</th><th>not for</th><th>directory on this machine</th></tr></thead>
+          <tbody>${agents.map((a) => html`<tr key=${a.name}>
+            <td style="font-family:var(--mono)">${a.name}</td>
+            <td>${a.type ?? "—"}</td><td>${a.model ?? "—"}</td>
+            <td>${a.description ?? "—"}</td><td>${a.sme_domain ?? "—"}</td><td>${a.anti_scope ?? "—"}</td>
+            <td>${a.workdir ?? html`<span class="muted">not set · </span>`}
+              ${a.type !== "dummy"
+                ? html`<${DirPicker} prompt=${`Choose the project directory for ${a.name}`}
+                    onPick=${setWorkdir(a.name)} />`
+                : null}</td>
+          </tr>`)}</tbody>
+        </table>`
+      : team.charter
+        ? html`<div class="small muted" style="margin:.4rem 0">No agents in this charter yet.</div>`
+        : null}
+    ${links.length || team.charter?.discovery
+      ? html`<div class="small muted" style="margin:.4rem 0">
+          ${team.charter?.discovery ? `discovery: ${team.charter.discovery} (declared) · ` : ""}
+          links: ${links.length ? links.map(
+            (l) => `${l.a} ↔ ${l.b}${l.mode ? ` (${l.mode.replace("_", "-")})` : ""}`).join(" · ") : "none"}</div>`
+      : null}
+    <div class="small muted" style="margin:.4rem 0">Project directories are per machine, kept in
+      workdirs.local.yml beside the charter — never commit that file.
+      ${team.is_current ? "Reloading this team also updates its registrations and lines." : ""}</div>
+    <button class="btn" onClick=${() => api.reloadTeam(team.id).then(refresh).catch((e) => alert(e.message))}>
+      ⟳ reload from disk</button>
+  </div>`;
+}
+
+function TeamsSection() {
+  const [open, setOpen] = useState(null); // team id whose detail is expanded
+  const [pendingDir, setPendingDir] = useState(null); // empty dir waiting for a name
+  const [error, setError] = useState(null);
+  const teams = store.teams;
+  const refreshOne = (team) => applyTeams(teams.map((t) => (t.id === team.id ? team : t)));
+  const add = (dir, name) => {
+    setError(null);
+    api.addTeam(dir, name)
+      .then((team) => { applyTeams([...teams, team]); setPendingDir(null); setOpen(team.id); })
+      .catch((e) => {
+        // no team-definition.yml there: offer to initialize the directory instead of
+        // erroring out (item 43 follow-up) — the typed name confirms, then the hub writes
+        if (e.code === "charter_name_required") setPendingDir(dir);
+        else setError(e.message);
+      });
+  };
+  const remove = (team) => {
+    if (!confirm(`Remove ${team.name ?? team.charter_dir} from the hub? The files stay.`)) return;
+    api.removeTeam(team.id)
+      .then(() => applyTeams(teams.filter((t) => t.id !== team.id)))
+      .catch((e) => setError(e.message));
+  };
+  const nameOf = (t) => t.name ?? t.charter_dir.split("/").pop();
+  return html`
+    <div class="eyebrow" style="margin-top:1.2rem">Teams</div>
+    <div class="panel"><h3>Team charters</h3>
+      <div class="small muted" style="margin-bottom:.6rem">A team is a charter directory of files;
+        the hub reads it when you add or reload it, never behind your back. One team is current;
+        with none, the hub works exactly as before.</div>
+      ${teams.length
+        ? html`<${Row} label="Current team" value=${currentId(teams)}
+            options=${[["", "none"], ...teams.map((t) => [t.id, nameOf(t)])]}
+            onChange=${(v) => api.setCurrentTeam(v || null).then(applyTeams).catch((e) => setError(e.message))}
+            hint="shown on the Courtyard page" />`
+        : null}
+      ${teams.map((t) => html`<div key=${t.id}>
+        <div class="form-row">
+          <button class="link" onClick=${() => setOpen(open === t.id ? null : t.id)}>
+            ${open === t.id ? "▾" : "▸"} ${nameOf(t)}</button>
+          ${t.is_current ? html`<span class="small muted">current</span>` : null}
+          ${t.load_report.length ? html`<span class="error small">${t.load_report.length} problem${t.load_report.length > 1 ? "s" : ""}</span>` : null}
+          <span class="small muted">${t.charter?.agents?.length ?? 0} agents</span>
+          <button class="btn danger" style="margin-left:auto" onClick=${() => remove(t)}>remove</button>
+        </div>
+        ${open === t.id ? html`<${TeamDetail} team=${t} refresh=${refreshOne} />` : null}
+      </div>`)}
+      ${pendingDir
+        ? html`<form class="form-row" onSubmit=${(e) => { e.preventDefault(); add(pendingDir, new FormData(e.currentTarget).get("name")); }}>
+            <span class="small muted" style="flex-basis:100%"><code>${pendingDir}</code> has no
+              team-definition.yml yet. Initialize it as a team charter?</span>
+            <input name="name" placeholder="team name" required autofocus />
+            <button class="btn primary">initialize</button>
+            <button type="button" class="btn" onClick=${() => setPendingDir(null)}>cancel</button>
+          </form>`
+        : html`<div class="form-row"><span class="small muted">add a team:</span>
+            <${DirPicker} prompt="Choose the team charter directory" onPick=${(dir) => add(dir)} /></div>`}
+      ${error ? html`<div class="error" style="margin-top:.4rem">${error}</div>` : null}
+    </div>`;
+}
+
+const currentId = (teams) => teams.find((t) => t.is_current)?.id ?? "";
 
 function SettingsSection() {
   const [settings, setSettings] = useState(null);
@@ -168,6 +278,7 @@ export function Admin() {
         <dt>lines</dt><dd>${lines.length - inactive} active · ${inactive} inactive</dd>
         <dt>held at the gate</dt><dd>${store.pending.size}</dd>
       </dl></div>
+    <${TeamsSection} />
     <${SettingsSection} />
     <${EnvelopeSection} />`;
 }

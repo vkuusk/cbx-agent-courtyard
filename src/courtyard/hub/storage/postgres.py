@@ -34,6 +34,7 @@ SELECT l.*, aa.name AS agent_a_name, ab.name AS agent_b_name,
     WHERE m.line_id = l.id AND m.status = 'pending_gate') AS pending_count,
   (SELECT count(*) FROM messages m
     WHERE m.line_id = l.id AND m.status = 'queued') AS queued_count,
+  (SELECT count(*) FROM threads t WHERE t.line_id = l.id) AS thread_count,
   (SELECT max(m.created_at) FROM messages m WHERE m.line_id = l.id) AS last_activity_at
 FROM lines l
 JOIN agents aa ON aa.id = l.agent_a

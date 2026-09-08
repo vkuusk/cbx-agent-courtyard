@@ -147,6 +147,8 @@ class TestClosing:
         assert second["thread_id"] != msg["thread_id"]
         states = [t["state"] for t in line_threads(client, msg["line_id"])]
         assert states == ["closed", "open"]
+        # the board's count enrichment (D34 §5 item 4)
+        assert line_state(client, msg["line_id"])["thread_count"] == 2
 
     def test_close_resolves_the_reply_owed_by_the_closer(self, client, make_agent):
         # bob's answer was a clarifying question: the line awaits alice, who closes

@@ -91,6 +91,7 @@ class Line(BaseModel):
     agent_b_name: str | None = None
     pending_count: int | None = None  # messages held at the gate
     queued_count: int | None = None  # accepted, not yet delivered
+    thread_count: int | None = None  # threads this history holds (D34 §5 item 4)
     last_activity_at: datetime | None = None
 
 

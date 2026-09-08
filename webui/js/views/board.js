@@ -116,13 +116,17 @@ function Wire({ line }) {
   const selected = sel?.kind === "line" && sel.id === line.id;
   const s = wireStatus(line);
   const mode = line.mode === "supervised" ? "supervised" : "auto-pass";
+  // D34 §5 item 4: the scroll counted in asks — "3 threads, 1 open" beats undifferentiated.
+  const threads = line.thread_count
+    ? ` · ${line.thread_count} thread${line.thread_count === 1 ? "" : "s"}${line.open_thread ? ", 1 open" : ""}`
+    : "";
   const node = (id, name) =>
     html`<span class="node" data-color=${store.agents.get(id)?.color}><span class="dot ${store.agents.get(id)?.status ?? ""}" />${name ?? agentName(id)}</span>`;
   return html`<button class="line ${selected ? "selected" : ""}"
       onClick=${() => select({ kind: "line", id: line.id })}>
     ${node(line.agent_a, line.agent_a_name)}
     <span class="wire ${s.cls}"><span class="tag">${s.label}</span>
-      <span class="sub">${mode} · ${fmtAgo(line.last_activity_at ?? line.created_at)}</span></span>
+      <span class="sub">${mode}${threads} · ${fmtAgo(line.last_activity_at ?? line.created_at)}</span></span>
     ${node(line.agent_b, line.agent_b_name)}
   </button>`;
 }

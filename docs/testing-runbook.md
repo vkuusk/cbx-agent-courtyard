@@ -695,7 +695,7 @@ and no note: it resolves the line's reply obligation and the peer gets the fixed
 system line "thread closed by X". The answer's envelope points the initiator, and
 only the initiator, at the close tool. End shift marks open threads `expired`.
 The operator's threads need no declaration and close through
-`POST /api/operator/close-thread` (the pane control lands with the WebUI slice).
+`POST /api/operator/close-thread` (the pane's "close thread" control, slice 3).
 
 **Scripted part** (against a live hub; the expiry checkpoint skips itself unless
 every other line is idle and no real claude-code agent is down):
@@ -754,4 +754,37 @@ returned message not counting; the operator exempt; 0 = unbudgeted.
    budget to 2, let two agents exchange two messages on one ask, then have one
    send a follow-up: the pane shows the two "thread locked" system lines and
    the sender's session shows the refusal text.
+
+
+---
+
+## Threads in the WebUI: boundaries, counts, the close control (D34 - slice 3)
+
+**Feature under test:** the conversation pane groups messages by thread: a divider
+chip at each thread's first message names its number, opener and state (open is
+blue, locked amber, closed and expired muted); messages older than the threads
+migration stay ungrouped at the top. The wire on the Lines panel counts the asks:
+"supervised · 3 threads, 1 open · 2m ago". The pane header of your own line shows
+a "close thread" button exactly when the open thread is one you initiated; it
+confirms, then invokes the same hub operation as the agents' close tool, and the
+divider flips live over SSE.
+
+**Scripted part:** the hub half is `scripts/runbook/threads.py` (see the slice 1
+entry); the UI is verified by hand.
+
+**Manual part** (`make demo` or any hub with two agents that have talked):
+
+1. Lines panel: a wire whose pair has exchanged messages reads "N threads" in its
+   sub-line, with ", 1 open" while an ask is unsettled.
+2. Select that line: divider chips split the scroll by ask, each naming who opened
+   the thread and its state; a "thread closed by X" system line sits at each
+   healthy ending. No "close thread" button appears here (the initiator closes,
+   and that is not you).
+3. Message an agent from its card. Your open thread shows a blue "thread N · you ·
+   open" chip and the header gains "close thread". Click it, accept the confirm:
+   the chip flips to closed without a reload, the button goes away, and the agent
+   receives the system line.
+4. Have the agent message you first (or use a dummy): the chip reads its name as
+   opener and the header shows no close button - that thread is the agent's to
+   close.
 

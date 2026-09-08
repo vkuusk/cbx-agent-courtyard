@@ -14,6 +14,7 @@ export const store = {
   agents: new Map(), // id -> agent
   lines: new Map(), // id -> line
   messages: new Map(), // lineId -> Map(messageId -> message), only for lines on screen
+  threads: new Map(), // lineId -> Map(threadId -> thread), loaded with the messages (D34)
   pending: new Map(), // messageId -> message held at the gate
   inbox: new Map(), // messageId -> message addressed to the operator
   shift: null, // ShiftStatus from the hub (design §8.1) — the Team panel pill renders it
@@ -280,18 +281,31 @@ export function currentTeam() {
 }
 
 export async function loadMessages(lineId) {
-  const messages = await api.lineMessages(lineId);
+  const [messages, threads] = await Promise.all([
+    api.lineMessages(lineId),
+    api.lineThreads(lineId),
+  ]);
   store.messages.set(lineId, new Map(messages.map((m) => [m.id, m])));
+  store.threads.set(lineId, new Map(threads.map((t) => [t.id, t])));
   notify();
 }
 
 export function dropMessages(lineId) {
   store.messages.delete(lineId);
+  store.threads.delete(lineId);
+}
+
+// The selected line's threads, oldest first — the pane's grouping data (D34).
+export function threadsOn(lineId) {
+  return [...(store.threads.get(lineId)?.values() ?? [])].sort((a, b) =>
+    a.opened_at.localeCompare(b.opened_at),
+  );
 }
 
 function onEvent(kind, data) {
   if (kind === "agent") store.agents.set(data.id, data);
   else if (kind === "line") store.lines.set(data.id, data);
+  else if (kind === "thread") store.threads.get(data.line_id)?.set(data.id, data);
   else if (kind === "shift") store.shift = data;
   else if (kind === "archive") {
     // A history moved out: lines, counters and open transcripts all change at once —
@@ -313,7 +327,7 @@ function onEvent(kind, data) {
 
 export function connectEvents() {
   const es = new EventSource("/api/events");
-  for (const kind of ["agent", "line", "message", "gate", "archive", "shift"]) {
+  for (const kind of ["agent", "line", "thread", "message", "gate", "archive", "shift"]) {
     es.addEventListener(kind, (e) => onEvent(kind, JSON.parse(e.data)));
   }
   es.onopen = () => {

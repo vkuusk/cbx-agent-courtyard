@@ -82,7 +82,26 @@ def healthy(port: int) -> bool:
         return False
 
 
-def start(name: str, port: int | None) -> None:
+def give_team(name: str, port: int, d: Path) -> None:
+    """A current team in the scratch state dir — required before agents can register
+    (D33 revised); dropped with the state dir at stop."""
+    team_dir = d / "team-charter"
+    team_dir.mkdir(exist_ok=True)
+
+    def post(path: str, body: dict) -> dict:
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}{path}",
+            data=json.dumps(body).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req) as resp:
+            return json.loads(resp.read())
+
+    team = post("/api/teams", {"charter_dir": str(team_dir), "name": f"scratch-{name}"})
+    post("/api/teams/current", {"team_id": team["id"]})
+
+
+def start(name: str, port: int | None, bare: bool = False) -> None:
     d = state_dir(name)
     meta_file = d / "meta.json"
     if meta_file.exists():
@@ -119,6 +138,8 @@ def start(name: str, port: int | None) -> None:
 
     for _ in range(75):
         if healthy(port):
+            if not bare:
+                give_team(name, port, d)
             print(f"scratch hub '{name}' ready at http://127.0.0.1:{port}")
             print(f"  log : {d / 'hub.log'}")
             print(
@@ -169,6 +190,12 @@ def main() -> None:
     parser.add_argument("action", choices=["start", "stop", "list"])
     parser.add_argument("--name", help="scratch hub name (lowercase letters, digits, hyphens)")
     parser.add_argument("--port", type=int, help="port for start (default: a free one)")
+    parser.add_argument(
+        "--bare",
+        action="store_true",
+        help="start without a current team (D33 makes one required; checks of the"
+        " pre-team state itself need this)",
+    )
     args = parser.parse_args()
     if args.action == "list":
         list_hubs()
@@ -176,7 +203,7 @@ def main() -> None:
     if not args.name or not re.fullmatch(r"[a-z0-9][a-z0-9-]*", args.name):
         die("--name is required: lowercase letters, digits, hyphens")
     if args.action == "start":
-        start(args.name, args.port)
+        start(args.name, args.port, args.bare)
     else:
         stop(args.name)
 

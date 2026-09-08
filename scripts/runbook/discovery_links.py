@@ -18,8 +18,10 @@ Needs the compose postgres up (`make db-up`). Run:
 """
 
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 from courtyard.common.client import HubClient, HubError
@@ -75,6 +77,9 @@ def expect_refused(fn, code):
 psql(f"DROP DATABASE IF EXISTS {DB_NAME} WITH (FORCE)", f"CREATE DATABASE {DB_NAME}")
 hub, admin = start_hub()
 try:
+    # D33: a current team is required before agents can register
+    team_dir = tempfile.mkdtemp(prefix="runbook-team-")
+    admin.set_current_team(admin.add_team(team_dir, "runbook").id)
     _, alice_token = admin.register_agent("alice", "dummy")
     _, bob_token = admin.register_agent("bob", "dummy")
     admin.register_agent("carol", "dummy")
@@ -127,6 +132,7 @@ try:
     message = bob.send("carol", "as if nothing happened")
     print(f"bob -> carol      : {message.status} (a fresh line formed)")
 finally:
+    shutil.rmtree(team_dir, ignore_errors=True)
     admin.close()
     hub.terminate()
     hub.wait()

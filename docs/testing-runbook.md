@@ -655,9 +655,9 @@ uv run python scripts/runbook/team_charter.py
    disk" reports nothing and does not resurrect it.
 5. Break `team-definition.yml` on disk (e.g. `team: [broken`), reload the team,
    then try to add an agent: refused with `charter_not_loaded` and nothing is
-   registered. Clear the "Current team" selection: adding works again (database
-   only), and the add form now says so - "No team is current: this agent goes
-   into the database only", with a link to Admin. Restore the file.
+   registered. The selection cannot be cleared (the courtyard always has a
+   current team); to keep working, restore the file and reload, or select a
+   healthy team.
 
 ## Log level: one knob, honest severity (COURTYARD_LOG_LEVEL)
 
@@ -788,4 +788,41 @@ entry); the UI is verified by hand.
 4. Have the agent message you first (or use a dummy): the chip reads its name as
    opener and the header shows no close button - that thread is the agent's to
    close.
+
+
+---
+
+## A current team is required (team-charter.md section 3, D33 revised)
+
+**Feature under test:** the courtyard always has a current team once one was
+chosen. Agent registration with no current team is refused (`no_team`); the
+empty Courtyard page asks for the team's charter directory first (a directory
+with a charter is loaded, an empty one is initialized after naming the team);
+choosing a team on a hub that already holds agents adopts the ones no
+registered team's charter names; the selection can move but never clear, and
+the current team cannot be removed. `courtyard-invite --team-dir <dir>
+[--team-name <name>]` does the same from a terminal; `make demo` creates its
+own team in `.demo/team-charter` when the hub has none.
+
+**Scripted part** (checkpoints 0 and 11 of the charter script, own throwaway
+hub):
+
+```
+uv run python scripts/runbook/team_charter.py
+```
+
+**Manual part** (a fresh hub: `make db-nuke`, `make run`):
+
+1. The Courtyard page's Team panel shows no "add your first agent" tile but the
+   directory choice; the pane text says to choose the team's directory first.
+   The Agents page's add form is disabled with the same message.
+2. Pick an empty directory, name the team at the prompt: the team appears
+   (Team panel eyebrow names it), `team-definition.yml` exists on disk, and
+   adding agents works - each lands in the charter directory as card files.
+3. Admin - Teams: the current team's remove button is disabled; the current
+   pulldown has no empty choice.
+4. Point "add a team" at a directory that already holds a charter (e.g. a copy
+   of `examples/team-charters/aws-devops`), select it as current: its agents
+   project onto the board, and any agent of no other team is adopted into it
+   (its card files appear in the new charter directory).
 

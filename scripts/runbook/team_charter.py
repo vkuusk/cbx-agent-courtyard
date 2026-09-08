@@ -87,6 +87,13 @@ psql(f"DROP DATABASE IF EXISTS {DB_NAME} WITH (FORCE)", f"CREATE DATABASE {DB_NA
 hub, admin = start_hub()
 scratch = Path(tempfile.mkdtemp(prefix="courtyard-charter-rb-"))
 try:
+    hr("0. A CURRENT TEAM IS REQUIRED (D33 revised): registration refuses without one")
+    try:
+        admin.register_agent("too-early", "dummy")
+        print("BUG: an agent registered with no team on the hub")
+    except HubError as exc:
+        print(f"refused           : {exc.code} — {exc}")
+
     hr("1. ADD THE DEMO CHARTER (tests/team-charter)")
     team = admin.add_team(str(FIXTURE))
     print(f"name              : {team.name}")
@@ -211,12 +218,20 @@ try:
     admin._call("POST", "/api/shift/end", {"force": True})
     print(f"after end shift   : reload OK ({admin.reload_team(team.id).name})")
 
-    hr("11. CURRENT TEAM: EXACTLY ONE, CLEARABLE; REMOVE LEAVES THE FILES")
+    hr("11. CURRENT TEAM: ALWAYS EXACTLY ONE — NEVER CLEARED, NEVER REMOVED")
     teams = admin.set_current_team(team.id)
     print(f"current flags     : { {t.name: t.is_current for t in teams} }")
-    teams = admin.set_current_team(None)
-    print(f"after clearing    : { {t.name: t.is_current for t in teams} }")
-    admin.remove_team(fresh.id)
+    try:
+        admin.set_current_team(None)
+        print("BUG: the selection cleared")
+    except HubError as exc:
+        print(f"clear refused     : {exc.code} — {exc}")
+    try:
+        admin.remove_team(team.id)
+        print("BUG: the current team was removed")
+    except HubError as exc:
+        print(f"remove refused    : {exc.code} — {exc}")
+    admin.remove_team(fresh.id)  # a non-current team goes; its files stay
     print(f"after remove      : {[t.name for t in admin.teams()]} registered")
     print(f"files stayed      : {(empty / 'team-definition.yml').is_file()}")
 finally:

@@ -116,7 +116,8 @@ def test_agent_problems_are_reported_not_fatal(tmp_path):
 # ---- the API round trip -------------------------------------------------------------
 
 
-def test_add_list_reload_current_remove(client, tmp_path):
+def test_add_list_reload_current_remove(bare_client, tmp_path):
+    client = bare_client
     created = client.post("/api/teams", json={"charter_dir": str(FIXTURE)})
     assert created.status_code == 201, created.text
     team = created.json()
@@ -139,21 +140,25 @@ def test_add_list_reload_current_remove(client, tmp_path):
     assert made.json()["name"] == "fresh" and made.json()["charter"]["agents"] == []
     assert (empty / "team-definition.yml").is_file()
 
-    # current: select, exactly one flagged, then clear
+    # current: select, exactly one flagged; the selection moves, it never clears (D33)
     current = client.post("/api/teams/current", json={"team_id": team["id"]})
     flags = {t["id"]: t["is_current"] for t in current.json()}
     assert flags == {team["id"]: True, made.json()["id"]: False}
     cleared = client.post("/api/teams/current", json={"team_id": None})
-    assert all(not t["is_current"] for t in cleared.json())
+    assert cleared.status_code == 409
+    assert cleared.json()["error"]["code"] == "no_team"
 
-    # remove drops the registry row and only that — the files stay
+    # the current team cannot be removed; any other can — the files stay either way
+    stuck = client.delete(f"/api/teams/{team['id']}")
+    assert stuck.status_code == 409 and stuck.json()["error"]["code"] == "no_team"
     gone = client.delete(f"/api/teams/{made.json()['id']}")
     assert gone.status_code == 200
     assert [t["id"] for t in client.get("/api/teams").json()] == [team["id"]]
     assert (empty / "team-definition.yml").is_file()
 
 
-def test_reload_picks_up_edits_and_reports_breakage(client, tmp_path):
+def test_reload_picks_up_edits_and_reports_breakage(bare_client, tmp_path):
+    client = bare_client
     charter_dir = tmp_path / "reloadable"
     charter_dir.mkdir()
     made = client.post("/api/teams", json={"charter_dir": str(charter_dir), "name": "before"})
@@ -281,9 +286,10 @@ def _lines_by_pair(client) -> dict:
     }
 
 
-def test_selecting_a_team_projects_cards_and_links(client):
+def test_selecting_a_team_projects_cards_and_links(bare_client):
     """Becoming current is the initialization gesture: cards become registrations,
     links become lines with their declared modes (design team-charter.md §6)."""
+    client = bare_client
     team_id = _make_current(client, FIXTURE)
     agents = _agents_by_name(client)
     assert {"operator", "infra", "tf-dev", "scribe"} <= set(agents)
@@ -357,8 +363,10 @@ def test_projection_is_additive_and_reports_name_conflicts(client, make_agent, t
         "  links:\n"
         "    - between: [infra, typeless]\n"
     )
-    _make_current(client, charter_dir)
-    report = "\n".join(client.get("/api/teams").json()[0]["load_report"])
+    team_id = _make_current(client, charter_dir)
+    report = "\n".join(
+        next(t for t in client.get("/api/teams").json() if t["id"] == team_id)["load_report"]
+    )
     assert "the type is a permanent identity and stays dummy" in report
     assert "names are permanent" in report
     assert "on the roster by design" in report
@@ -413,8 +421,10 @@ def test_shift_guard_refuses_projection_while_a_shift_runs(client):
     reselect = client.post("/api/teams/current", json={"team_id": team_id})
     assert reselect.status_code == 409
     assert reselect.json()["error"]["code"] == "shift_active"
-    # clearing the selection projects nothing and stays allowed
-    assert client.post("/api/teams/current", json={"team_id": None}).status_code == 200
+    # the selection never clears (D33 revised), whatever the shift state
+    refusedclear = client.post("/api/teams/current", json={"team_id": None})
+    assert refusedclear.status_code == 409
+    assert refusedclear.json()["error"]["code"] == "no_team"
     client.post("/api/shift/end", json={"force": True})
     assert client.post("/api/teams/current", json={"team_id": team_id}).status_code == 200
 
@@ -480,7 +490,7 @@ def test_adding_an_agent_writes_it_into_the_charter(client, tmp_path):
     assert set(index["team"]["agents"]) == {"infra", "tf-dev", "scribe", "scout"}
     assert index["team"]["discovery"] == "manual" and len(index["team"]["links"]) == 2
     # the hub's cached charter follows the files it just wrote, without a manual reload
-    team = client.get("/api/teams").json()[0]
+    team = next(t for t in client.get("/api/teams").json() if t["is_current"])
     assert "scout" in [a["name"] for a in team["charter"]["agents"]]
     assert team["load_report"] == []
     # and a reload finds nothing to disagree with: write-back round-trips exactly
@@ -502,16 +512,18 @@ def test_hub_picked_color_stays_undeclared_in_the_card(client, tmp_path):
     assert sorted(p.name for p in (charter_dir / "quiet").iterdir()) == ["card.yml"]
 
 
-def test_without_a_current_team_the_files_are_untouched(client, tmp_path):
-    """Registered but not current = display only; no team at all = today's behaviour.
-    Write-back is bound to the current team and nothing else."""
+def test_write_back_is_bound_to_the_current_team_only(client, tmp_path):
+    """A registered but not current team is display only: agent changes land on the
+    CURRENT team's files and nowhere else."""
     charter_dir = fixture_copy(tmp_path)
     made = client.post("/api/teams", json={"charter_dir": str(charter_dir)})
     assert made.status_code == 201
     index_before = (charter_dir / "team-definition.yml").read_text()
     assert client.post("/api/agents", json={"name": "solo", "type": "dummy"}).status_code == 201
+    assert (client.team_dir / "solo" / "card.yml").exists()  # the current team's files
     assert client.patch("/api/agents/solo", json={"description": "db only"}).status_code == 200
     assert client.delete("/api/agents/solo").status_code == 200
+    assert not (client.team_dir / "solo").exists()
     assert (charter_dir / "team-definition.yml").read_text() == index_before
     assert not (charter_dir / "solo").exists()
 
@@ -537,7 +549,7 @@ def test_editing_a_charter_agent_writes_the_card_files(client, tmp_path):
     client.patch("/api/agents/infra", json={"workdir": None})
     assert _read_yaml(charter_dir / "workdirs.local.yml")["workdirs"] == {}
     # the cached charter followed along; a reload agrees with the database
-    team = client.get("/api/teams").json()[0]
+    team = next(t for t in client.get("/api/teams").json() if t["is_current"])
     assert team["load_report"] == []
     assert client.post(f"/api/teams/{team['id']}/reload").json()["load_report"] == []
     infra = _agents_by_name(client)["infra"]
@@ -545,8 +557,8 @@ def test_editing_a_charter_agent_writes_the_card_files(client, tmp_path):
 
 
 def test_editing_an_agent_outside_the_charter_stays_db_only(client, make_agent, tmp_path):
-    """An agent registered before the team was current keeps the database as its
-    master; the charter never learns about it (design team-charter.md §3)."""
+    """An agent of another registered team keeps the database as its edit surface;
+    the current charter never learns about it (design team-charter.md §3)."""
     make_agent("veteran")
     charter_dir = fixture_copy(tmp_path)
     _make_current(client, charter_dir)
@@ -593,8 +605,10 @@ def test_agent_changes_refuse_while_the_current_charter_is_broken(client, tmp_pa
     assert "late" not in _agents_by_name(client)  # the database was never touched
     assert client.patch("/api/agents/infra", json={"model": "opus"}).status_code == 409
     assert client.delete("/api/agents/infra").status_code == 409
-    # clearing the selection restores database-only behaviour
-    assert client.post("/api/teams/current", json={"team_id": None}).status_code == 200
+    # recovery: the selection moves to a healthy team (it can never be cleared)
+    assert client.post("/api/teams/current", json={"team_id": None}).status_code == 409
+    healthy = next(t for t in client.get("/api/teams").json() if t["name"] == "test-team")
+    assert client.post("/api/teams/current", json={"team_id": healthy["id"]}).status_code == 200
     assert client.post("/api/agents", json={"name": "late", "type": "dummy"}).status_code == 201
 
 
@@ -632,3 +646,43 @@ def test_config_dir_name_avoids_clashes(client, tmp_path):
     assert agents["blocked"] == {"agent-config-dir": "blocked-2"}
     assert agents["taken"] == {"agent-config-dir": "taken-2"}
     assert _read_yaml(charter_dir / "taken" / "card.yml") == {"type": "dummy"}  # untouched
+
+
+# ---- D33 revised: a current team is required ----------------------------------------
+
+
+def test_registration_is_refused_before_a_team_exists(bare_client):
+    """The charter is the source of truth, so it needs a home before the first agent:
+    the transient pre-team state accepts team registration and nothing else."""
+    refused = bare_client.post("/api/agents", json={"name": "early", "type": "dummy"})
+    assert refused.status_code == 409
+    assert refused.json()["error"]["code"] == "no_team"
+    assert "charter directory" in refused.json()["error"]["message"]
+    assert [a["name"] for a in bare_client.get("/api/agents").json()] == ["operator"]
+
+
+def test_choosing_a_team_adopts_agents_no_charter_names(client, make_agent, tmp_path):
+    """An orphan (its charter entry hand-deleted, then reloaded: projection is
+    additive) is written into the next team made current. The operator and removed
+    names are never adopted."""
+    make_agent("pioneer")
+    make_agent("goner")
+    client.delete("/api/agents/goner")  # removed: the name is burned, never adopted
+    # hand-edit the current team's files: pioneer leaves the charter, stays registered
+    index = _read_yaml(client.team_dir / "team-definition.yml")
+    del index["team"]["agents"]["pioneer"]
+    (client.team_dir / "team-definition.yml").write_text(yaml.safe_dump(index, sort_keys=False))
+    test_team = next(t for t in client.get("/api/teams").json() if t["name"] == "test-team")
+    assert client.post(f"/api/teams/{test_team['id']}/reload").status_code == 200
+    assert "pioneer" in _agents_by_name(client)  # projection is additive: still registered
+
+    charter_dir = fixture_copy(tmp_path)
+    _make_current(client, charter_dir)
+
+    adopted = _read_yaml(charter_dir / "team-definition.yml")["team"]["agents"]
+    assert "pioneer" in adopted
+    assert "goner" not in adopted and "operator" not in adopted
+    assert _read_yaml(charter_dir / "pioneer" / "card.yml") == {"type": "dummy"}
+    # adopted means owned: edits now land on THIS charter's files
+    client.patch("/api/agents/pioneer", json={"description": "adopted"})
+    assert (charter_dir / "pioneer" / "description.md").read_text() == "adopted\n"

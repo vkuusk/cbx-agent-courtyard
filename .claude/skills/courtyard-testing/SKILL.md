@@ -66,8 +66,10 @@ uv run python .claude/skills/courtyard-testing/scripts/scratch_hub.py stop --nam
 ```
 
 It creates a scratch database, starts a hub on a free port, and `stop` removes
-both. `scripts/runbook/discovery_links.py` and `stale_shift.py` show the full
-pattern in use.
+both. The hub comes with a current team already set (D33 requires one before
+agents can register); pass `--bare` to start without it when the check targets
+the pre-team state itself. `scripts/runbook/discovery_links.py` and
+`stale_shift.py` show the full pattern in use.
 
 ## Gotchas
 

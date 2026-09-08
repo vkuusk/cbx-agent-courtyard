@@ -196,6 +196,8 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .agent .check.ok { color: var(--green); }
 .agent .badge ~ .check { margin-left: .35rem; }
 .agent.add { border-style: dashed; color: var(--muted); justify-content: center; align-items: center; min-width: 9rem; gap: .3rem; background: transparent; }
+/* D33 (revised): the empty courtyard asks for the team directory before any agent */
+.team-first { display: flex; align-items: center; gap: .8rem; flex-wrap: wrap; padding: .5rem .2rem; max-width: 46rem; }
 .agent.add:hover { color: var(--text); }
 .agent.add .plus { font-size: 1.3rem; line-height: 1; }
 

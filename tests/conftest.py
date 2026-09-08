@@ -9,6 +9,7 @@ import threading
 import time
 from dataclasses import replace
 
+import httpx
 import psycopg
 import pytest
 import uvicorn
@@ -42,25 +43,48 @@ def config():
     return replace(base, database_url=test_url)
 
 
-@pytest.fixture()
-def client(config):
+def _truncate(config):
     with psycopg.connect(config.database_url, autocommit=True) as conn:
         conn.execute(
-            "TRUNCATE agents, lines, messages, channels, lines_archive, settings, teams CASCADE"
+            "TRUNCATE agents, lines, messages, threads, channels, lines_archive,"
+            " settings, teams CASCADE"
         )
+
+
+def give_team(post, tmp_path_factory):
+    """A current team in a tmp charter dir — required before agents can register (D33,
+    revised). `post` is any callable(path, json) returning a parsed response body."""
+    team_dir = tmp_path_factory.mktemp("team-charter")
+    team = post("/api/teams", {"charter_dir": str(team_dir), "name": "test-team"})
+    post("/api/teams/current", {"team_id": team["id"]})
+    return team_dir
+
+
+@pytest.fixture()
+def bare_client(config):
+    """A hub in the transient pre-team state: only team registration works. For tests
+    of the team registry itself and of the `no_team` refusal."""
+    _truncate(config)
     # TestClient as a context manager runs the lifespan (migrations + operator bootstrap).
     with TestClient(create_app(config)) as c:
         yield c
 
 
 @pytest.fixture()
-def live_hub(config):
+def client(config, tmp_path_factory):
+    _truncate(config)
+    with TestClient(create_app(config)) as c:
+        c.team_dir = give_team(lambda path, body: c.post(path, json=body).json(), tmp_path_factory)
+        yield c
+
+
+@pytest.fixture()
+def live_hub(config, tmp_path_factory):
     """Factory for a real uvicorn hub on an ephemeral port (step-2 integration tests
-    exercise actual HTTP end-to-end: hub pushes to real dummy listeners)."""
-    with psycopg.connect(config.database_url, autocommit=True) as conn:
-        conn.execute(
-            "TRUNCATE agents, lines, messages, channels, lines_archive, settings, teams CASCADE"
-        )
+    exercise actual HTTP end-to-end: hub pushes to real dummy listeners). The first
+    hub started gets a current team (D33, revised); later hubs share the database
+    and find it already there."""
+    _truncate(config)
     running: list[tuple[uvicorn.Server, threading.Thread]] = []
 
     def _start(**overrides) -> str:
@@ -76,7 +100,12 @@ def live_hub(config):
                 raise RuntimeError("test hub failed to start")
             time.sleep(0.02)
         running.append((server, thread))
-        return f"http://127.0.0.1:{cfg.port}"
+        url = f"http://127.0.0.1:{cfg.port}"
+        if not httpx.get(f"{url}/api/teams").json():
+            give_team(
+                lambda path, body: httpx.post(f"{url}{path}", json=body).json(), tmp_path_factory
+            )
+        return url
 
     yield _start
     for server, thread in running:

@@ -34,17 +34,31 @@ Verify: `curl -sf http://127.0.0.1:2626/api/health` returns success.
 
 ## Register the team's agents
 
-Ask your operator for the team design first; see the next section. Then, for
-each agent, one command registers it and writes its config:
+Ask your operator for the team design first; see the next section. The hub
+requires a current team before any agent can be registered: the team's charter
+directory is where the team definition lives as files (its own directory,
+outside every agent's workdir, ideally its own git repo). The first
+registration carries it; after that one command per agent registers it and
+writes its config:
 
 ```sh
-uv run courtyard-invite --register --name <agent-name> \
+# first agent: choose the team's charter directory in the same command
+# (an empty directory is initialized as a charter)
+uv run courtyard-invite --team-dir <the team's charter directory> \
+    --team-name <team-name> \
+    --register --name <agent-name> \
     --description "<what the agent can do>" \
     --sme-domain "<what the agent owns>" \
     --anti-scope "<what NOT to ask this agent>" \
     --workdir <the agent's project directory> \
     --model sonnet    # optional; the model the agent should run
+
+# every further agent: the team is already current, drop the --team flags
+uv run courtyard-invite --register --name <agent-name> ...
 ```
+
+Each registration is also written into the charter directory as that agent's
+card files, so the team definition stays reviewable and portable.
 
 This writes three files into the workdir: `.mcp.json` (holds the agent's hub
 token, permissions 600, must not be committed), a `.claude/settings.local.json`
@@ -63,6 +77,9 @@ Do not invent these; ask.
 
 - **Team composition**: which agents, split how. This is the most important
   input to the whole setup.
+- **The team's charter directory** (`--team-dir`) and name: where the team
+  definition lives as files. Outside every agent's workdir; typically its own
+  git repo.
 - **Per agent, the descriptive fields**: what it can do (`--description`,
   advertised to every other agent), what it owns (`--sme-domain`, marks the
   agent's word as authoritative inside its own area), and optionally what it is

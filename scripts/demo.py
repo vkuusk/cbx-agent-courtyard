@@ -125,6 +125,25 @@ def ensure_hub(admin: HubClient) -> None:
         time.sleep(0.3)
 
 
+def ensure_team(admin: HubClient) -> None:
+    """A current team is required before agents can register (D33). A hub that has one
+    keeps it: the dummies join its charter and leave it with the cleanup. A fresh hub
+    gets a demo team in .demo/team-charter, which stays current afterwards (the
+    courtyard always has a current team)."""
+    if any(t.is_current for t in admin.teams()):
+        return
+    team_dir = (DEMO_DIR / "team-charter").resolve()
+    team_dir.mkdir(exist_ok=True)
+    try:
+        team = admin.add_team(str(team_dir), "demo")
+    except HubError as exc:
+        if exc.code != "team_exists":
+            raise
+        team = next(t for t in admin.teams() if t.charter_dir == str(team_dir))
+    admin.set_current_team(team.id)
+    say(f"no team on this hub yet — created 'demo' (charter: {team_dir}) and made it current")
+
+
 def link_supervised(admin: HubClient, a: str, b: str) -> None:
     """The demo's pairs must talk whatever the operator's saved settings say: pre-create
     their line (a link, design §5.8 — legal under either discovery mode) and pin it
@@ -176,6 +195,7 @@ def main() -> None:
 
     stop_dummies()
     ensure_hub(admin)
+    ensure_team(admin)
     cleanup_cast(admin)
     if args.chrome:
         try:

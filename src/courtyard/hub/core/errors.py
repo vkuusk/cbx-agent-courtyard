@@ -166,6 +166,14 @@ class NothingToUninstall(DomainError):
     http_status = 404
 
 
+class NoTeam(DomainError):
+    """D33 (revised): a current team is required — files are the source of truth, so
+    the truth needs a home before the first agent. Registration without a current team,
+    clearing the selection, and removing the current team all refuse with this."""
+
+    code = "no_team"
+
+
 class TeamNotFound(DomainError):
     code = "team_not_found"
     http_status = 404

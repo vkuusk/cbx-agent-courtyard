@@ -18,8 +18,10 @@ Needs the compose postgres up (`make db-up`). Run:
 
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 from courtyard.common.client import HubClient, HubError
@@ -72,6 +74,9 @@ def start_hub():
 psql(f"DROP DATABASE IF EXISTS {DB_NAME} WITH (FORCE)", f"CREATE DATABASE {DB_NAME}")
 hub, admin = start_hub()
 try:
+    # D33: a current team is required before agents can register
+    team_dir = tempfile.mkdtemp(prefix="runbook-team-")
+    admin.set_current_team(admin.add_team(team_dir, "runbook").id)
     hr("SEED  (a shift left open: doc says on, agent offline, window tty dead)")
     agent, _ = admin.register_agent("coder", "claude-code", workdir="/tmp/coder")
     hub.terminate()
@@ -139,6 +144,7 @@ try:
     except HubError as exc:
         print(f"resume            : refused ({exc})")
 finally:
+    shutil.rmtree(team_dir, ignore_errors=True)
     admin.close()
     hub.terminate()
     hub.wait()

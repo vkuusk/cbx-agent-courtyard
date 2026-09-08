@@ -191,23 +191,34 @@ logs, and Ctrl+C stops it. `make run-chrome` is the background alternative (hub
 logs to `sandbox/courtyard.log`, WebUI in its own Chrome window, `make run-stop`
 to end it); use it once the setup is familiar.
 
-### Register your agents
+### Choose the team's directory, then register your agents
 
-On the WebUI:
+A courtyard team is defined as files in one directory, the team charter: the
+agents' cards, the team's links, all of it reviewable and portable (put the
+directory in its own git repo and the team setup travels with it). The hub
+requires this before the first agent, and the empty Courtyard page asks for it:
+pick a directory, and one that already holds a charter is loaded while an empty
+one is initialized after you name the team.
+
+Then, on the WebUI:
 
 1. **Agents** page → **+ Add an agent**: a name (permanent, so choose it once),
    type `claude-code`, the project directory the agent works in, and the two
-   descriptions from the team design: what it can do and what it owns.
+   descriptions from the team design: what it can do and what it owns. The
+   agent is registered on the hub and written into the charter directory as its
+   card files.
 2. In the agent's edit view open **launch config** and press
    **write the files into ‹dir›**. The hub drops three small files into that
    directory: `.mcp.json` (the connection, holds the agent's token, keep it out
    of git), a `.claude/settings.local.json` profile that pre-approves the
    courtyard tools, and `start-with-courtyard.sh` for starting the agent by hand.
 
-Or do both in one command per agent:
+Or do it all in one command per agent (the `--team` flags are only needed once,
+on a hub that has no team yet):
 
 ```sh
-uv run courtyard-invite --register --name tf-developer \
+uv run courtyard-invite --team-dir <the team's charter directory> --team-name devops \
+    --register --name tf-developer \
     --description "what the agent can do" \
     --sme-domain "what the agent owns" \
     --workdir <the agent's project directory>

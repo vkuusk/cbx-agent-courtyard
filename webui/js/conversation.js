@@ -6,7 +6,7 @@ import { html, useEffect, useLayoutEffect, useRef, useState } from "../vendor/ht
 import { api } from "./api.js";
 import {
   store, selectedAgent, selectedLine, agentName, operatorId,
-  loadMessages, dropMessages, markLineSeen, threadsOn,
+  loadMessages, dropMessages, markLineSeen, threadsOn, currentTeam,
 } from "./store.js";
 import { useStore, fmtClock } from "./ui.js";
 
@@ -191,10 +191,15 @@ export function Conversation() {
 
   let body;
   if (!store.ui.selected) {
-    body = empty(
-      "Your courtyard is empty",
-      "Add an agent, let the hub write its .mcp.json, start it in its own terminal, and its dot turns green here.",
-    );
+    body = currentTeam()
+      ? empty(
+          "Your courtyard is empty",
+          "Add an agent, let the hub write its .mcp.json, start it in its own terminal, and its dot turns green here.",
+        )
+      : empty(
+          "Your courtyard is empty",
+          "Choose the team's directory in the Team panel above — the courtyard keeps the team definition there. Then add your agents.",
+        );
   } else if (agent && !line) {
     body = empty(null, `No messages between you and ${agent.name} yet. Write below to start the line.`);
   } else if (!line) {

@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
 from courtyard.common.models import (
+    BUILTIN_TERMINALS,
     CustomTerminal,
     Discovery,
     LineMode,
@@ -67,6 +68,14 @@ class SettingsPatch(BaseModel):
 @router.get("/settings")
 def settings(shift: Annotated[ShiftService, Depends(get_shift)]) -> Settings:
     return shift.get_settings()
+
+
+@router.get("/settings/terminals")
+def builtin_terminals() -> list[str]:
+    """The terminal applications the shift fully drives (opens AND closes windows), for
+    the Admin pulldown — one spawner each in hub/core/spawn.py, so the WebUI keeps no
+    hand-mirrored copy of the list."""
+    return list(BUILTIN_TERMINALS)
 
 
 @router.patch("/settings")

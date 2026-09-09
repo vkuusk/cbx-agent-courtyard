@@ -19,6 +19,7 @@ export const store = {
   inbox: new Map(), // messageId -> message addressed to the operator
   shift: null, // ShiftStatus from the hub (design §8.1) — the Team panel pill renders it
   settings: null, // hub Settings — the board reads discovery (§5.8) to offer link/unlink
+  builtinTerminals: [], // the apps the shift fully drives (from the hub; Admin's pulldown)
   teams: [], // the team charter registry (D33) — Admin manages it, the board names the current one
   sse: "connecting", // connecting | live | lost
   version: 0, // bumped on every change; lets a component catch up if it subscribed late
@@ -237,13 +238,14 @@ export function totalUnread() {
 // ---- data loading -----------------------------------------------------------------
 
 export async function refreshSnapshot() {
-  const [agents, lines, pending, inbox, shift, settings, teams] = await Promise.all([
+  const [agents, lines, pending, inbox, shift, settings, terminals, teams] = await Promise.all([
     api.agents(),
     api.lines(),
     api.pending(),
     api.operatorInbox(),
     api.shift(),
     api.settings(),
+    api.builtinTerminals(),
     api.teams(),
   ]);
   store.agents = new Map(agents.map((a) => [a.id, a]));
@@ -252,6 +254,7 @@ export async function refreshSnapshot() {
   store.inbox = new Map(inbox.map((m) => [m.id, m]));
   store.shift = shift;
   store.settings = settings;
+  store.builtinTerminals = terminals;
   store.teams = teams;
   // A cached transcript may belong to a line that no longer exists (unlinked, or its
   // agent removed, while on screen) — reloading it would 404 and abort the refresh.

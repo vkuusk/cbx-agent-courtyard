@@ -6,17 +6,34 @@ against the real test database; API tests check the routes and error codes.
 
 from __future__ import annotations
 
+import contextlib
+import json
+import os
+import pty
+import re
+import signal
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import uuid4
 
 import psycopg
 import pytest
 
-from courtyard.common.models import Settings
+from courtyard.common.models import BUILTIN_TERMINALS, Settings
+from courtyard.hub.core import spawn
 from courtyard.hub.core.errors import InvalidSetting, NoShiftToResume, ShiftBusy
 from courtyard.hub.core.events import EventBus
 from courtyard.hub.core.shift import SETTLE_SECONDS, ShiftService, launch_command
-from courtyard.hub.core.spawn import applescript_str, shell_command
+from courtyard.hub.core.spawn import (
+    BUILTIN_SPAWNERS,
+    Ghostty,
+    _kill_tty,
+    _tty_busy,
+    _tty_pids,
+    applescript_str,
+    make_spawner,
+    shell_command,
+)
 from courtyard.hub.storage.postgres import PostgresStorage
 
 T0 = datetime(2026, 8, 25, 12, 0, 0, tzinfo=UTC)
@@ -292,6 +309,177 @@ class TestEscaping:
     def test_shell_command_quotes_the_workdir(self):
         cmd = shell_command("/tmp/my agent's dir", "claude --flag")
         assert cmd == """cd '/tmp/my agent'"'"'s dir' && claude --flag"""
+
+
+class TestTtyProbe:
+    """Every spawner's liveness (`alive`) and its pre-close kill ride on the tty probe,
+    so it is checked against a real pty with a real process on it. Regression, found
+    live 2026-09-08: on the `pgrep -t`/`pkill -t` form both were silent no-ops on
+    macOS 26 — D25 asked its abandoned-shift question with the windows open, and End
+    shift closed windows while leaving the agents running."""
+
+    @staticmethod
+    def _sleeper_on_a_pty():
+        """A `sleep` in its own session on a fresh pty — the shape a terminal window
+        gives the agent's shell. The child reports its tty the way the Ghostty spawner
+        has the real shell report it."""
+        pid, master = pty.fork()
+        if pid == 0:  # the child; execv never returns
+            os.execv("/bin/sh", ["sh", "-c", "tty; sleep 300"])
+        reported = ""
+        while "\n" not in reported:
+            reported += os.read(master, 128).decode(errors="replace")
+        return pid, master, reported.strip()
+
+    def test_it_finds_and_ends_the_processes_on_a_tty(self):
+        pid, master, tty = self._sleeper_on_a_pty()
+        name = tty.removeprefix("/dev/")
+        try:
+            assert pid in _tty_pids(name)
+            assert _tty_busy(name) is True
+
+            _kill_tty(tty)
+            assert _tty_busy(name) is False  # end shift can now close a quiet window
+        finally:
+            with contextlib.suppress(OSError):
+                os.kill(pid, signal.SIGKILL)
+            with contextlib.suppress(ChildProcessError):
+                os.waitpid(pid, 0)
+            os.close(master)
+
+    def test_a_tty_with_nothing_on_it_reads_idle(self):
+        assert _tty_pids("ttys999") == [] and _tty_busy("ttys999") is False
+
+
+#: one window id per built-in, in the type its dictionary declares (integer or text)
+WINDOW_IDS = {"Terminal": "4711", "iTerm2": "17", "Ghostty": "tab-group-abc"}
+
+
+class TestBuiltinSpawners:
+    """The built-ins share one base (`OsascriptTerminal`): one ref shape, one liveness,
+    one close sequence. Driving the real AppleScript is the manual runbook check (it
+    needs the apps installed); these hold what every app must do the same way."""
+
+    @staticmethod
+    def ref(app, **fields):
+        return json.dumps({"app": app, "window_id": WINDOW_IDS[app], **fields})
+
+    def test_every_builtin_name_has_a_spawner(self):
+        assert set(BUILTIN_SPAWNERS) == set(BUILTIN_TERMINALS)  # neither list drifts alone
+        assert set(WINDOW_IDS) == set(BUILTIN_TERMINALS)
+        for name, cls in BUILTIN_SPAWNERS.items():
+            assert cls.name == name and isinstance(make_spawner(name), cls)
+
+    def test_the_webui_reads_the_names_from_the_hub(self, client):
+        # no hand-kept mirror in admin.js: the pulldown lists what the hub can drive
+        assert client.get("/api/settings/terminals").json() == list(BUILTIN_TERMINALS)
+
+    @pytest.mark.parametrize("app", BUILTIN_TERMINALS)
+    def test_spawn_records_the_same_ref_shape(self, app, monkeypatch):
+        spawner = make_spawner(app)
+        monkeypatch.setattr(spawner, "_open", lambda cwd, command: ("w1", "/dev/ttys042"))
+        ref = json.loads(spawner.spawn("/tmp/w", "claude"))
+        assert ref == {"app": app, "window_id": "w1", "tty": "/dev/ttys042"}
+
+    @pytest.mark.parametrize("app", BUILTIN_TERMINALS)
+    def test_close_counts_the_window_then_kills_then_closes(self, app, monkeypatch):
+        """The order is the whole design of the method: a window closing on a live
+        process orphans the agent, and a count taken after the kill can read zero because
+        ending the shell already retired the window (Ghostty always; Terminal under a
+        close-on-exit profile)."""
+        spawner = make_spawner(app)
+        order = []
+        monkeypatch.setattr(spawn, "_kill_tty", lambda tty: order.append(f"kill {tty}"))
+
+        def fake_osascript(script):
+            assert script.startswith(f"tell {spawner.app}")
+            # the id is compared in its own type: quoted text, or a bare integer
+            literal = f'"{WINDOW_IDS[app]}"' if spawner.text_ids else WINDOW_IDS[app]
+            assert f"every window whose id is {literal}" in script
+            if "count of" in script:
+                order.append("count")
+                return "1"
+            order.append("close")
+            assert f"    {spawner.close_verb}\n" in script
+            return ""
+
+        monkeypatch.setattr(spawn, "_osascript", fake_osascript)
+        assert spawner.close(self.ref(app, tty="/dev/ttys042")) is True
+        assert order == ["count", "kill /dev/ttys042", "close"]
+
+    @pytest.mark.parametrize("app", BUILTIN_TERMINALS)
+    def test_close_reports_a_window_that_was_already_gone(self, app, monkeypatch):
+        monkeypatch.setattr(spawn, "_kill_tty", lambda tty: None)
+        monkeypatch.setattr(spawn, "_osascript", lambda script: "0")
+        assert make_spawner(app).close(self.ref(app, tty="/dev/ttys042")) is False
+
+    @pytest.mark.parametrize("app", BUILTIN_TERMINALS)
+    def test_close_survives_an_app_that_refuses(self, app, monkeypatch):
+        def refuse(script):
+            raise spawn.SpawnFailed("not running")
+
+        monkeypatch.setattr(spawn, "_osascript", refuse)
+        assert make_spawner(app).close(self.ref(app, tty="")) is False
+
+    def test_a_ref_without_a_tty_reads_dead(self):
+        # honest degradation: liveness cannot verify a window whose tty is unknown
+        for app in BUILTIN_TERMINALS:
+            assert make_spawner(app).alive(self.ref(app, tty="")) is False
+        assert make_spawner("Terminal").alive("not json") is False
+
+    def test_iterm2_is_addressed_by_bundle_id(self):
+        # `application "iTerm2"` does not resolve (the app file is iTerm.app)
+        assert 'application id "com.googlecode.iterm2"' == make_spawner("iTerm2").app
+
+
+class TestGhosttySpawner:
+    """D33: Ghostty is a third fully driven terminal — it opens AND closes windows.
+    What is Ghostty's alone: the line is typed as `initial input`, and the shell reports
+    its tty through a temp file because the dictionary exposes none."""
+
+    def ref(self, **fields):
+        return json.dumps({"app": "Ghostty", "window_id": "tab-group-abc", **fields})
+
+    def test_spawn_types_the_line_and_reads_back_the_reported_tty(self, monkeypatch):
+        seen = {}
+
+        def fake_osascript(script):
+            seen["script"] = script
+            # stand in for the spawned shell: report the tty into the file it was given
+            seen["ttyfile"] = re.search(r"tty > (\S+);", script).group(1)
+            Path(seen["ttyfile"]).write_text("/dev/ttys042\n")
+            return "tab-group-abc"
+
+        monkeypatch.setattr(spawn, "_osascript", fake_osascript)
+        ref = json.loads(Ghostty().spawn("/tmp/my agent's dir", "claude --model sonnet"))
+
+        assert ref == {"app": "Ghostty", "window_id": "tab-group-abc", "tty": "/dev/ttys042"}
+        script = seen["script"]
+        assert "new surface configuration" in script
+        assert """set initial working directory of cfg to "/tmp/my agent's dir\"""" in script
+        # the shell line rides through BOTH escapers: shlex for the shell, then the
+        # AppleScript literal (whose backslash-quote is what reaches the typed input)
+        assert """cd '/tmp/my agent'\\"'\\"'s dir' && claude --model sonnet""" in script
+        assert "& linefeed" in script  # the typed line runs only once the shell reads a return
+        assert "set command of cfg" not in script  # the login shell must outlive the agent
+        assert not Path(seen["ttyfile"]).exists()  # the temp file does not survive the spawn
+
+    def test_a_shell_that_never_reports_its_tty_still_yields_a_window_ref(self, monkeypatch):
+        monkeypatch.setattr(spawn, "TTY_REPORT_TIMEOUT", 0.2)
+        monkeypatch.setattr(spawn, "_osascript", lambda script: "tab-group-abc")
+        ref = json.loads(Ghostty().spawn("/tmp/w", "claude"))
+        # honest degradation: the window is recorded, but liveness cannot verify it
+        assert ref["window_id"] == "tab-group-abc" and ref["tty"] == ""
+        assert Ghostty().alive(json.dumps(ref)) is False
+
+    def test_the_setting_accepts_it_and_no_custom_app_may_shadow_it(self, client):
+        assert client.patch("/api/settings", json={"terminal_app": "Ghostty"}).status_code == 200
+        resp = client.patch(
+            "/api/settings",
+            json={"custom_terminals": [{"name": "Ghostty", "command": "x {command}"}]},
+        )
+        assert resp.status_code == 422 and resp.json()["error"]["code"] == "invalid_setting"
+        assert client.patch("/api/settings", json={"terminal_app": "Terminal"}).status_code == 200
 
 
 def make_stale(storage, clock, spawner, names=("coder",)):

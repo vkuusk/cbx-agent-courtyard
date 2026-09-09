@@ -38,6 +38,7 @@ The core ideas, each with its section in the design doc:
 | Document | What it holds |
 |---|---|
 | [quickstart.md](quickstart.md) | Install + a worked example with two real Claude Code agents, every screen described: the permanent "new operator" path |
+| [user-guide.md](user-guide.md) | The operator's reference: installation, teams and agents, lines and the gate, the shift, the Admin page |
 | [design/architecture-v1.md](design/architecture-v1.md) | The full design: concepts, delivery model, liveness, the shift, and a decision log (§13) recording every choice with its reasons |
 | [design/adapter-implementation.md](design/adapter-implementation.md) | Implementation decisions for the Claude Code adapter: one stdio process per agent, why no MCP SDK, threading, delivery and resilience choices |
 | [design/team-charter.md](design/team-charter.md) | The team defined as files: charter directory, agent cards, topology, projection into the hub (accepted, D33; a worked example lives in `examples/team-charters/`) |

@@ -338,7 +338,9 @@ def test_reload_mirrors_the_files_and_reasserts_declared_modes(client, tmp_path)
 
 def test_projection_is_additive_and_reports_name_conflicts(client, make_agent, tmp_path):
     """Projection never removes anything, and the courtyard's permanent identities
-    (names, types, the operator) win over what a charter claims."""
+    (types, the operator) win over what a charter claims. A removed name is not one of
+    them any more: a charter that names it gets it registered again (the files are the
+    master), on the row the old life left behind."""
     make_agent("outsider")  # registered by hand, not in the charter
     make_agent("infra", type="dummy", description="was here first")
     removed, _ = make_agent("old-timer")
@@ -348,6 +350,8 @@ def test_projection_is_additive_and_reports_name_conflicts(client, make_agent, t
         (charter_dir / sub).mkdir(parents=True)
     (charter_dir / "infra" / "description.md").write_text("the charter's words\n")
     (charter_dir / "infra" / "card.yml").write_text("type: claude-code\n")
+    (charter_dir / "old-timer" / "card.yml").write_text("type: claude-code\n")
+    (charter_dir / "old-timer" / "description.md").write_text("back on the team\n")
     (charter_dir / "team-definition.yml").write_text(
         "team:\n"
         "  name: clashing\n"
@@ -368,16 +372,18 @@ def test_projection_is_additive_and_reports_name_conflicts(client, make_agent, t
         next(t for t in client.get("/api/teams").json() if t["id"] == team_id)["load_report"]
     )
     assert "the type is a permanent identity and stays dummy" in report
-    assert "names are permanent" in report
+    assert "old-timer" not in report  # revived, not reported
     assert "on the roster by design" in report
     assert "declares no type; not registered" in report
     agents = _agents_by_name(client)
     assert "outsider" in agents and "typeless" not in agents
+    revived = agents["old-timer"]
+    assert revived["id"] == removed["id"] and revived["removed_at"] is None
+    assert revived["type"] == "claude-code" and revived["description"] == "back on the team"
     assert agents["infra"]["type"] == "dummy"  # kept
     # this charter declares no discovery, so the dial stays the operator's (auto)
     assert client.get("/api/settings").json()["discovery"] == "auto"
     assert agents["infra"]["description"] == "the charter's words"  # prose still mirrored
-    assert agents["old-timer"]["id"] == removed["id"]  # still the removed row, untouched
     assert client.get("/api/lines").json() == []  # half a link helps nobody
 
 

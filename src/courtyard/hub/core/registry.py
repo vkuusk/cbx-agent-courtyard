@@ -72,27 +72,37 @@ class Registry:
     ) -> tuple[Agent, str]:
         """Register an agent. The token is returned here and kept (D19): the operator can
         read it again via `token_of` and replace it via `rotate_token`. Every agent but the
-        operator gets a palette colour — the one given, or the least used."""
+        operator gets a palette colour — the one given, or the least used.
+
+        A name that was removed is registered again on its own row (his ask, 2026-09-08:
+        a team member removed by mistake, or re-registered from a fresh charter, must get
+        its name back). The old life is over — the token is replaced, liveness restarts at
+        `invited`, the type may differ — and only the row survives it, which is exactly
+        what keeps the archives and old messages that point at it valid. A live name is
+        still refused."""
         token = new_token()
         with self._storage.transaction() as uow:
-            if uow.agents.get_by_name(name) is not None:
+            existing = uow.agents.get_by_name(name)
+            if existing is not None and existing.removed_at is None:
                 raise NameTaken(f"agent name {name!r} is already registered")
             if color is None and type != "human":
                 color = pick_color(uow.agents.list())
-            agent = uow.agents.create(
-                agent_id=uuid4(),
-                name=name,
-                type=type,
-                description=description,
-                sme_domain=sme_domain,
-                workdir=workdir,
-                token_hash=hash_token(token),
-                token=token,
-                launch=launch,
-                color=color,
-                model=model,
-                anti_scope=anti_scope,
-            )
+            fields = {
+                "type": type,
+                "description": description,
+                "sme_domain": sme_domain,
+                "workdir": workdir,
+                "token_hash": hash_token(token),
+                "token": token,
+                "launch": launch,
+                "color": color,
+                "model": model,
+                "anti_scope": anti_scope,
+            }
+            if existing is None:
+                agent = uow.agents.create(agent_id=uuid4(), name=name, **fields)
+            else:
+                agent = uow.agents.revive(existing.id, **fields)
         self._events.publish("agent", agent)
         return agent, token
 

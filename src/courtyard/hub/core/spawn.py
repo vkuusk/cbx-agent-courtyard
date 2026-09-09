@@ -8,22 +8,36 @@ liveness stays the only health signal.
 Closing: terminal apps confirm before closing a window with a running process, which
 would turn End shift into a dialog per agent. So close() first ends the processes on the
 window's tty (SIGTERM to the process group leaders), then closes the now-quiet window.
+
+Adding a terminal application the shift should fully drive (open AND close):
+
+  1. subclass `OsascriptTerminal` below — `_open` is the app's AppleScript for opening a
+     window on the agent's line and reporting the window id and the tty; the class
+     attributes say how the app names itself and its windows
+  2. register it in `BUILTIN_SPAWNERS`, and its name in `models.BUILTIN_TERMINALS` (the
+     test suite refuses the two lists drifting apart); the WebUI reads the names from
+     the hub
+  3. run `scripts/runbook/terminal_spawners.py <name>` against the real app — the
+     AppleScript is the part no unit test can see
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 import shlex
+import signal
 import subprocess
+import tempfile
 import time
+from pathlib import Path
 from typing import Protocol
 
 logger = logging.getLogger("courtyard.hub")
 
 OSASCRIPT_TIMEOUT = 15.0
-
-TERMINAL_APPS = ("Terminal", "iTerm2")
+TTY_REPORT_TIMEOUT = 5.0  # how long a spawned shell gets to report its own tty (Ghostty)
 
 
 class SpawnFailed(Exception):
@@ -69,17 +83,31 @@ def _osascript(script: str) -> str:
     return result.stdout.strip()
 
 
-def _tty_busy(name: str) -> bool:
-    return (
-        subprocess.run(
-            ["pgrep", "-t", name], capture_output=True, timeout=10, check=False
-        ).returncode
-        == 0
+def _tty_pids(name: str) -> list[int]:
+    """Every process whose controlling terminal is `name` (e.g. `ttys003`).
+
+    `ps -t` and NOT `pgrep -t` (found live 2026-09-08, macOS 26 / Darwin 25.6): `pgrep -t`
+    and `pkill -t` match nothing there for ANY tty, including the windows these spawners
+    open themselves, while `ps -t` lists the processes correctly. On the pgrep pair,
+    liveness read every window as dead (D25 asked its abandoned-shift question with the
+    windows open, resume respawned live agents) and the pre-close kill was a silent
+    no-op, so End shift closed windows and left the agents running."""
+    result = subprocess.run(
+        ["ps", "-t", name, "-o", "pid="],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,  # a tty that no longer exists is an error and means "nothing on it"
     )
+    return [int(field) for field in result.stdout.split() if field.isdigit()]
+
+
+def _tty_busy(name: str) -> bool:
+    return bool(_tty_pids(name))
 
 
 def _ref_alive(ref: str) -> bool:
-    """Shared by both macOS spawners: the session lives iff its tty has processes.
+    """Shared by every built-in spawner: the session lives iff its tty has processes.
     A ref without a tty cannot be verified and reads as dead (resume will respawn)."""
     try:
         info = json.loads(ref)
@@ -94,10 +122,17 @@ def _kill_tty(tty: str) -> None:
     close that follows finds no running process (and therefore shows no confirmation
     dialog). Found live (WP-F check, 2026-08-26): closing immediately after SIGTERM races
     the process's shutdown — the slower window pops Terminal's "process is running" modal
-    and stays open. TERM first, escalate to KILL if the tty is still busy."""
+    and stays open. TERM first, escalate to KILL if the tty is still busy.
+
+    Signals go to the pids `ps -t` reports rather than through `pkill -t`; see
+    `_tty_pids` for why the pgrep/pkill form cannot be trusted."""
     name = tty.removeprefix("/dev/")
-    for signal, wait in (("-TERM", 5.0), ("-KILL", 2.0)):
-        subprocess.run(["pkill", signal, "-t", name], capture_output=True, timeout=10, check=False)
+    for sig, wait in ((signal.SIGTERM, 5.0), (signal.SIGKILL, 2.0)):
+        for pid in _tty_pids(name):
+            try:
+                os.kill(pid, sig)
+            except OSError as exc:  # already gone, or not ours to signal
+                logger.debug("signalling pid %s on %s: %s", pid, name, exc)
         deadline = time.monotonic() + wait
         while time.monotonic() < deadline:
             if not _tty_busy(name):
@@ -106,10 +141,94 @@ def _kill_tty(tty: str) -> None:
     logger.warning("tty %s still busy after TERM and KILL", name)
 
 
-class AppleTerminal:
-    """Terminal.app via osascript. The reference is the window id + the tab's tty."""
+def _read_tty(path: str) -> str:
+    """Wait for a spawned shell to write its tty into `path`. An empty answer is not
+    fatal and is not fixable either: the window is open and the agent is running, but
+    liveness cannot verify it and close cannot end it (as with a custom terminal)."""
+    deadline = time.monotonic() + TTY_REPORT_TIMEOUT
+    while time.monotonic() < deadline:
+        try:
+            reported = Path(path).read_text().strip()
+        except OSError:
+            reported = ""
+        if reported:
+            return reported
+        time.sleep(0.1)
+    logger.warning("spawned shell never reported its tty (%s)", path)
+    return ""
+
+
+class OsascriptTerminal:
+    """A macOS terminal application driven through its AppleScript dictionary. The
+    reference every subclass records has one shape, `{app, window_id, tty}`: the window
+    id is what close() targets, the tty is what liveness and the pre-close kill use.
+
+    What a subclass supplies: `_open` (the app's own way of opening a window on the
+    agent's line and telling us the window id and the tty) and three class attributes
+    describing how the app names itself and its windows. Everything else — the ref,
+    liveness, and the close sequence — is the same for every app.
+
+    The close sequence, in this order and for a reason each:
+
+    1. count the windows with that id, BEFORE anything is killed: some apps (Ghostty
+       always, Terminal.app under a "close the window when the shell exits" profile)
+       retire the window the moment its shell ends, so a count taken after the kill can
+       read zero for a close that worked. The count is the protocol's answer — False
+       means the window was already gone before End shift got to it.
+    2. end the processes on the window's tty and wait for them to go (`_kill_tty`): a
+       window closing on a live process either orphans it or asks the operator first.
+    3. close whatever the kill did not take with it.
+    """
+
+    name: str  # the BUILTIN_TERMINALS key; also the `app` field of the ref
+    app: str  # how AppleScript addresses the app: `application "..."` or `application id "..."`
+    text_ids = False  # window ids are integers unless the app's dictionary says text
+    close_verb = "close w"  # the app's command for closing the window bound to `w`
 
     def spawn(self, cwd: str, command: str) -> str | None:
+        window_id, tty = self._open(cwd, command)
+        return json.dumps({"app": self.name, "window_id": window_id, "tty": tty})
+
+    def alive(self, ref: str) -> bool:
+        return _ref_alive(ref)
+
+    def close(self, ref: str) -> bool:
+        info = json.loads(ref)
+        windows = f"(every window whose id is {self._id_literal(info['window_id'])})"
+        try:
+            found = _osascript(f"tell {self.app} to return (count of {windows}) as text") != "0"
+            if info.get("tty"):
+                _kill_tty(info["tty"])
+            _osascript(
+                f"tell {self.app}\n"
+                f"  repeat with w in {windows}\n"
+                f"    {self.close_verb}\n"
+                "  end repeat\n"
+                "end tell"
+            )
+        except (SpawnFailed, subprocess.TimeoutExpired) as exc:
+            logger.warning("closing %s window %s failed: %s", self.name, info.get("window_id"), exc)
+            return False
+        return found
+
+    def _id_literal(self, window_id: str) -> str:
+        """The window id as the AppleScript literal a `whose id is` clause compares."""
+        return applescript_str(str(window_id)) if self.text_ids else str(int(window_id))
+
+    def _open(self, cwd: str, command: str) -> tuple[str, str]:
+        """Open a window running the agent's line; return (window id, tty). The tty may
+        be "" when the app cannot report it — recorded honestly, see `_read_tty`."""
+        raise NotImplementedError
+
+
+class AppleTerminal(OsascriptTerminal):
+    """Terminal.app. `do script` runs the line in a new tab's login shell; the tab
+    reports its tty and its window's id directly."""
+
+    name = "Terminal"
+    app = 'application "Terminal"'
+
+    def _open(self, cwd: str, command: str) -> tuple[str, str]:
         line = applescript_str(shell_command(cwd, command))
         # Cold start (found live, 2026-08-28): when Terminal.app is not running, the
         # first `do script` launches it, and the app opens its own startup window — a
@@ -119,8 +238,8 @@ class AppleTerminal:
         # it becomes a normal recorded spawn. The fallback plain `do script` covers a
         # launch that opened no window; either way exactly one window per agent.
         out = _osascript(
-            'set wasRunning to application "Terminal" is running\n'
-            'tell application "Terminal"\n'
+            f"set wasRunning to {self.app} is running\n"
+            f"tell {self.app}\n"
             "  if wasRunning then\n"
             f"    set t to do script {line}\n"
             "  else\n"
@@ -144,38 +263,24 @@ class AppleTerminal:
             'return (w as text) & "|" & y'
         )
         window_id, _, tty = out.partition("|")
-        return json.dumps({"app": "Terminal", "window_id": window_id, "tty": tty})
-
-    def alive(self, ref: str) -> bool:
-        return _ref_alive(ref)
-
-    def close(self, ref: str) -> bool:
-        info = json.loads(ref)
-        if info.get("tty"):
-            _kill_tty(info["tty"])
-        try:
-            out = _osascript(
-                'tell application "Terminal"\n'
-                f"  set targets to every window whose id is {int(info['window_id'])}\n"
-                "  repeat with w in targets\n"
-                "    close w\n"
-                "  end repeat\n"
-                "  return (count of targets) as text\n"
-                "end tell"
-            )
-        except (SpawnFailed, subprocess.TimeoutExpired) as exc:
-            logger.warning("closing Terminal window %s failed: %s", info.get("window_id"), exc)
-            return False
-        return out != "0"
+        return window_id, tty
 
 
-class ITerm2:
-    """iTerm2 via osascript. The reference is the window id + the session's tty."""
+class ITerm2(OsascriptTerminal):
+    """iTerm2. `write text` types the line into the new window's session, which reports
+    its tty; the window id is an integer per iTerm2's dictionary."""
 
-    def spawn(self, cwd: str, command: str) -> str | None:
+    name = "iTerm2"
+    # iTerm2 ships as `iTerm.app` while calling itself iTerm2, and AppleScript resolves the
+    # app by that filename: `tell application "iTerm2"` raises "Can't get application" and
+    # the script then fails to even compile (found by the spawner runbook, 2026-09-08, on
+    # iTerm2 3.6.6 — the whole iTerm2 spawner was dead). The bundle id is unambiguous.
+    app = 'application id "com.googlecode.iterm2"'
+
+    def _open(self, cwd: str, command: str) -> tuple[str, str]:
         line = applescript_str(shell_command(cwd, command))
         out = _osascript(
-            'tell application "iTerm2"\n'
+            f"tell {self.app}\n"
             "  set w to (create window with default profile)\n"
             "  tell current session of w\n"
             f"    write text {line}\n"
@@ -186,27 +291,41 @@ class ITerm2:
             'return (id of w as text) & "|" & y'
         )
         window_id, _, tty = out.partition("|")
-        return json.dumps({"app": "iTerm2", "window_id": window_id, "tty": tty})
+        return window_id, tty
 
-    def alive(self, ref: str) -> bool:
-        return _ref_alive(ref)
 
-    def close(self, ref: str) -> bool:
-        info = json.loads(ref)
-        if info.get("tty"):
-            _kill_tty(info["tty"])
+class Ghostty(OsascriptTerminal):
+    """Ghostty . The line is typed as the new surface's `initial input`, into a login
+    shell that outlives the agent; the dictionary exposes no tty, so the shell reports
+    its own through a temp file (`_read_tty`). Window ids are text.
+    """
+
+    name = "Ghostty"
+    app = 'application "Ghostty"'
+    text_ids = True  # "Stable ID for this window", type text
+    close_verb = "close window w"  # `close` alone is the terminal-surface command
+
+    def _open(self, cwd: str, command: str) -> tuple[str, str]:
+        handle, ttyfile = tempfile.mkstemp(prefix="courtyard-tty-")
+        os.close(handle)
         try:
-            _osascript(
-                'tell application "iTerm2"\n'
-                "  repeat with w in windows\n"
-                f"    if (id of w as text) is {applescript_str(str(info['window_id']))} then close w\n"
-                "  end repeat\n"
+            typed = f"tty > {shlex.quote(ttyfile)}; {shell_command(cwd, command)}"
+            # AppleScript string literals hold no newline, and the line only runs once
+            # the shell reads a return: `& linefeed` supplies it.
+            window_id = _osascript(
+                f"tell {self.app}\n"
+                "  set cfg to new surface configuration\n"
+                f"  set initial working directory of cfg to {applescript_str(cwd)}\n"
+                f"  set initial input of cfg to {applescript_str(typed)} & linefeed\n"
+                "  set w to new window with configuration cfg\n"
+                "  activate\n"
+                "  return id of w\n"
                 "end tell"
             )
-        except (SpawnFailed, subprocess.TimeoutExpired) as exc:
-            logger.warning("closing iTerm2 window %s failed: %s", info.get("window_id"), exc)
-            return False
-        return True
+            return window_id, _read_tty(ttyfile)
+        finally:
+            if os.path.exists(ttyfile):
+                os.unlink(ttyfile)
 
 
 def render_template(template: str, cwd: str, command: str) -> str:
@@ -239,9 +358,15 @@ class CommandTemplate:
         return False
 
 
+#: The apps the shift fully drives (open AND close), one per BUILTIN_TERMINALS name.
+BUILTIN_SPAWNERS: dict[str, type[OsascriptTerminal]] = {
+    cls.name: cls for cls in (AppleTerminal, ITerm2, Ghostty)
+}
+
+
 def make_spawner(terminal_app: str, custom: dict[str, str] | None = None) -> TerminalSpawner:
-    if terminal_app == "iTerm2":
-        return ITerm2()
+    if builtin := BUILTIN_SPAWNERS.get(terminal_app):
+        return builtin()
     if custom and terminal_app in custom:
         return CommandTemplate(custom[terminal_app])
-    return AppleTerminal()
+    return AppleTerminal()  # a setting that names nothing (removed app) falls back

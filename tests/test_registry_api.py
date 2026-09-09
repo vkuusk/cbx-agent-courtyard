@@ -117,6 +117,42 @@ def test_duplicate_name_refused(client, make_agent):
     assert resp.json()["error"]["code"] == "name_taken"
 
 
+def test_a_removed_name_is_registered_again_on_its_own_row(client, make_agent):
+    """His ask (2026-09-08): a member removed by mistake gets its name back. The row and
+    so the id survive, which is what keeps the archives and old messages pointing at a
+    real agent; nothing else of the old life does — token, liveness, fields, even the
+    type start over. The charter gets the card back through the normal write-back."""
+    old, old_token = make_agent("alice", type="dummy", description="first life")
+    _, bob = make_agent("bob")
+    client.post("/api/lines/send", json={"to": "alice", "body": "hi"}, headers=auth(bob))
+    client.delete("/api/agents/alice")
+    assert not (client.team_dir / "alice" / "card.yml").exists()  # write-back took the card
+
+    resp = client.post(
+        "/api/agents",
+        json={"name": "alice", "type": "claude-code", "description": "second life"},
+    )
+    assert resp.status_code == 201, resp.text
+    agent, token = resp.json()["agent"], resp.json()["token"]
+    assert agent["id"] == old["id"]
+    assert agent["removed_at"] is None and agent["status"] == "invited"
+    assert agent["last_seen_at"] is None and agent["channel_flag"] is None
+    assert agent["type"] == "claude-code" and agent["description"] == "second life"
+    assert token != old_token
+    assert client.get("/api/agents/alice/inbox", headers=auth(old_token)).status_code == 401
+    assert client.get("/api/agents/alice/inbox", headers=auth(token)).status_code == 200
+    assert client.get("/api/agents/alice/token").json()["token"] == token
+    # the first life's history is untouched: archived at removal, still naming alice
+    archives = client.get("/api/archive").json()
+    assert [a["reason"] for a in archives] == ["agent_removed"]
+    assert "alice" in (archives[0]["agent_a_name"], archives[0]["agent_b_name"])
+    assert client.get("/api/lines").json() == []  # no line came back with the name
+    # the card is back in the charter, and the name is a live one again
+    assert "type: claude-code" in (client.team_dir / "alice" / "card.yml").read_text()
+    resp = client.post("/api/agents", json={"name": "alice", "type": "dummy"})
+    assert resp.status_code == 409 and resp.json()["error"]["code"] == "name_taken"
+
+
 def test_invalid_name_rejected(client):
     resp = client.post("/api/agents", json={"name": "bad name!", "type": "dummy"})
     assert resp.status_code == 422

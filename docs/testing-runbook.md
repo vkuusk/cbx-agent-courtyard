@@ -666,8 +666,9 @@ default, WARNING, ERROR, and DEBUG for development) sets the hub's stdout
 verbosity in one place: the hub's own loggers, uvicorn's, and the request lines.
 Request lines log at their real severity instead of uvicorn's always-INFO: below
 400 INFO, 4xx WARNING, 5xx ERROR. So WARNING keeps failures visible while routine
-200 lines go quiet (the startup banner goes quiet too; that is what WARNING
-means).
+200 lines go quiet. Whatever the level, the hub prints one ready line once it is
+up (address, WebUI directory, postgres, and what the level will show), so a quiet
+WARNING hub reads as health rather than a hang.
 
 **Scripted part** (its own throwaway hub, runs the hub twice):
 
@@ -677,9 +678,11 @@ uv run python scripts/runbook/log_level.py
 
 **Manual part:**
 
-1. `COURTYARD_LOG_LEVEL=WARNING make run`: no startup banner, no request lines
-   while the WebUI loads. Trigger a refusal (add a team from a directory without
-   a charter and cancel the name prompt): the 422 line appears, labeled WARNING.
+1. `COURTYARD_LOG_LEVEL=WARNING make run`: exactly one line, `courtyard hub ready
+   on http://127.0.0.1:2626 (...); log level WARNING: only 4xx/5xx request lines
+   and problems show`, then nothing while the WebUI loads. Trigger a refusal (add
+   a team from a directory without a charter and cancel the name prompt): the 422
+   line appears, labeled WARNING.
 2. Stop, run plain `make run`: the familiar INFO lines are back, and the same
    422 shows as WARNING among them.
 
@@ -826,3 +829,65 @@ uv run python scripts/runbook/team_charter.py
    project onto the board, and any agent of no other team is adopted into it
    (its card files appear in the new charter directory).
 
+---
+
+## Terminal spawners: open, prove alive, close with the process (design §8.1, D23/D25/D35)
+
+**Feature under test:** each built-in terminal application (Terminal, iTerm2,
+Ghostty) is fully driven by the shift: spawn opens a window running the agent's
+line and records `{window_id, tty}`; alive sees the process on that tty (the `ps -t`
+probe, D35); close ends the process first and then closes the now-quiet window, with
+no confirmation dialog and no orphan. All three share `OsascriptTerminal`, so the
+same script checks each.
+
+**Run** (no hub needed; the app must be installed; watch the screen too):
+
+```
+uv run python scripts/runbook/terminal_spawners.py Ghostty
+uv run python scripts/runbook/terminal_spawners.py Terminal
+uv run python scripts/runbook/terminal_spawners.py iTerm2
+```
+
+**Expected:** a window appears at step 1 and is gone after step 3. In the output:
+`tty : /dev/ttysNNN` (never `NOT REPORTED`), `marker running: ['<pid>']`,
+`alive() : True (expected True)`, `close() : True (expected True)`, then
+`alive() : False` and `orphans : none`. An `orphans` line with pids means End
+shift would leave agents running; the script prints the `pkill` to clean up.
+
+**Manual part:** Admin, Terminal application: the pulldown lists the three
+built-ins plus your custom apps (the names come from `GET /api/settings/terminals`).
+Select Ghostty, Start shift: one Ghostty window per agent; End shift closes exactly
+those windows and nothing else.
+
+---
+
+## A removed name is registered again (design §5.1, D36)
+
+**Feature under test:** registering a name whose agent was removed revives that
+agent's own row instead of refusing `name_taken`: same id, new token, status
+`invited`, fields and type from the new registration. The old token stays dead, the
+first life's archives still name the agent, no line comes back, and a live name is
+still refused. A charter reload naming a removed agent revives it the same way.
+
+**Run** (hub started with `make run`; works under either discovery setting):
+
+```
+uv run python scripts/runbook/name_reuse.py
+```
+
+**Expected:** four blocks, then `(cleaned up ...)`, exit 0.
+
+1. **Remove**: `status : gone, removed_at set: True`, `old token : refused
+   (invalid_token)`, `archived lines: 1 (reason agent_removed)`.
+2. **Register again**: `same id : True`, `type : claude-code`, `status : invited,
+   removed_at cleared: True`, `different from the old one? True`.
+3. **Tokens and the name**: old token `still refused`, new token `inbox read OK ->
+   []`, `live name : refused (name_taken)`.
+4. **History**: `archive still names phoenix-...: True`, `lines on the revived
+   agent: 0`.
+
+**Manual part:** Agents page: remove an agent, then add one with the same name.
+It appears with the new fields, its card is back in the charter directory, and its
+launch config shows a new token. Admin, Teams, reload from disk on a charter that
+names a removed agent: the agent is registered again, no "names are permanent"
+problem in the load report.

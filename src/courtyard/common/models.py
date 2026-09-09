@@ -292,7 +292,8 @@ class ShiftStatus(BaseModel):
     checking_until: datetime | None = None
 
 
-BUILTIN_TERMINALS = ("Terminal", "iTerm2")  # macOS apps the shift fully drives (open AND close)
+# macOS apps the shift fully drives (open AND close); one spawner each in hub/core/spawn.py
+BUILTIN_TERMINALS = ("Terminal", "iTerm2", "Ghostty")
 
 
 class CustomTerminal(BaseModel):

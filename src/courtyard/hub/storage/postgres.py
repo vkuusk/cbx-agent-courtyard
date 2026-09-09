@@ -143,6 +143,45 @@ class PgAgentRepo:
             "UPDATE agents SET removed_at = now(), status = 'gone' WHERE id = %s", (agent_id,)
         )
 
+    def revive(
+        self,
+        agent_id,
+        *,
+        type,
+        description,
+        sme_domain,
+        workdir,
+        token_hash,
+        token,
+        launch,
+        color,
+        model,
+        anti_scope=None,
+    ) -> Agent:
+        row = self._conn.execute(
+            "UPDATE agents SET removed_at = NULL, status = 'invited', last_seen_at = NULL,"
+            "  created_at = now(), type = %s, description = %s, sme_domain = %s,"
+            "  anti_scope = %s, workdir = %s, token_hash = %s, token = %s, launch = %s,"
+            "  color = %s, model = %s"
+            " WHERE id = %s AND removed_at IS NOT NULL RETURNING *",
+            (
+                type,
+                description,
+                sme_domain,
+                anti_scope,
+                workdir,
+                token_hash,
+                token,
+                Json(launch) if launch else None,
+                color,
+                model,
+                agent_id,
+            ),
+        ).fetchone()
+        # the channel-derived columns (channel_flag, delivery_check) come from a join the
+        # RETURNING row lacks; the channel row went at removal, so they are null anyway
+        return Agent.model_validate(dict(row))
+
 
 class PgLineRepo:
     def __init__(self, conn: Connection):

@@ -107,8 +107,9 @@ uv run courtyard-invite --register --name infra-claude \
     --sme-domain "infrastructure and terraform" --workdir ~/courtyard-quickstart/infra-claude
 ```
 
-Names are permanent identities: a removed agent keeps its name, so pick fresh ones if
-you re-run this on a hub that already has history (or wipe it with `make db-nuke`).
+Names cannot be changed once registered. A removed agent's name is free to use again,
+though: registering it brings the agent back on its own record with a new token, so
+re-running this on a hub that already has history works with the same names.
 
 ## 4. Start the team: press Start shift
 
@@ -120,8 +121,9 @@ for the team") before opening anything: every agent's status turns gray while it
 checked, an agent that reports in turns green and keeps its terminal, and only the
 rest get new windows. The countdown is there because a stored green status can be
 left over from a session that has already ended; the courtyard trusts a fresh
-heartbeat, not the stored status. Which terminal app it uses (Terminal or iTerm2) is
-set under **Admin → Team**.
+heartbeat, not the stored status. Which terminal app it uses (Terminal, iTerm2 or
+Ghostty; the shift opens and closes their windows) is set under **Admin → Terminal
+application**, where you can also add another terminal by its start string.
 
 The first time an agent starts, answer Claude Code's two questions in its terminal
 (trust the project's `.mcp.json`, allow the channel). Accept both; they cannot be
@@ -199,6 +201,9 @@ to send again before the other side has answered, the hub refuses and tells it w
 it is, so agents wait rather than flood.
 
 ## 6. From here
+
+The [user guide](user-guide.md) is the reference for everything below and more, part
+by part: teams and agents, lines and the gate, the shift, and the Admin page.
 
 - **The dial.** With a line selected, **switch to auto-pass** in the pane header lets its
   messages flow without you (still logged); **switch to supervised** puts the gate back.

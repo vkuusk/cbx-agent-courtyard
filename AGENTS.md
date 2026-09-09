@@ -84,21 +84,25 @@ Do not invent these; ask.
   advertised to every other agent), what it owns (`--sme-domain`, marks the
   agent's word as authoritative inside its own area), and optionally what it is
   not for (`--anti-scope`, tells peers whom not to ask).
-- **Names**: an agent's name is a permanent identity on the hub; it cannot be
-  renamed later.
+- **Names**: an agent's name cannot be renamed later. A removed agent's name can
+  be registered again; that revives the agent's record with a new token.
 
 ## Steps only a human can do
 
 Stop and hand these off; report exactly what remains.
 
 - Starting the agents: **Start shift** on the WebUI's Courtyard page opens one
-  terminal per agent, already connected. At each agent's first launch, Claude
-  Code asks two trust questions in its terminal; they cannot be pre-answered.
+  terminal per agent (Terminal, iTerm2 or Ghostty, chosen under Admin), already
+  connected. At each agent's first launch, Claude Code asks two trust questions
+  in its terminal; they cannot be pre-answered. Answer yes to both: a refused MCP
+  question is remembered in the workdir's `.claude/settings.local.json` as a
+  `disabledMcpjsonServers` entry, and the agent then never reaches the hub.
 - Supervising: gate verdicts (approve, return to sender, drop) are given on the
   WebUI by the operator.
 
 When setup is done, point your operator at [docs/quickstart.md](docs/quickstart.md),
-the full walkthrough with every screen described.
+the full walkthrough with every screen described, and at
+[docs/user-guide.md](docs/user-guide.md), the operator's reference.
 
 ## Contributing to the code
 

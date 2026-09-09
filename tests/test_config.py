@@ -4,7 +4,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from courtyard.hub.config import Config, NonLocalBindError, load_config
-from courtyard.hub.main import AccessLog
+from courtyard.hub.main import AccessLog, configure_logging, startup_banner, startup_logger
 
 
 def test_defaults_are_localhost():
@@ -60,3 +60,36 @@ def test_access_log_severity_follows_the_status(caplog):
     # the line keeps the shape uvicorn used: client - "METHOD target HTTP/x" status
     assert '- "GET /200?probe=1 HTTP/1.1" 200' in by_status["200"].getMessage()
     assert '- "POST /422 HTTP/1.1" 422' in by_status["422"].getMessage()
+
+
+def test_startup_banner_says_where_how_and_how_loud():
+    cfg = load_config(
+        env={
+            "DATABASE_URL": "postgresql://courtyard:secret@db.local:5433/yard",
+            "COURTYARD_LOG_LEVEL": "warning",
+            "COURTYARD_WEBUI_DIR": "/srv/webui",
+        }
+    )
+    line = startup_banner(cfg)
+    assert "http://127.0.0.1:2626" in line and "/srv/webui" in line
+    assert "db.local:5433/yard" in line and "secret" not in line  # never the credentials
+    assert "WARNING" in line and "only 4xx/5xx" in line  # silence from here on is health
+
+
+def test_the_startup_line_shows_at_every_log_level(caplog):
+    """His feedback (2026-09-08): with COURTYARD_LOG_LEVEL=WARNING `make run` printed
+    nothing between uvicorn's launch and the first failing request, so a quiet hub and a
+    hub that never came up looked the same. The ready line rides a logger pinned at INFO
+    while every other hub logger follows the knob."""
+    root = logging.getLogger()
+    before = root.level
+    try:
+        configure_logging("WARNING")
+        with caplog.at_level(logging.INFO, logger="courtyard.startup"):
+            root.setLevel(logging.WARNING)  # what the operator's knob does to everything else
+            startup_logger.info("ready")
+            logging.getLogger("courtyard.hub").info("routine, must stay quiet")
+            logging.getLogger("courtyard.hub").warning("a problem, must show")
+        assert [r.getMessage() for r in caplog.records] == ["ready", "a problem, must show"]
+    finally:
+        root.setLevel(before)

@@ -62,6 +62,7 @@ export const api = {
   shiftResume: () => call("POST", "/api/shift/resume"),
   shiftEnd: (force) => call("POST", "/api/shift/end", { force: Boolean(force) }),
   settings: () => call("GET", "/api/settings"),
+  builtinTerminals: () => call("GET", "/api/settings/terminals"),
   patchSettings: (patch) => call("PATCH", "/api/settings", patch),
   teams: () => call("GET", "/api/teams"),
   addTeam: (charterDir, name) => call("POST", "/api/teams", { charter_dir: charterDir, name: name || null }),

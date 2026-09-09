@@ -140,7 +140,7 @@ to replay every word that passes between your agents.
 Currently, the requirements are:
 
 - macOS. The hub itself is plain Python + Postgres, but starting the team's shift
-  opens Terminal or iTerm2 windows, so this part is macOS only for now.
+  opens Terminal, iTerm2 or Ghostty windows, so this part is macOS only for now.
 - [uv](https://docs.astral.sh/uv/) and Docker (with compose).
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed
   (`claude` on your PATH).
@@ -260,7 +260,8 @@ at the bottom, ask it to ask another agent for something. Their line appears on 
 WebUI, the message stops at the gate, and the supervising is yours.
 
 The same flow in full detail, every screen described:
-[docs/quickstart.md](docs/quickstart.md).
+[docs/quickstart.md](docs/quickstart.md). The operator's reference, part by part:
+[docs/user-guide.md](docs/user-guide.md).
 
 ### Preview the gate without real agents
 

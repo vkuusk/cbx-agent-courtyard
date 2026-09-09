@@ -57,6 +57,27 @@ class AgentRepo(Protocol):
 
     def mark_removed(self, agent_id: UUID) -> None: ...
 
+    def revive(
+        self,
+        agent_id: UUID,
+        *,
+        type: str,
+        description: str | None,
+        sme_domain: str | None,
+        workdir: str | None,
+        token_hash: str,
+        token: str,
+        launch: dict[str, Any] | None,
+        color: str | None,
+        model: str | None,
+        anti_scope: str | None = None,
+    ) -> Agent:
+        """Register a removed name again on its own row: removal undone, every
+        descriptive field and the type replaced, a new token, liveness reset to
+        `invited`, created_at = now. The row (and so the id) is the one the archives
+        and old messages point at; nothing else of the old life survives."""
+        ...
+
 
 class LineRepo(Protocol):
     def get_or_create_locked(self, a: UUID, b: UUID, mode: str = "supervised") -> Line:

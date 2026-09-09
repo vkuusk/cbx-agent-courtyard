@@ -9,8 +9,6 @@ import { store, isInactive, setTheme, effectiveTheme, applySettings, applyTeams 
 import { useStore } from "../ui.js";
 import { DirPicker } from "./agents.js";
 
-const BUILTIN_TERMINALS = ["Terminal", "iTerm2"];
-
 // One settings row: label · pulldown · hint.
 function Row({ label, value, options, onChange, hint }) {
   return html`<div class="form-row">
@@ -43,7 +41,7 @@ function TerminalSection({ settings, save, error }) {
     save({ terminal_app: "Terminal", custom_terminals: customs.filter((t) => t.name !== name) });
   return html`<div class="panel"><h3>Terminal application</h3>
     <${Row} label="Application" value=${settings.terminal_app}
-      options=${[...BUILTIN_TERMINALS.map((a) => [a, a]), ...customs.map((t) => [t.name, t.name])]}
+      options=${[...store.builtinTerminals.map((a) => [a, a]), ...customs.map((t) => [t.name, t.name])]}
       onChange=${(v) => { setDraft(null); save({ terminal_app: v }); }}
       hint="where Start shift opens the agents' windows" />
     ${selected

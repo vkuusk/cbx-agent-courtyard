@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import logging
 from datetime import UTC, datetime
+from urllib.parse import urlsplit
 
 import psycopg
 import uvicorn
@@ -28,6 +29,10 @@ from courtyard.hub.core.teams import TeamService
 from courtyard.hub.storage.postgres import PostgresStorage
 
 logger = logging.getLogger("courtyard.hub")
+# The one line that shows at EVERY COURTYARD_LOG_LEVEL (his feedback, 2026-09-08): under
+# WARNING the hub used to start in silence, and the operator could not tell a quiet hub
+# from one that never came up. configure_logging pins this logger at INFO.
+startup_logger = logging.getLogger("courtyard.startup")
 
 
 def domain_error_handler(_request: Request, exc: DomainError) -> JSONResponse:
@@ -188,6 +193,7 @@ def create_app(config: Config | None = None) -> FastAPI:
 
         sweeper = asyncio.create_task(sweep_liveness())
         shift_ticker = asyncio.create_task(tick_shift())
+        startup_logger.info(startup_banner(cfg))
         yield
         for task in (sweeper, shift_ticker):
             task.cancel()
@@ -211,12 +217,38 @@ def create_app(config: Config | None = None) -> FastAPI:
     return app
 
 
+def startup_banner(cfg: Config) -> str:
+    """What the operator needs to see once the hub is up: where it listens, what it
+    serves and talks to, and how loud it is going to be from here on (so a WARNING
+    hub's silence reads as health, not as a hang). The database URL loses its
+    credentials; the rest of it says which postgres this hub is on."""
+    db = urlsplit(cfg.database_url)
+    where = f"{db.hostname or 'localhost'}:{db.port or 5432}{db.path}"
+    quiet = {
+        "DEBUG": "everything shows",
+        "INFO": "routine request lines show",
+        "WARNING": "only 4xx/5xx request lines and problems show",
+        "ERROR": "only 5xx request lines and errors show",
+    }[cfg.log_level]
+    return (
+        f"courtyard hub ready on http://{cfg.host}:{cfg.port} (webui {cfg.webui_dir}, "
+        f"postgres {where}); log level {cfg.log_level}: {quiet}"
+    )
+
+
+def configure_logging(level: str) -> None:
+    """One knob for stdout verbosity (COURTYARD_LOG_LEVEL): the hub's own loggers via
+    the root config, uvicorn's via its log_level (see cli). The startup logger is pinned
+    at INFO so its ready line shows whatever the knob says."""
+    logging.basicConfig(level=level)
+    startup_logger.setLevel(logging.INFO)
+
+
 def cli() -> None:
     cfg = load_config()
-    # One knob for stdout verbosity (COURTYARD_LOG_LEVEL): the hub's own loggers via
-    # the root config, uvicorn's via its log_level. uvicorn's access log is replaced
-    # by AccessLog so error responses carry their real severity instead of INFO.
-    logging.basicConfig(level=cfg.log_level)
+    # uvicorn's access log is replaced by AccessLog so error responses carry their
+    # real severity instead of INFO.
+    configure_logging(cfg.log_level)
     uvicorn.run(
         AccessLog(create_app(cfg)),
         host=cfg.host,

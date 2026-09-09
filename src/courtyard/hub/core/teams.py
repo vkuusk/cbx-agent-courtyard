@@ -354,7 +354,9 @@ class TeamService:
         """One card into one registration; returns the name when it is in place."""
         with self._storage.transaction() as uow:
             existing = uow.agents.get_by_name(card.name)
-        if existing is None:
+        # a removed name is registered again (the registry revives its row): the files
+        # are the master, and a charter that names it wants it on the team
+        if existing is None or existing.removed_at is not None:
             if card.type is None:
                 problems.append(f"agent {card.name}: card.yml declares no type; not registered")
                 return None
@@ -373,12 +375,6 @@ class TeamService:
             problems.append(
                 f"agent {card.name}: that is the operator, on the roster by design (D9), "
                 "never a charter agent"
-            )
-            return None
-        if existing.removed_at is not None:
-            problems.append(
-                f"agent {card.name}: this name was removed from the courtyard and names are "
-                "permanent; pick a new one in the charter"
             )
             return None
         if card.type and card.type != existing.type:

@@ -1,4 +1,4 @@
-.PHONY: run run-chrome run-stop check test test-comms lint fmt demo demo-chrome demo-stop db-up db-down db-nuke
+.PHONY: run run-chrome run-stop check test test-comms lint fmt demo demo-chrome demo-stop db-up db-ui db-down db-nuke
 
 # local overrides (copied from .env.default; gitignored); exported so the hub,
 # tests and compose all see the same values
@@ -58,8 +58,13 @@ fmt:
 db-up:          ## start postgres in a container and wait until healthy
 	docker compose up -d --wait postgres
 
+db-ui: db-up    ## browse the postgres in Adminer (http://127.0.0.1:$$COURTYARD_ADMINER_PORT, default 8080)
+	docker compose --profile tools up -d --wait adminer
+	@echo "Adminer: http://127.0.0.1:$${COURTYARD_ADMINER_PORT:-8080}  (server postgres, user courtyard, password courtyard, db courtyard)"
+	@open "http://127.0.0.1:$${COURTYARD_ADMINER_PORT:-8080}/?pgsql=postgres&username=courtyard&db=courtyard" 2>/dev/null || true
+
 db-down:        ## stop containers (data volume survives)
-	docker compose down
+	docker compose --profile tools down
 
 db-nuke:        ## stop containers and DELETE the postgres data volume
-	docker compose down -v
+	docker compose --profile tools down -v

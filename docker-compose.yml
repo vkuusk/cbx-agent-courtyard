@@ -18,6 +18,22 @@ services:
       timeout: 2s
       retries: 15
 
+  # Adminer: a browser UI onto the compose postgres, for looking at the hub's tables.
+  # Started on demand by `make db-ui` (never by `make run`), bound to 127.0.0.1 only.
+  # Log in with server `postgres`, user/password `courtyard`, database `courtyard`
+  # (the tests use `courtyard_test`, scratch hubs `courtyard_scratch_<name>`).
+  adminer:
+    image: adminer:latest
+    container_name: courtyard-adminer
+    profiles: ["tools"]
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    ports:
+      - "127.0.0.1:${COURTYARD_ADMINER_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   # hub service (profile: "live") arrives in step 6f — see design doc §9.4
 
 volumes:

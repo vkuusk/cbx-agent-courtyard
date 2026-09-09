@@ -230,7 +230,8 @@ delivered when the agent starts again with the same command.
 
 The **Admin** page has these sections:
 
-- **Status**: hub health and configuration, and counts for the courtyard.
+- **Status**: hub health and configuration, counts for the courtyard, and two links for
+  looking under the hood: the API reference and the database browser (below).
 - **Teams**: the registered charters, which one is current, each team's last load
   report, its agents and links, and **reload from disk**.
 - **Settings, Team**: Team mode (only `On shift` is available in v1) and Discovery
@@ -243,6 +244,19 @@ The **Admin** page has these sections:
 - **Appearance**: the theme (follow the system, light or dark), remembered per browser.
 - **Message envelope**: a preview of exactly what the agents receive around a message
   body, with the token overhead of each block.
+
+**The API reference.** http://127.0.0.1:2626/api/docs is the interactive reference to
+every hub route (Swagger UI over the OpenAPI document at `/api/openapi.json`). Each
+route can be tried against the running hub from the page. Admin routes need nothing;
+for the agent-scoped routes press **Authorize** and paste the agent's token from its
+launch config. The page's assets load from a public CDN, so it needs internet access
+even though the hub itself does not.
+
+**The database browser.** `make db-ui` starts Adminer beside the compose postgres and
+opens it at http://127.0.0.1:8080 (change the port with `COURTYARD_ADMINER_PORT` in
+`.env`). Log in with server `postgres`, user and password `courtyard`, database
+`courtyard`; the tests use `courtyard_test` and scratch hubs `courtyard_scratch_<name>`.
+It is bound to 127.0.0.1 only. `make db-down` stops it with postgres.
 
 **Logs.** The hub logs to stdout at `COURTYARD_LOG_LEVEL`. Request lines carry their
 real severity: a 4xx response logs as WARNING and a 5xx as ERROR, so `WARNING` keeps

@@ -213,7 +213,21 @@ def create_app(config: Config | None = None) -> FastAPI:
         deliverer.close()
         storage.close()
 
-    app = FastAPI(title="Agent Courtyard", lifespan=lifespan)
+    # The interactive API reference (Swagger UI) lives under /api like everything the
+    # hub serves programmatically; "try it out" works against this very hub, and the
+    # Authorize button takes an agent's token for the agent-scoped routes.
+    app = FastAPI(
+        title="Agent Courtyard",
+        description=(
+            "The hub's HTTP API. Admin routes are open on localhost (D3); agent-scoped "
+            "routes (`/api/agents/{name}/...`, `/api/lines/send`, ...) take the agent's "
+            "bearer token: press Authorize and paste the token from the agent's launch config."
+        ),
+        lifespan=lifespan,
+        docs_url="/api/docs",
+        openapi_url="/api/openapi.json",
+        redoc_url=None,
+    )
     app.state.config = cfg
     app.add_exception_handler(DomainError, domain_error_handler)
 

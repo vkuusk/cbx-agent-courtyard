@@ -290,6 +290,10 @@ export function Admin() {
         <dt>status</dt><dd>${health ? `${health.status} · db ${health.db ?? "?"}` : "…"}</dd>
         <dt>address</dt><dd>${location.origin}</dd>
         ${config ? Object.entries(config).map(([k, v]) => html`<dt>${k}</dt><dd>${String(v)}</dd>`) : null}
+        <dt>API reference</dt><dd><a href="/api/docs" target="_blank" rel="noopener">${location.origin}/api/docs</a>
+          <span class="small muted">· every route, try it out against this hub</span></dd>
+        <dt>database browser</dt><dd><code>make db-ui</code>
+          <span class="small muted">· Adminer on the compose postgres (port 8080 unless COURTYARD_ADMINER_PORT says otherwise)</span></dd>
       </dl></div>
     <div class="panel"><h3>Courtyard</h3>
       <dl class="kv">

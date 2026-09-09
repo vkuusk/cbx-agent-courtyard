@@ -1,6 +1,6 @@
 // App frame: the collapsible rail and the page. The input box lives on the Courtyard
 // page only (his feedback, 2026-08-26 — it does not belong on admin-ish pages).
-// Hash router: #/board (default) · #/agents · #/archive · #/admin.
+// Hash router: #/board (default) · #/agents · #/archive · #/memory · #/admin.
 
 import { html, render, useEffect, useState } from "../vendor/htm-preact-standalone.module.js";
 import { store, connectEvents, refreshSnapshot, setUi, setTheme, effectiveTheme, totalUnread } from "./store.js";
@@ -10,11 +10,13 @@ import { Board } from "./views/board.js";
 import { Agents } from "./views/agents.js";
 import { Admin } from "./views/admin.js";
 import { ArchivePage } from "./views/archive.js";
+import { MemoryPage } from "./views/memory.js";
 
 const PAGES = {
   board: { title: "Courtyard", view: Board, icon: "board" },
   agents: { title: "Agents", view: Agents, icon: "agents" },
   archive: { title: "Archive", view: ArchivePage, icon: "archive" },
+  memory: { title: "Memory", view: MemoryPage, icon: "memory" },
   admin: { title: "Admin", view: Admin, icon: "admin" },
 };
 
@@ -52,7 +54,7 @@ function Rail({ current }) {
     </div>
     <${Conn} />
     <nav><${NavLink} page="board" current=${current} /><${NavLink} page="agents" current=${current} />
-      <${NavLink} page="archive" current=${current} /></nav>
+      <${NavLink} page="archive" current=${current} /><${NavLink} page="memory" current=${current} /></nav>
     <nav class="bottom"><${ThemeButton} /><${NavLink} page="admin" current=${current} /></nav>
   </aside>`;
 }

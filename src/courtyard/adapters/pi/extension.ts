@@ -8,7 +8,7 @@
  *    extension injects it into the session via pi.sendMessage (triggerTurn wakes
  *    an idle session; deliverAs "followUp" queues politely on a busy one);
  *  - a toolbox: courtyard_send / courtyard_close_thread / courtyard_inbox /
- *    courtyard_peers / courtyard_ack, registered natively;
+ *    courtyard_peers / courtyard_recall / courtyard_ack, registered natively;
  *  - a hub adapter: attaches with a channel endpoint, heartbeats, detaches at
  *    session end. Attach retries forever, so hub/agent launch order is free.
  *
@@ -377,6 +377,46 @@ export default function (pi) {
     async execute() {
       const peers = await api("GET", `/api/agents/${AGENT_NAME}/peers`);
       return { content: [{ type: "text", text: peers.rendered }], details: {} };
+    },
+  });
+
+  pi.registerTool({
+    name: "courtyard_recall",
+    label: "Courtyard Recall",
+    description:
+      "Ask the team's memory before asking a peer: has the courtyard settled this " +
+      "before? Returns up to a handful of case files — closed exchanges between agents, " +
+      "each with who asked, what was settled and the operator's verdicts — best match " +
+      "first. Costs nobody a turn. Give a question in plain words; or give `case` (an id " +
+      "from a previous listing) to read one case file in full.",
+    parameters: {
+      type: "object",
+      properties: {
+        question: {
+          type: "string",
+          description: "what you want to know, in plain words (a peer's name or domain helps)",
+        },
+        case: {
+          type: "string",
+          description: "the id of one case file from a previous listing, to read it in full",
+        },
+        limit: {
+          type: "integer",
+          description: "how many case files at most (the hub caps this; default from its settings)",
+        },
+      },
+    },
+    async execute(_toolCallId, params) {
+      // Rendered by the hub: trimmed, bounded and filtered to what this agent may see.
+      const caseId = (params.case || "").trim();
+      if (caseId) {
+        const record = await api("GET", `/api/agents/${AGENT_NAME}/recall/${encodeURIComponent(caseId)}`);
+        return { content: [{ type: "text", text: record.rendered || "" }], details: {} };
+      }
+      const query = new URLSearchParams({ q: (params.question || "").trim() });
+      if (params.limit) query.set("limit", String(params.limit));
+      const view = await api("GET", `/api/agents/${AGENT_NAME}/recall?${query}`);
+      return { content: [{ type: "text", text: view.rendered }], details: {} };
     },
   });
 

@@ -63,6 +63,9 @@ class SettingsPatch(BaseModel):
     discovery: Discovery | None = None  # §5.8 (D22): who forms the team's wiring
     # D34: messages per thread before the hub locks it; 0 = no budget
     thread_budget: int | None = Field(default=None, ge=0)
+    # hub memory (hub-memory.md section 8): recall is bounded and visible
+    recall_limit: int | None = Field(default=None, ge=1, le=20)
+    recall_trim_chars: int | None = Field(default=None, ge=80, le=5000)
 
 
 @router.get("/settings")

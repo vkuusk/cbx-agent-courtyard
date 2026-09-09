@@ -4,10 +4,20 @@ service operation runs inside exactly one Storage.transaction()."""
 from __future__ import annotations
 
 from contextlib import AbstractContextManager
+from datetime import datetime
 from typing import Any, Protocol
 from uuid import UUID
 
-from courtyard.common.models import Agent, Archive, Channel, Line, Message, Team, Thread
+from courtyard.common.models import (
+    Agent,
+    Archive,
+    Channel,
+    Line,
+    MemoryRecord,
+    Message,
+    Team,
+    Thread,
+)
 
 
 class AgentRepo(Protocol):
@@ -132,6 +142,10 @@ class MessageRepo(Protocol):
     def get(self, message_id: UUID) -> Message | None: ...
 
     def list_line(self, line_id: UUID, after: int | None = None) -> list[Message]: ...
+
+    def list_thread(self, thread_id: UUID) -> list[Message]:
+        """Every message of one thread, in seq order (the case file's material)."""
+        ...
 
     def pending_gate(self) -> list[Message]: ...
 
@@ -302,6 +316,53 @@ class ChannelRepo(Protocol):
     def expire_verifies(self, timeout_seconds: float) -> list[UUID]: ...
 
 
+class MemoryRepo(Protocol):
+    """Hub memory (design hub-memory.md, migration 0020): case files and notes. Written at
+    thread close; read by recall (agents, bounded and filtered) and by the Memory page."""
+
+    def insert(
+        self,
+        *,
+        record_id: UUID,
+        kind: str,
+        thread_id: UUID | None,
+        line_id: UUID | None,
+        participants: list[dict],
+        opened_by: UUID | None,
+        opened_by_name: str | None,
+        opened_at: datetime | None,
+        closed_at: datetime | None,
+        message_count: int,
+        approved: int,
+        returned: int,
+        dropped: int,
+        ask: str,
+        resolution: str,
+        verdicts: list[str],
+        document: dict,
+    ) -> MemoryRecord: ...
+
+    def get(self, record_id: UUID) -> MemoryRecord | None:
+        """One record with its document."""
+        ...
+
+    def search(
+        self,
+        *,
+        question: str | None,
+        participant: UUID | None,
+        line_id: UUID | None,
+        since: datetime | None,
+        limit: int,
+    ) -> list[MemoryRecord]:
+        """Trimmed listing (no document): best full-text match first when there is a
+        question (domain-aware weights, migration 0020), newest first otherwise. Every
+        filter narrows before ranking. Superseded records are left out."""
+        ...
+
+    def count(self) -> int: ...
+
+
 class UnitOfWork(Protocol):
     agents: AgentRepo
     lines: LineRepo
@@ -311,6 +372,7 @@ class UnitOfWork(Protocol):
     archives: ArchiveRepo
     settings: SettingsRepo
     teams: TeamRepo
+    memory: MemoryRepo
 
 
 class Storage(Protocol):

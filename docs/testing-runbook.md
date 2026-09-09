@@ -891,3 +891,52 @@ It appears with the new fields, its card is back in the charter directory, and i
 launch config shows a new token. Admin, Teams, reload from disk on a charter that
 names a removed agent: the agent is registered again, no "names are permanent"
 problem in the load report.
+
+---
+
+## Hub memory: the case file and recall (design hub-memory.md, slice 1)
+
+**Feature under test:** a thread that closes becomes one case file: the participants
+as they were (with their declared domains), the opening ask, the resolution that got
+through, every verdict with its comment, the counts, and the ordered messages as a
+document. Only closed threads count (expired and locked ones leave nothing); operator
+threads count too. `courtyard_recall` (both adapters) returns up to `Recall returns`
+trimmed records, best match first with the ask and the participants' domains weighing
+most, filtered to the lines the agent is party to under `manual` discovery, rendered
+by the hub; the handle in a listing fetches the full case file. The Memory page reads
+the same store.
+
+**Run** (hub started with `make run`; nothing courtyard-wide is changed):
+
+```
+uv run python scripts/runbook/memory_recall.py
+```
+
+**Expected:** four blocks, then `(cleaned up ...)`, exit 0.
+
+1. **The close**: `case files written by the close: 1`, both participants with their
+   domains, `ask : 'does the vpc module support ipv6?'`, `resolution : 'yes since
+   v3; ...'` (the approved answer, not the returned draft), `verdicts : ['return:
+   look it up ...', 'approve: fine']`, `counts : 3 messages, 2 approved, 1 returned`.
+2. **Recall**: the hub's listing text, `1 case file from the team's memory (best match
+   first)`, the record with its `[id]`, ask, resolution and both verdict lines;
+   `our case first : True`.
+3. **The full case file**: `Case file [id]: ...` then every message numbered, with
+   its verdict in brackets, the return notice from the hub and the operator's note.
+4. **Nothing found**: `The team's memory holds nothing matching 'kubernetes
+   ingress'`; an open thread adds no case file (`case files now: 1`).
+
+**Manual part:**
+
+1. Memory page (side bar, after Archive): the case files newest first, each row the
+   participants, the ask, when it closed and the verdict counts. Click one: the header
+   names who opened and who closed it and shows the id agents pass to
+   `courtyard_recall(case=...)`; the verdicts with their comments; every message as a
+   bubble.
+2. Search `ipv6`: the row stays, ranked first; search `kubernetes`: "Nothing
+   matches". The participant pulldown narrows to one agent's case files.
+3. Admin, Defaults: `Recall returns` (1 to 20, default 5) and `Recall trims to`
+   (characters, default 600). Set the trim to 80 and recall from a live agent's
+   session: the ask ends in an ellipsis and the full record is one more call away.
+4. Admin, Settings, Discovery `manual` (on a scratch hub): an agent's recall lists
+   only case files it took part in; the Memory page still shows all of them.

@@ -1,9 +1,11 @@
 # Hub memory: the team remembers collaboration, not craft
 
-Status: design draft, not implemented. Origin: feedback item 39. The architecture's
-non-goals (`architecture-v1.md` section 2) list a memory subsystem as a v2
-candidate; this document is the design that lifts it out of that list. Its
-decision log entry follows when implementation starts.
+Status: accepted; slice 1 implemented (the case file, `courtyard_recall` in both
+adapters, `GET /api/memory`, the read-only Memory page, the two recall settings;
+migration 0020, decision D37 in `architecture-v1.md` §13). Slices 2 to 4 are open.
+Origin: feedback item 39. The architecture's non-goals (`architecture-v1.md`
+section 2) listed a memory subsystem as a v2 candidate; this document is the design
+that lifted it out of that list.
 
 ## 1. The problem
 

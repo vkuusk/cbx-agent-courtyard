@@ -46,7 +46,7 @@ def config():
 def _truncate(config):
     with psycopg.connect(config.database_url, autocommit=True) as conn:
         conn.execute(
-            "TRUNCATE agents, lines, messages, threads, channels, lines_archive,"
+            "TRUNCATE agents, lines, messages, threads, channels, lines_archive, memory,"
             " settings, teams CASCADE"
         )
 

@@ -107,6 +107,11 @@ class ArchiveNotFound(DomainError):
     http_status = 404
 
 
+class MemoryNotFound(DomainError):
+    code = "memory_not_found"
+    http_status = 404
+
+
 class NotAllowed(DomainError):
     code = "not_allowed"
     http_status = 403

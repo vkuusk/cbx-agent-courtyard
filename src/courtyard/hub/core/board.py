@@ -31,6 +31,7 @@ from courtyard.hub.core.errors import (
 )
 from courtyard.hub.core.events import EventBus
 from courtyard.hub.core.gate import Approver
+from courtyard.hub.core.memory import case_file_in
 from courtyard.hub.core.registry import OPERATOR_NAME, Registry
 from courtyard.hub.storage.repo import Storage, UnitOfWork
 
@@ -286,6 +287,9 @@ class Board:
                     in_flight_msg=str(line.in_flight_msg),
                 )
             thread = uow.threads.end(thread.id, "closed")
+            # hub memory (hub-memory.md): only a closed thread becomes a case file, and
+            # this is the one place a thread closes; expiry and the budget lock never do
+            record = case_file_in(uow, thread, line, closer)
             uow.lines.set_open_thread(line.id, None)
             if line.state == "awaiting_reply":
                 # The close resolves the reply obligation, whichever side owed it.
@@ -303,6 +307,7 @@ class Board:
             )
             line = uow.lines.get(line.id)
         self._events.publish("thread", thread)
+        self._events.publish("memory", record)
         self._events.publish("message", entry)
         self._events.publish("line", line)
         self._deliverer.deliver(entry)

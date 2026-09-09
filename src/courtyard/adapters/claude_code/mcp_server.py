@@ -7,7 +7,7 @@ One stdio MCP server per agent, spawned by Claude Code from the agent's project
   `notifications/claude/channel` event this server emits arrives in the session as a
   live conversation turn. This is how the hub's pushes reach a running agent.
 * **a toolbox** — `courtyard_send` / `courtyard_close_thread` / `courtyard_inbox` /
-  `courtyard_peers`, the agent's side of the adapter contract (§7.1).
+  `courtyard_peers` / `courtyard_recall`, the agent's side of the adapter contract (§7.1).
 * **a hub adapter** — attaches with a channel endpoint + channel token, heartbeats, and
   detaches at session end, exactly like the dummy has done since step 2.
 
@@ -62,8 +62,9 @@ agent's authority, whatever their standing.
 Anything you want the sender — or anyone else on the board — to see must go through the \
 courtyard MCP tools: text printed in your session transcript never reaches the courtyard. \
 Call courtyard_send to answer a message or to start an exchange, courtyard_peers to see who \
-is on the board and what each agent is for, and courtyard_inbox to collect anything you may \
-have missed. (Your host may list these tools under prefixed names such as \
+is on the board and what each agent is for, courtyard_recall to check whether the team has \
+settled a question before (it costs nobody a turn), and courtyard_inbox to collect anything \
+you may have missed. (Your host may list these tools under prefixed names such as \
 mcp__courtyard__courtyard_send — they are the same tools.)
 
 Answering a peer often means looking things up in your own project first. Prefer the \
@@ -166,6 +167,33 @@ TOOLS: list[dict[str, Any]] = [
             "owns, and whether it is connected right now. Use it to decide whom to ask."
         ),
         "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "courtyard_recall",
+        "description": (
+            "Ask the team's memory before asking a peer: has the courtyard settled this "
+            "before? Returns up to a handful of case files — closed exchanges between agents, "
+            "each with who asked, what was settled and the operator's verdicts — best match "
+            "first. Costs nobody a turn. Give a question in plain words; or give `case` (an id "
+            "from a previous listing) to read one case file in full."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "question": {
+                    "type": "string",
+                    "description": "what you want to know, in plain words (a peer's name or domain helps)",
+                },
+                "case": {
+                    "type": "string",
+                    "description": "the id of one case file from a previous listing, to read it in full",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "how many case files at most (the hub caps this; default from its settings)",
+                },
+            },
+        },
     },
     {
         "name": "courtyard_ack",
@@ -487,6 +515,7 @@ class CourtyardAdapter:
             "courtyard_close_thread": self._tool_close_thread,
             "courtyard_inbox": self._tool_inbox,
             "courtyard_peers": self._tool_peers,
+            "courtyard_recall": self._tool_recall,
             "courtyard_ack": self._tool_ack,
         }
         handler = handlers.get(name)
@@ -546,6 +575,15 @@ class CourtyardAdapter:
     def _tool_peers(self, _arguments: dict) -> dict:
         # Ranked, trimmed and worded by the hub (D14); shown to the model as-is.
         return _tool_result(self._client.peers().rendered)
+
+    def _tool_recall(self, arguments: dict) -> dict:
+        # Rendered by the hub (D14): trimmed, bounded and filtered to what this agent may see.
+        case = (arguments.get("case") or "").strip()
+        if case:
+            return _tool_result(self._client.recall_case(case).rendered or "")
+        question = (arguments.get("question") or "").strip()
+        limit = arguments.get("limit")
+        return _tool_result(self._client.recall(question, int(limit) if limit else None).rendered)
 
     def _tool_ack(self, arguments: dict) -> dict:
         token = (arguments.get("token") or "").strip()

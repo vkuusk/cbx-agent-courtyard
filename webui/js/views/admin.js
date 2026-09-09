@@ -222,6 +222,18 @@ function SettingsSection() {
           onChange=${(e) => { const n = parseInt(e.target.value, 10); if (n >= 0) save({ thread_budget: n }); }} />
         <span class="small muted">messages per thread before the hub locks it and tells both agents; 0 = no budget; your own threads are never locked</span>
       </div>
+      <div class="form-row">
+        <span class="small muted" style="min-width:10rem">Recall returns</span>
+        <input type="number" min="1" max="20" style="width:5rem" value=${settings.recall_limit}
+          onChange=${(e) => { const n = parseInt(e.target.value, 10); if (n >= 1 && n <= 20) save({ recall_limit: n }); }} />
+        <span class="small muted">case files per courtyard_recall call, at most; each one enters the asking agent's context</span>
+      </div>
+      <div class="form-row">
+        <span class="small muted" style="min-width:10rem">Recall trims to</span>
+        <input type="number" min="80" max="5000" step="20" style="width:6rem" value=${settings.recall_trim_chars}
+          onChange=${(e) => { const n = parseInt(e.target.value, 10); if (n >= 80 && n <= 5000) save({ recall_trim_chars: n }); }} />
+        <span class="small muted">characters of the ask and of the resolution in a recall listing; the full case file is one more call away</span>
+      </div>
     </div>
     <div class="panel"><h3>Appearance</h3>
       <${Row} label="Theme" value=${store.ui.theme}

@@ -5,7 +5,18 @@ from pathlib import Path
 from fastapi import APIRouter, Request
 
 from courtyard.adapters.claude_code.mcp_server import INSTRUCTIONS
-from courtyard.hub.api import agents, archive, channels, events, gate, lines, operator, shift, teams
+from courtyard.hub.api import (
+    agents,
+    archive,
+    channels,
+    events,
+    gate,
+    lines,
+    memory,
+    operator,
+    shift,
+    teams,
+)
 from courtyard.hub.core import envelope as envelope_core
 from courtyard.hub.core.errors import WorkdirNotFound
 from courtyard.hub.core.install import adapter_command
@@ -88,5 +99,6 @@ router.include_router(gate.router)
 router.include_router(operator.router)
 router.include_router(events.router)
 router.include_router(archive.router)
+router.include_router(memory.router)
 router.include_router(shift.router)
 router.include_router(teams.router)

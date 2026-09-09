@@ -8,6 +8,7 @@ from courtyard.common.models import Agent
 from courtyard.hub.core.archive import Archiver
 from courtyard.hub.core.board import Board
 from courtyard.hub.core.errors import InvalidToken
+from courtyard.hub.core.memory import Memory
 from courtyard.hub.core.registry import Registry
 from courtyard.hub.core.teams import TeamService
 
@@ -26,6 +27,10 @@ def get_archiver(request: Request) -> Archiver:
 
 def get_teams(request: Request) -> TeamService:
     return request.app.state.teams
+
+
+def get_memory(request: Request) -> Memory:
+    return request.app.state.memory
 
 
 def require_agent(request: Request) -> Agent:

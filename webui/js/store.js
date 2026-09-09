@@ -24,6 +24,7 @@ export const store = {
   sse: "connecting", // connecting | live | lost
   version: 0, // bumped on every change; lets a component catch up if it subscribed late
   archiveVersion: 0, // bumped when an archive is created (the Archive page refetches)
+  memoryVersion: 0, // bumped when a case file is written (the Memory page refetches)
   ui: {
     page: "board", // which page is on screen (the input box adapts)
     selected: null, // {kind: "agent", id} = your line with it · {kind: "line", id} = a line
@@ -317,6 +318,7 @@ function onEvent(kind, data) {
     refreshSnapshot();
     return;
   }
+  else if (kind === "memory") store.memoryVersion += 1;
   else if (kind === "message" || kind === "gate") {
     const perLine = store.messages.get(data.line_id);
     if (perLine) perLine.set(data.id, data);
@@ -330,7 +332,7 @@ function onEvent(kind, data) {
 
 export function connectEvents() {
   const es = new EventSource("/api/events");
-  for (const kind of ["agent", "line", "thread", "message", "gate", "archive", "shift"]) {
+  for (const kind of ["agent", "line", "thread", "message", "gate", "archive", "memory", "shift"]) {
     es.addEventListener(kind, (e) => onEvent(kind, JSON.parse(e.data)));
   }
   es.onopen = () => {

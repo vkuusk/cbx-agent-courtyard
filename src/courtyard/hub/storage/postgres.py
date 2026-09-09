@@ -15,7 +15,16 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Json
 from psycopg_pool import ConnectionPool
 
-from courtyard.common.models import Agent, Archive, Channel, Line, Message, Team, Thread
+from courtyard.common.models import (
+    Agent,
+    Archive,
+    Channel,
+    Line,
+    MemoryRecord,
+    Message,
+    Team,
+    Thread,
+)
 
 _MESSAGE_SELECT = """
 SELECT m.*, sa.name AS sender_name, ra.name AS recipient_name,
@@ -294,6 +303,12 @@ class PgMessageRepo:
         ).fetchall()
         return [Message.model_validate(r) for r in rows]
 
+    def list_thread(self, thread_id: UUID) -> list[Message]:
+        rows = self._conn.execute(
+            _MESSAGE_SELECT + " WHERE m.thread_id = %s ORDER BY m.seq", (thread_id,)
+        ).fetchall()
+        return [Message.model_validate(r) for r in rows]
+
     def pending_gate(self) -> list[Message]:
         rows = self._conn.execute(
             _MESSAGE_SELECT + " WHERE m.status = 'pending_gate' ORDER BY m.created_at"
@@ -498,6 +513,118 @@ class PgArchiveRepo:
         self._conn.execute("DELETE FROM lines_archive WHERE id = %s", (archive_id,))
 
 
+_MEMORY_LISTING = (
+    "SELECT id, kind, thread_id, line_id, participants, opened_by, opened_by_name, opened_at,"
+    " closed_at, created_at, message_count, approved, returned, dropped, ask, resolution,"
+    " verdict_text, superseded_by"
+)
+
+
+def _memory_row(row: dict) -> MemoryRecord:
+    data = dict(row)
+    verdict_text = data.pop("verdict_text", "") or ""
+    data["verdicts"] = [v for v in verdict_text.split("\n") if v]
+    data.pop("search", None)
+    data.pop("rank", None)
+    return MemoryRecord.model_validate(data)
+
+
+class PgMemoryRepo:
+    def __init__(self, conn: Connection):
+        self._conn = conn
+
+    def insert(
+        self,
+        *,
+        record_id,
+        kind,
+        thread_id,
+        line_id,
+        participants,
+        opened_by,
+        opened_by_name,
+        opened_at,
+        closed_at,
+        message_count,
+        approved,
+        returned,
+        dropped,
+        ask,
+        resolution,
+        verdicts,
+        document,
+    ) -> MemoryRecord:
+        names_text = " ".join(p["name"] for p in participants)
+        domains_text = " ".join(p.get("sme_domain") or "" for p in participants)
+        row = self._conn.execute(
+            "INSERT INTO memory (id, kind, thread_id, line_id, participants, participant_ids,"
+            " opened_by, opened_by_name, opened_at, closed_at, message_count, approved, returned,"
+            " dropped, ask, resolution, verdict_text, names_text, domains_text, document)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+            " RETURNING *",
+            (
+                record_id,
+                kind,
+                thread_id,
+                line_id,
+                Json(participants),
+                [UUID(str(p["id"])) for p in participants],
+                opened_by,
+                opened_by_name,
+                opened_at,
+                closed_at,
+                message_count,
+                approved,
+                returned,
+                dropped,
+                ask,
+                resolution,
+                "\n".join(verdicts),
+                names_text,
+                domains_text,
+                Json(document),
+            ),
+        ).fetchone()
+        return _memory_row(row)
+
+    def get(self, record_id: UUID) -> MemoryRecord | None:
+        row = self._conn.execute("SELECT * FROM memory WHERE id = %s", (record_id,)).fetchone()
+        return _memory_row(row) if row else None
+
+    def search(self, *, question, participant, line_id, since, limit) -> list[MemoryRecord]:
+        where = ["superseded_by IS NULL"]
+        params: list = []
+        select = _MEMORY_LISTING + " FROM memory"
+        order = " ORDER BY created_at DESC"
+        if question and question.strip():
+            # websearch syntax: plain words, quoted phrases, `or`, `-not`; the weights of
+            # migration 0020 put the ask and the participants' domains first
+            select = (
+                _MEMORY_LISTING + ", ts_rank_cd(search, q) AS rank"
+                " FROM memory, websearch_to_tsquery('english', %s) q"
+            )
+            params.append(question.strip())
+            where.append("search @@ q")
+            order = " ORDER BY rank DESC, created_at DESC"
+        if participant is not None:
+            where.append("participant_ids @> %s::uuid[]")
+            params.append([participant])
+        if line_id is not None:
+            where.append("line_id = %s")
+            params.append(line_id)
+        if since is not None:
+            where.append("created_at >= %s")
+            params.append(since)
+        params.append(limit)
+        rows = self._conn.execute(
+            select + " WHERE " + " AND ".join(where) + order + " LIMIT %s", params
+        ).fetchall()
+        return [_memory_row(r) for r in rows]
+
+    def count(self) -> int:
+        return self._conn.execute("SELECT count(*) AS n FROM memory").fetchone()["n"]
+
+
 class PgChannelRepo:
     def __init__(self, conn: Connection):
         self._conn = conn
@@ -666,6 +793,7 @@ class PgUnitOfWork:
         self.archives = PgArchiveRepo(conn)
         self.settings = PgSettingsRepo(conn)
         self.teams = PgTeamRepo(conn)
+        self.memory = PgMemoryRepo(conn)
 
 
 class PostgresStorage:

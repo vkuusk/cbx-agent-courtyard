@@ -23,6 +23,7 @@ from courtyard.hub.core.deliver import Deliverer
 from courtyard.hub.core.errors import DomainError
 from courtyard.hub.core.events import EventBus
 from courtyard.hub.core.gate import EventApprover
+from courtyard.hub.core.memory import Memory
 from courtyard.hub.core.registry import Registry
 from courtyard.hub.core.shift import ShiftService
 from courtyard.hub.core.teams import TeamService
@@ -158,6 +159,11 @@ def create_app(config: Config | None = None) -> FastAPI:
             default_line_mode=lambda: shift.get_settings().default_line_mode,
             discovery=discovery,
             thread_budget=lambda: shift.get_settings().thread_budget,
+        )
+        # Hub memory (hub-memory.md): recall reads through the same settings and discovery
+        # dial as the board; the case files themselves are written by the board at close.
+        app.state.memory = Memory(
+            storage, registry, settings=shift.get_settings, discovery=discovery
         )
         # Projection (D33) registers agents and links lines through the same services the
         # operator's own gestures use, so events and invariants come along for free.

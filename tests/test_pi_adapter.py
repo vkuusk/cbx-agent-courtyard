@@ -94,7 +94,13 @@ def test_pi_extension_end_to_end(live_hub, tmp_path):
             lambda e: e["event"] == "command_registered" and e["name"] == "courtyard",
             what="/courtyard command",
         )
-        for tool in ("courtyard_send", "courtyard_inbox", "courtyard_peers", "courtyard_ack"):
+        for tool in (
+            "courtyard_send",
+            "courtyard_inbox",
+            "courtyard_peers",
+            "courtyard_recall",
+            "courtyard_ack",
+        ):
             harness.wait_for(
                 lambda e, t=tool: e["event"] == "tool_registered" and e["name"] == t,
                 what=f"{tool} registration",

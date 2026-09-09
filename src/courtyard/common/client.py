@@ -26,8 +26,10 @@ from courtyard.common.models import (
     Archive,
     AttachSummary,
     Line,
+    MemoryRecord,
     Message,
     PeersView,
+    RecallView,
     Team,
     Thread,
 )
@@ -66,8 +68,10 @@ class HubClient:
     def close(self) -> None:
         self._http.close()
 
-    def _call(self, method: str, path: str, json_body: dict | None = None) -> Any:
-        resp = self._http.request(method, path, json=json_body)
+    def _call(
+        self, method: str, path: str, json_body: dict | None = None, params: dict | None = None
+    ) -> Any:
+        resp = self._http.request(method, path, json=json_body, params=params)
         if resp.is_success:
             return resp.json() if resp.content else None  # 204: no body
         try:
@@ -116,6 +120,32 @@ class HubClient:
 
     def peers(self) -> PeersView:
         return PeersView.model_validate(self._call("GET", f"/api/agents/{self.name}/peers"))
+
+    def recall(self, question: str = "", limit: int | None = None) -> RecallView:
+        """The `courtyard_recall` tool's read: case files this agent may see, trimmed and
+        rendered by the hub (design hub-memory.md)."""
+        params: dict = {"q": question}
+        if limit is not None:
+            params["limit"] = limit
+        data = self._call("GET", f"/api/agents/{self.name}/recall", params=params)
+        return RecallView.model_validate(data)
+
+    def recall_case(self, record_id: UUID | str) -> MemoryRecord:
+        """One full case file by the handle a recall listing gave, rendered by the hub."""
+        return MemoryRecord.model_validate(
+            self._call("GET", f"/api/agents/{self.name}/recall/{record_id}")
+        )
+
+    def memory(self, question: str | None = None, **filters: Any) -> list[MemoryRecord]:
+        """Admin read of the memory store: trimmed records; filters are the endpoint's
+        query parameters (participant, line, since, limit)."""
+        params = {k: v for k, v in {"q": question, **filters}.items() if v is not None}
+        return [
+            MemoryRecord.model_validate(r) for r in self._call("GET", "/api/memory", params=params)
+        ]
+
+    def memory_record(self, record_id: UUID | str) -> MemoryRecord:
+        return MemoryRecord.model_validate(self._call("GET", f"/api/memory/{record_id}"))
 
     def heartbeat(self) -> dict:
         return self._call("POST", f"/api/agents/{self.name}/heartbeat")

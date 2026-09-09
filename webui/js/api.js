@@ -57,6 +57,8 @@ export const api = {
   archive: (id) => call("GET", `/api/archive/${id}`),
   deleteArchive: (id) => call("DELETE", `/api/archive/${id}`),
   archiveExportUrl: (id) => `/api/archive/${id}/export`,
+  memory: (params) => call("GET", `/api/memory?${new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v)))}`),
+  memoryRecord: (id) => call("GET", `/api/memory/${id}`),
   shift: () => call("GET", "/api/shift"),
   shiftStart: () => call("POST", "/api/shift/start"),
   shiftResume: () => call("POST", "/api/shift/resume"),

@@ -1,6 +1,9 @@
 services:
   postgres:
-    image: postgres:17-alpine
+    # postgres 18 with the pgvector extension (hub memory's similarity search, migration
+    # 0022). A major upgrade needs a fresh volume (`make db-nuke`); 19 has no pgvector
+    # build yet (beta3 as of 2026-09), switch when it does.
+    image: pgvector/pgvector:pg18
     container_name: courtyard-postgres
     environment:
       POSTGRES_USER: courtyard
@@ -11,12 +14,30 @@ services:
       # 127.0.0.1 (not localhost) keeps the mapping IPv4-only and deterministic
       - "127.0.0.1:${COURTYARD_PG_PORT:-5432}:5432"
     volumes:
-      - courtyard-pgdata:/var/lib/postgresql/data
+      # 18+ images keep data in a major-version subdirectory; the mount is one level up
+      # so a future pg_upgrade --link stays inside the volume
+      - courtyard-pgdata:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U courtyard -d courtyard"]
       interval: 2s
       timeout: 2s
       retries: 15
+
+  # Adminer: a browser UI onto the compose postgres, for looking at the hub's tables.
+  # Started on demand by `make db-ui` (never by `make run`), bound to 127.0.0.1 only.
+  # Log in with server `postgres`, user/password `courtyard`, database `courtyard`
+  # (the tests use `courtyard_test`, scratch hubs `courtyard_scratch_<name>`).
+  adminer:
+    image: adminer:latest
+    container_name: courtyard-adminer
+    profiles: ["tools"]
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    ports:
+      - "127.0.0.1:${COURTYARD_ADMINER_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   # hub service (profile: "live") arrives in step 6f — see design doc §9.4
 

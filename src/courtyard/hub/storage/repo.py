@@ -4,10 +4,20 @@ service operation runs inside exactly one Storage.transaction()."""
 from __future__ import annotations
 
 from contextlib import AbstractContextManager
+from datetime import datetime
 from typing import Any, Protocol
 from uuid import UUID
 
-from courtyard.common.models import Agent, Archive, Channel, Line, Message, Team, Thread
+from courtyard.common.models import (
+    Agent,
+    Archive,
+    Channel,
+    Line,
+    MemoryRecord,
+    Message,
+    Team,
+    Thread,
+)
 
 
 class AgentRepo(Protocol):
@@ -132,6 +142,10 @@ class MessageRepo(Protocol):
     def get(self, message_id: UUID) -> Message | None: ...
 
     def list_line(self, line_id: UUID, after: int | None = None) -> list[Message]: ...
+
+    def list_thread(self, thread_id: UUID) -> list[Message]:
+        """Every message of one thread, in seq order (the case file's material)."""
+        ...
 
     def pending_gate(self) -> list[Message]: ...
 
@@ -302,6 +316,97 @@ class ChannelRepo(Protocol):
     def expire_verifies(self, timeout_seconds: float) -> list[UUID]: ...
 
 
+class MemoryRepo(Protocol):
+    """Hub memory (design hub-memory.md, migration 0020): case files and notes. Written at
+    thread close; read by recall (agents, bounded and filtered) and by the Memory page."""
+
+    def insert(
+        self,
+        *,
+        record_id: UUID,
+        kind: str,
+        thread_id: UUID | None,
+        line_id: UUID | None,
+        participants: list[dict],
+        opened_by: UUID | None,
+        opened_by_name: str | None,
+        opened_at: datetime | None,
+        closed_at: datetime | None,
+        message_count: int,
+        approved: int,
+        returned: int,
+        dropped: int,
+        ask: str,
+        resolution: str,
+        verdicts: list[str],
+        document: dict,
+    ) -> MemoryRecord: ...
+
+    def get(self, record_id: UUID) -> MemoryRecord | None:
+        """One record with its document."""
+        ...
+
+    def insert_note(
+        self,
+        *,
+        record_id: UUID,
+        body: str,
+        scope: str,
+        status: str,
+        author: UUID,
+        author_name: str,
+        line_id: UUID | None,
+        participants: list[dict],
+    ) -> MemoryRecord: ...
+
+    def decide_note(
+        self, record_id: UUID, status: str, gate_note: str | None
+    ) -> MemoryRecord | None:
+        """Rule on a pending note: accepted, returned or dropped; None if it was not pending."""
+        ...
+
+    def list_pending(self) -> list[MemoryRecord]:
+        """Notes waiting for the operator, oldest first."""
+        ...
+
+    def search(
+        self,
+        *,
+        question: str | None,
+        participant: UUID | None,
+        line_id: UUID | None,
+        since: datetime | None,
+        limit: int,
+        viewer: UUID | None = None,
+        all_cases: bool = True,
+        mode: str = "exact",
+        query_vector: list[float] | None = None,
+        model: str | None = None,
+    ) -> list[MemoryRecord]:
+        """Trimmed listing (no document). `exact`: best full-text match first when there
+        is a question (domain-aware weights, migrations 0020/0021), newest first
+        otherwise. `vector`: nearest by cosine distance to `query_vector` among rows
+        embedded with `model`. `hybrid`: both, fused by reciprocal rank. Every filter
+        narrows before ranking. Superseded records and notes that are not `accepted` are
+        left out. `viewer` is the reading agent, when there is one: a line-scoped note is
+        seen only by that line's agents, and with `all_cases` False (manual discovery)
+        the viewer sees only the case files it appears in."""
+        ...
+
+    def count(self) -> int: ...
+
+    def set_embedding(self, record_id: UUID, model: str, vector: list[float]) -> None: ...
+
+    def list_unembedded(self, model: str, limit: int) -> list[MemoryRecord]:
+        """Records that are memory (cases, accepted notes) and carry no vector from `model`
+        yet: never embedded, or embedded by another model. Oldest first."""
+        ...
+
+    def embedding_stats(self, model: str) -> dict[str, int]:
+        """{"total": records that are memory, "embedded": those with a vector from `model`}."""
+        ...
+
+
 class UnitOfWork(Protocol):
     agents: AgentRepo
     lines: LineRepo
@@ -311,6 +416,7 @@ class UnitOfWork(Protocol):
     archives: ArchiveRepo
     settings: SettingsRepo
     teams: TeamRepo
+    memory: MemoryRepo
 
 
 class Storage(Protocol):

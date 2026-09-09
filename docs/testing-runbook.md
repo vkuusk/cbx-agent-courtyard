@@ -891,3 +891,145 @@ It appears with the new fields, its card is back in the charter directory, and i
 launch config shows a new token. Admin, Teams, reload from disk on a charter that
 names a removed agent: the agent is registered again, no "names are permanent"
 problem in the load report.
+
+---
+
+## Hub memory: the case file and recall (design hub-memory.md, slice 1)
+
+**Feature under test:** a thread that closes becomes one case file: the participants
+as they were (with their declared domains), the opening ask, the resolution that got
+through, every verdict with its comment, the counts, and the ordered messages as a
+document. Only closed threads count (expired and locked ones leave nothing); operator
+threads count too. `courtyard_recall` (both adapters) returns up to `Recall returns`
+trimmed records, best match first with the ask and the participants' domains weighing
+most, filtered to the lines the agent is party to under `manual` discovery, rendered
+by the hub; the handle in a listing fetches the full case file. The Memory page reads
+the same store.
+
+**Run** (hub started with `make run`; nothing courtyard-wide is changed):
+
+```
+uv run python scripts/runbook/memory_recall.py
+```
+
+**Expected:** four blocks, then `(cleaned up ...)`, exit 0.
+
+1. **The close**: `case files written by the close: 1`, both participants with their
+   domains, `ask : 'does the vpc module support ipv6?'`, `resolution : 'yes since
+   v3; ...'` (the approved answer, not the returned draft), `verdicts : ['return:
+   look it up ...', 'approve: fine']`, `counts : 3 messages, 2 approved, 1 returned`.
+2. **Recall**: the hub's listing text, `1 case file from the team's memory (best match
+   first)`, the record with its `[id]`, ask, resolution and both verdict lines;
+   `our case first : True`.
+3. **The full case file**: `Case file [id]: ...` then every message numbered, with
+   its verdict in brackets, the return notice from the hub and the operator's note.
+4. **Nothing found**: `The team's memory holds nothing matching 'kubernetes
+   ingress'`; an open thread adds no case file (`case files now: 1`).
+
+**Manual part:**
+
+1. Memory page (side bar, after Archive): the case files newest first, each row the
+   participants, the ask, when it closed and the verdict counts. Click one: the header
+   names who opened and who closed it and shows the id agents pass to
+   `courtyard_recall(case=...)`; the verdicts with their comments; every message as a
+   bubble.
+2. Search `ipv6`: the row stays, ranked first; search `kubernetes`: "Nothing
+   matches". The participant pulldown narrows to one agent's case files.
+3. Admin, Defaults: `Recall returns` (1 to 20, default 5) and `Recall trims to`
+   (characters, default 600). Set the trim to 80 and recall from a live agent's
+   session: the ask ends in an ellipsis and the full record is one more call away.
+4. Admin, Settings, Discovery `manual` (on a scratch hub): an agent's recall lists
+   only case files it took part in; the Memory page still shows all of them.
+
+---
+
+## Hub memory: notes (design hub-memory.md, slice 2)
+
+**Feature under test:** `courtyard_note` (both adapters) deposits a lesson into the
+team's memory. A note is not a message: nobody is addressed, no turn is taken, no
+answer is owed. Its scope is the line named by `peer` (or the agent's only line)
+unless `team_wide`. It passes the gate like a message: on a supervised line, or
+team-wide, an agent's note waits `pending`; the operator approves, returns with a
+comment, or drops it on the Memory page. Return and drop reach the author as a hub
+notice on the operator's line; approve is silent. Only accepted notes are memory: a
+line's note is recalled by that line's two agents, a team-wide note by everyone. The
+operator's own notes are accepted at once, team-wide unless scoped. The Admin page's
+envelope preview gains "A recall listing".
+
+**Run** (hub started with `make run`; nothing courtyard-wide is changed):
+
+```
+uv run python scripts/runbook/memory_notes.py
+```
+
+**Expected:** four blocks, then `(cleaned up ...)`, exit 0.
+
+1. **Waits**: the tool text `Noted (id ...); held for the operator ...`, `status :
+   pending`, `on the operator's pending list: True`, `peer recalls it already? : False`.
+2. **Return, then approve**: one `[system]` notice for the author, `was returned to
+   you. Operator's comment: too vague ...`; the approved note recalled by infra and tf
+   (`True`) but not by argo (`False`); the rendered listing shows `note by tf-... (for
+   ...)` with the body.
+3. **Team-wide**: `line note on auto-pass : accepted`, `team-wide note : pending`,
+   after approval `third agent recalls it : True`.
+4. **The operator's note**: `status: accepted, scope: team, author: operator`, and a
+   third agent's recall lists it.
+
+**Manual part:**
+
+1. From an agent's session: `courtyard_note` with a body and a peer. Memory page:
+   "Notes waiting for you (1)" at the top with the author, scope and body; a comment
+   field and approve / return to sender / drop. Return with a comment: the agent's
+   terminal gets the hub notice with your comment.
+2. "+ write a note": a team-wide note saves and appears in the list as `note by
+   operator · team-wide`; one scoped to a line appears as `for a ↔ b`. Click a note: the
+   detail shows its body, scope, status and your comment if any.
+3. Search finds notes by their words, ranked with case files; a line's note is absent
+   from a third agent's `courtyard_recall`.
+4. Admin, Message envelope: the block "A recall listing" shows a case file and a note
+   as an agent would read them, with the token figure.
+
+---
+
+## Hub memory: similarity search (design hub-memory.md section 7, slice 3)
+
+**Feature under test:** with `COURTYARD_EMBEDDINGS_URL` pointing at a local
+OpenAI-compatible embeddings endpoint, records get a vector in the background (a batch
+every `COURTYARD_EMBED_SWEEP_SECONDS`, default 15; `POST /api/memory/embed` runs a
+pass now), each tagged with the model that made it. Recall and the Memory page default to
+`hybrid`: full text and cosine similarity fused by reciprocal rank; `exact` and `vector`
+are selectable on the API and the page. A model change re-embeds by itself. Without an
+encoder recall stays full text and says so. The compose postgres is now
+`pgvector/pgvector:pg18`.
+
+**Run** (a hub with Ollama's encoder; the script exits 2 with instructions otherwise):
+
+```
+ollama pull nomic-embed-text
+COURTYARD_EMBEDDINGS_URL=http://127.0.0.1:11434/v1/embeddings make run
+uv run python scripts/runbook/memory_vectors.py
+```
+
+**Expected:** four blocks, then `(cleaned up ...)`, exit 0.
+
+1. **The encoder**: `encoder : http`, `model : nomic-embed-text`, `default_mode : hybrid`,
+   the counts.
+2. **Two case files, one pass**: `embedding pass : 2 record(s) got a vector`,
+   `pending afterwards: 0`.
+3. **A paraphrase** (`what database release is in production`, no word in common with
+   `postgres 17 everywhere since the migration`): `full text : []`, `similarity :
+   ['postgres 17 ...']`, `hybrid (default) : ['postgres 17 ...']`, `postgres first? :
+   True`, and the rendered recall listing.
+4. **Where the words agree**: `argocd first? : True`.
+
+**Manual part:**
+
+1. Memory page footer: "Similarity search is on (nomic-embed-text): N of M records have a
+   vector". The mode pulldown beside search offers hybrid (default), full text only,
+   similarity only; the paraphrase above finds the case in hybrid and similarity, not in
+   full text.
+2. Stop the hub, unset `COURTYARD_EMBEDDINGS_URL`, start again: the footer says similarity
+   is off and how to turn it on; the pulldown is gone; the ready line on stdout says
+   `recall is full-text only`.
+3. Set `COURTYARD_EMBEDDINGS_URL` to a non-local address: the hub refuses to start with
+   `refusing to embed through ...` unless `COURTYARD_EMBEDDINGS_ALLOW_REMOTE=1`.

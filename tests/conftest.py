@@ -40,13 +40,14 @@ def config():
         conn.execute(f"CREATE DATABASE {TEST_DB}")
     test_url = base.database_url.rsplit("/", 1)[0] + f"/{TEST_DB}"
     apply_migrations(test_url)
-    return replace(base, database_url=test_url)
+    # the test double for similarity search: every vector code path, no model server
+    return replace(base, database_url=test_url, embeddings_url="fake://")
 
 
 def _truncate(config):
     with psycopg.connect(config.database_url, autocommit=True) as conn:
         conn.execute(
-            "TRUNCATE agents, lines, messages, threads, channels, lines_archive,"
+            "TRUNCATE agents, lines, messages, threads, channels, lines_archive, memory,"
             " settings, teams CASCADE"
         )
 

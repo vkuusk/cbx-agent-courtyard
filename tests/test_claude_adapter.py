@@ -181,6 +181,8 @@ def test_adapter_end_to_end(session):
         "courtyard_close_thread",
         "courtyard_inbox",
         "courtyard_peers",
+        "courtyard_recall",
+        "courtyard_note",
         "courtyard_ack",
     }
 

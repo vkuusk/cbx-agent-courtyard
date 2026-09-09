@@ -5,8 +5,20 @@ from pathlib import Path
 from fastapi import APIRouter, Request
 
 from courtyard.adapters.claude_code.mcp_server import INSTRUCTIONS
-from courtyard.hub.api import agents, archive, channels, events, gate, lines, operator, shift, teams
+from courtyard.hub.api import (
+    agents,
+    archive,
+    channels,
+    events,
+    gate,
+    lines,
+    memory,
+    operator,
+    shift,
+    teams,
+)
 from courtyard.hub.core import envelope as envelope_core
+from courtyard.hub.core import memory as memory_core
 from courtyard.hub.core.errors import WorkdirNotFound
 from courtyard.hub.core.install import adapter_command
 
@@ -24,8 +36,18 @@ def envelope() -> list[dict[str, str | int]]:
     """Item 29 (visibility): every model-facing text, for the Admin page. The envelope
     variants come from the same render() that wraps real deliveries; the last block is
     the adapter's once-per-session instructions."""
+    recall_sample = memory_core.render_listing("vpc module ipv6", memory_core.sample_records())
     return [
         *envelope_core.preview(),
+        {
+            "title": "A recall listing",
+            "note": (
+                "what courtyard_recall returns for a question (hub-memory.md); bounded by "
+                "Admin → Recall returns, each field cut to Recall trims to"
+            ),
+            "text": recall_sample,
+            "overhead_tokens": envelope_core.estimate_tokens(recall_sample),
+        },
         {
             "title": "The adapter instructions",
             "note": "given to the session once, when the courtyard MCP server connects",
@@ -88,5 +110,6 @@ router.include_router(gate.router)
 router.include_router(operator.router)
 router.include_router(events.router)
 router.include_router(archive.router)
+router.include_router(memory.router)
 router.include_router(shift.router)
 router.include_router(teams.router)

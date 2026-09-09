@@ -148,6 +148,69 @@ class Archive(BaseModel):
     transcript: list[Message] | None = None  # omitted in listings and events
 
 
+class MemoryParticipant(BaseModel):
+    """One participant of a case file as it was at the time: the declared domain is what
+    domain-aware ranking weighs (design hub-memory.md section 5)."""
+
+    id: UUID
+    name: str
+    sme_domain: str | None = None
+
+
+MemoryKind = Literal["case", "note"]
+# a note's scope (hub-memory.md section 8): one line's two agents, or the whole team
+MemoryScope = Literal["line", "team"]
+# a note's gate state: an agent's note waits `pending` until the operator rules; only
+# `accepted` notes are memory. Case files are always `accepted`.
+NoteStatus = Literal["pending", "accepted", "returned", "dropped"]
+
+
+class MemoryRecord(BaseModel):
+    """One hub memory record (design hub-memory.md). A `case` is the case file of one
+    closed thread: the ask, the resolution, every verdict with its comment, and (on single
+    reads) the ordered messages as the document. `note` is slice 2. The trimmed view that
+    recall returns cuts `ask` and `resolution` to the recall length and omits the document;
+    `rendered` is the model-facing text the hub composes for the recall tool (D14)."""
+
+    id: UUID
+    kind: MemoryKind
+    thread_id: UUID | None = None
+    line_id: UUID | None = None
+    participants: list[MemoryParticipant]
+    opened_by: UUID | None = None
+    opened_by_name: str | None = None
+    opened_at: datetime | None = None
+    closed_at: datetime | None = None
+    created_at: datetime
+    message_count: int = 0
+    approved: int = 0
+    returned: int = 0
+    dropped: int = 0
+    ask: str
+    resolution: str
+    verdicts: list[str] = []  # "return: <comment>", one per verdict that carried a comment
+    # notes (slice 2): what was said, by whom, for whom, and where it stands at the gate
+    body: str = ""
+    scope: MemoryScope = "line"
+    status: NoteStatus = "accepted"
+    author: UUID | None = None
+    author_name: str | None = None
+    gate_note: str | None = None
+    decided_at: datetime | None = None
+    superseded_by: UUID | None = None
+    trimmed: bool = False  # ask/resolution were cut to the recall length
+    document: dict | None = None  # full case file on single reads; omitted in listings
+    rendered: str | None = None
+
+
+class RecallView(BaseModel):
+    """`GET /agents/{me}/recall`: the records an agent may see that match its question,
+    trimmed and bounded, with the model-facing rendering done hub-side (D14)."""
+
+    records: list[MemoryRecord]
+    rendered: str
+
+
 class Channel(BaseModel):
     """An agent's live receive endpoint — exactly one per agent, last attach wins."""
 
@@ -323,3 +386,7 @@ class Settings(BaseModel):
     # §5.8 (D22): switching modes migrates nothing — under manual the lines that exist
     # ARE the links; operator lines are exempt and keep forming on first send.
     discovery: Discovery = "auto"
+    # hub memory (design hub-memory.md section 8): recall is bounded and visible — at most
+    # this many trimmed records per call, each field cut to this many characters
+    recall_limit: int = 5
+    recall_trim_chars: int = 600

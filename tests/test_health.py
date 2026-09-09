@@ -45,3 +45,18 @@ def test_fs_dirs_lists_directories_only_hidden_excluded(client, tmp_path):
     assert client.get("/api/fs/dirs").json()["path"]  # no path: the hub user's home
     resp = client.get(f"/api/fs/dirs?path={tmp_path}/a-file.txt")
     assert resp.status_code == 404 or resp.status_code == 400
+
+
+def test_api_reference_is_served_under_api(client):
+    """Swagger UI at /api/docs, its OpenAPI document beside it, nothing at FastAPI's
+    default /docs (the WebUI owns the root)."""
+    resp = client.get("/api/docs")
+    assert resp.status_code == 200 and "swagger" in resp.text.lower()
+    spec = client.get("/api/openapi.json").json()
+    assert spec["info"]["title"] == "Agent Courtyard"
+    assert "/api/memory" in spec["paths"] and "/api/agents/{name_or_id}/recall" in spec["paths"]
+    # agent-scoped routes declare the bearer scheme, so "try it out" can authorize
+    assert "HTTPBearer" in spec["components"]["securitySchemes"]
+    recall = spec["paths"]["/api/agents/{name_or_id}/recall"]["get"]
+    assert recall["security"] == [{"HTTPBearer": []}]
+    assert client.get("/docs").status_code == 404

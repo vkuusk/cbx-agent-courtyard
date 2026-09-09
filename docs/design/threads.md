@@ -1,7 +1,7 @@
 # Threads: the quant of conversation
 
-Status: design accepted 2026-09-07 (feedback item 42, decision D34 in
-`architecture-v1.md` §13). Implemented in full: the construct itself (migration
+Status: accepted and implemented in full (origin: feedback item 42; decision D34
+in `architecture-v1.md` §13): the construct itself (migration
 0019, open on send, the dedicated close tool, both adapters) and all of section
 5 — item 1 closure as protocol; item 2 per-thread budgets (an Admin setting,
 default 12 messages, replies always pass so a line never jams); item 3 shift
@@ -47,7 +47,7 @@ Vocabulary is kept rigid: **line** owns the outer tier (the standing pairing),
 docs, schema or telemetry. (Some ecosystems use "thread" for the outer
 container; here it never leaks upward.)
 
-## 3. Decisions taken (architect, 2026-09-07)
+## 3. Decisions taken
 
 **Serial in v1: one open thread per line.** A line holds at most one open
 thread; a new independent ask begins only when the previous thread is closed.

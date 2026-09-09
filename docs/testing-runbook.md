@@ -988,3 +988,48 @@ uv run python scripts/runbook/memory_notes.py
    from a third agent's `courtyard_recall`.
 4. Admin, Message envelope: the block "A recall listing" shows a case file and a note
    as an agent would read them, with the token figure.
+
+---
+
+## Hub memory: similarity search (design hub-memory.md section 7, slice 3)
+
+**Feature under test:** with `COURTYARD_EMBEDDINGS_URL` pointing at a local
+OpenAI-compatible embeddings endpoint, records get a vector in the background (a batch
+every `COURTYARD_EMBED_SWEEP_SECONDS`, default 15; `POST /api/memory/embed` runs a
+pass now), each tagged with the model that made it. Recall and the Memory page default to
+`hybrid`: full text and cosine similarity fused by reciprocal rank; `exact` and `vector`
+are selectable on the API and the page. A model change re-embeds by itself. Without an
+encoder recall stays full text and says so. The compose postgres is now
+`pgvector/pgvector:pg18`.
+
+**Run** (a hub with Ollama's encoder; the script exits 2 with instructions otherwise):
+
+```
+ollama pull nomic-embed-text
+COURTYARD_EMBEDDINGS_URL=http://127.0.0.1:11434/v1/embeddings make run
+uv run python scripts/runbook/memory_vectors.py
+```
+
+**Expected:** four blocks, then `(cleaned up ...)`, exit 0.
+
+1. **The encoder**: `encoder : http`, `model : nomic-embed-text`, `default_mode : hybrid`,
+   the counts.
+2. **Two case files, one pass**: `embedding pass : 2 record(s) got a vector`,
+   `pending afterwards: 0`.
+3. **A paraphrase** (`what database release is in production`, no word in common with
+   `postgres 17 everywhere since the migration`): `full text : []`, `similarity :
+   ['postgres 17 ...']`, `hybrid (default) : ['postgres 17 ...']`, `postgres first? :
+   True`, and the rendered recall listing.
+4. **Where the words agree**: `argocd first? : True`.
+
+**Manual part:**
+
+1. Memory page footer: "Similarity search is on (nomic-embed-text): N of M records have a
+   vector". The mode pulldown beside search offers hybrid (default), full text only,
+   similarity only; the paraphrase above finds the case in hybrid and similarity, not in
+   full text.
+2. Stop the hub, unset `COURTYARD_EMBEDDINGS_URL`, start again: the footer says similarity
+   is off and how to turn it on; the pulldown is gone; the ready line on stdout says
+   `recall is full-text only`.
+3. Set `COURTYARD_EMBEDDINGS_URL` to a non-local address: the hub refuses to start with
+   `refusing to embed through ...` unless `COURTYARD_EMBEDDINGS_ALLOW_REMOTE=1`.

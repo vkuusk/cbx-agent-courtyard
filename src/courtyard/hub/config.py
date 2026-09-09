@@ -23,6 +23,11 @@ class NonLocalBindError(Exception):
     """Raised when configuration asks for a non-localhost bind without the explicit override."""
 
 
+class RemoteEncoderError(Exception):
+    """Raised when the embeddings endpoint is not on this machine and the explicit override
+    is missing: embedding sends message bodies to that endpoint."""
+
+
 @dataclass(frozen=True)
 class Config:
     host: str
@@ -37,6 +42,13 @@ class Config:
     verify_timeout: float  # unacked delivery check (item 34) fails after this
     log_level: str  # stdout verbosity: one of LOG_LEVELS; access lines log at their
     # real severity (4xx WARNING, 5xx ERROR), so WARNING keeps failures visible
+    # hub memory, similarity search (hub-memory.md section 7): an OpenAI-compatible
+    # embeddings endpoint (Ollama: http://127.0.0.1:11434/v1/embeddings), the model to
+    # ask it for, an optional key. None = no encoder: recall is full-text only.
+    embeddings_url: str | None = None
+    embeddings_model: str = "nomic-embed-text"
+    embeddings_api_key: str | None = None
+    embed_sweep_seconds: float = 15.0  # how often the hub embeds records that lack a vector
 
 
 def _default_webui_dir() -> Path:
@@ -52,6 +64,21 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
             f"refusing to bind {host!r}: courtyard v1 is a localhost-only service "
             "(design doc, security model). Set COURTYARD_ALLOW_NONLOCAL_BIND=1 to override."
         )
+    embeddings_url = (env.get("COURTYARD_EMBEDDINGS_URL") or "").strip() or None
+    if (
+        embeddings_url
+        and embeddings_url != "fake://"
+        and env.get("COURTYARD_EMBEDDINGS_ALLOW_REMOTE") != "1"
+    ):
+        from urllib.parse import urlsplit
+
+        host = urlsplit(embeddings_url).hostname or ""
+        if host not in LOCAL_HOSTS:
+            raise RemoteEncoderError(
+                f"refusing to embed through {embeddings_url!r}: it is not on this machine, "
+                "and embedding sends message bodies there. Set "
+                "COURTYARD_EMBEDDINGS_ALLOW_REMOTE=1 to override."
+            )
     log_level = env.get("COURTYARD_LOG_LEVEL", "INFO").upper()
     if log_level not in LOG_LEVELS:
         raise ValueError(
@@ -71,4 +98,8 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
         push_timeout=float(env.get("COURTYARD_PUSH_TIMEOUT", "3")),
         verify_timeout=float(env.get("COURTYARD_VERIFY_TIMEOUT_SECONDS", "60")),
         log_level=log_level,
+        embeddings_url=embeddings_url,
+        embeddings_model=env.get("COURTYARD_EMBEDDINGS_MODEL", "nomic-embed-text"),
+        embeddings_api_key=env.get("COURTYARD_EMBEDDINGS_API_KEY") or None,
+        embed_sweep_seconds=float(env.get("COURTYARD_EMBED_SWEEP_SECONDS", "15")),
     )

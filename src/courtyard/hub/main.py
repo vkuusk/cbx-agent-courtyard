@@ -20,6 +20,7 @@ from courtyard.hub.core.archive import Archiver
 from courtyard.hub.core.board import Board
 from courtyard.hub.core.channels import ChannelService
 from courtyard.hub.core.deliver import Deliverer
+from courtyard.hub.core.encoder import encoder_from_config
 from courtyard.hub.core.errors import DomainError
 from courtyard.hub.core.events import EventBus
 from courtyard.hub.core.gate import EventApprover
@@ -162,6 +163,7 @@ def create_app(config: Config | None = None) -> FastAPI:
         )
         # Hub memory (hub-memory.md): recall reads through the same settings and discovery
         # dial as the board; the case files themselves are written by the board at close.
+        encoder = encoder_from_config(cfg)
         app.state.memory = Memory(
             storage,
             registry,
@@ -169,6 +171,7 @@ def create_app(config: Config | None = None) -> FastAPI:
             events=events,
             deliverer=deliverer,
             discovery=discovery,
+            encoder=encoder,
         )
         # Projection (D33) registers agents and links lines through the same services the
         # operator's own gestures use, so events and invariants come along for free.
@@ -202,11 +205,25 @@ def create_app(config: Config | None = None) -> FastAPI:
                 except Exception:
                     logger.exception("shift tick failed")
 
+        async def embed_memory() -> None:
+            # hub memory (hub-memory.md section 7): records get their vector after the
+            # fact, in batches, so a slow or absent encoder never holds up a thread close
+            while True:
+                try:
+                    done = await asyncio.to_thread(app.state.memory.embed_pending)
+                except Exception:
+                    logger.exception("memory embedding sweep failed")
+                    done = 0
+                await asyncio.sleep(1.0 if done else cfg.embed_sweep_seconds)
+
         sweeper = asyncio.create_task(sweep_liveness())
         shift_ticker = asyncio.create_task(tick_shift())
+        embedder = asyncio.create_task(embed_memory()) if encoder.name != "none" else None
         startup_logger.info(startup_banner(cfg))
         yield
-        for task in (sweeper, shift_ticker):
+        for task in (sweeper, shift_ticker, embedder):
+            if task is None:
+                continue
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
@@ -255,9 +272,14 @@ def startup_banner(cfg: Config) -> str:
         "WARNING": "only 4xx/5xx request lines and problems show",
         "ERROR": "only 5xx request lines and errors show",
     }[cfg.log_level]
+    similarity = (
+        f"similarity via {cfg.embeddings_model} at {cfg.embeddings_url}"
+        if cfg.embeddings_url
+        else "recall is full-text only (no COURTYARD_EMBEDDINGS_URL)"
+    )
     return (
         f"courtyard hub ready on http://{cfg.host}:{cfg.port} (webui {cfg.webui_dir}, "
-        f"postgres {where}); log level {cfg.log_level}: {quiet}"
+        f"postgres {where}; {similarity}); log level {cfg.log_level}: {quiet}"
     )
 
 

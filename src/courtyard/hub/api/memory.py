@@ -10,7 +10,7 @@ the hub (D14) so the `courtyard_recall` tool in either adapter only forwards it.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -33,11 +33,26 @@ def search_memory(
     line: UUID | None = None,
     since: datetime | None = None,
     limit: Annotated[int | None, Query(ge=1, le=20)] = None,
+    mode: Literal["exact", "vector", "hybrid"] | None = None,
 ) -> list[MemoryRecord]:
-    """Trimmed records: best match first with a question, newest first without."""
+    """Trimmed records: best match first with a question, newest first without. `mode`
+    defaults to hybrid when an encoder is configured, exact (full text) otherwise; the
+    recall tool never exposes it."""
     return memory.search(
-        question=q, participant=participant, line_id=line, since=since, limit=limit
+        question=q, participant=participant, line_id=line, since=since, limit=limit, mode=mode
     )
+
+
+@router.get("/memory/encoder")
+def encoder_status(memory: Annotated[Memory, Depends(get_memory)]) -> dict:
+    """Which encoder the hub uses, and how many records carry its vector."""
+    return memory.encoder_status()
+
+
+@router.post("/memory/embed")
+def embed_now(memory: Annotated[Memory, Depends(get_memory)]) -> dict[str, int]:
+    """Run one embedding pass now instead of waiting for the sweep (up to a batch)."""
+    return {"embedded": memory.embed_pending()}
 
 
 @router.get("/memory/count")

@@ -1,9 +1,12 @@
 # Hub memory: the team remembers collaboration, not craft
 
-Status: accepted; slices 1 and 2 implemented (the case file and `courtyard_recall`,
+Status: accepted; slices 1 to 3 implemented (the case file and `courtyard_recall`,
 migration 0020; notes with `courtyard_note`, the gate on the Memory page and the
-operator's note form, migration 0021; decision D37 in `architecture-v1.md` §13).
-Slices 3 and 4 are open.
+operator's note form, migration 0021; vectors with pgvector, the `Encoder` interface
+with a local HTTP implementation and the fake test double, the backfill sweep and
+`hybrid` mode, migration 0022; decision D37 in `architecture-v1.md` §13). Slice 4 is
+open. The encoder choice (open question 3) resolved to any OpenAI-compatible endpoint
+on localhost, Ollama with `nomic-embed-text` being the documented default.
 Origin: feedback item 39. The architecture's non-goals (`architecture-v1.md`
 section 2) listed a memory subsystem as a v2 candidate; this document is the design
 that lifted it out of that list.
@@ -307,8 +310,10 @@ Still open:
 1. **The envelope hint** (section 5): whether, and at what similarity threshold,
    a delivery carries the handles of matching records. Waits for slice 3.
 2. **The judge.** Its own design, once memory exists to rule from.
-3. **Encoder choice for slice 3.** Which local encoder ships as the first
-   implementation, and its model; decided when slice 3 starts.
+3. **Encoder choice for slice 3.** Resolved: an OpenAI-compatible embeddings
+   endpoint on localhost (Ollama, `nomic-embed-text` documented), the fake encoder
+   for tests; an in-process ONNX encoder stays an option if the extra service proves
+   a burden.
 
 ## 12. Relations to other designs
 

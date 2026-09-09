@@ -525,9 +525,14 @@ def _memory_row(row: dict) -> MemoryRecord:
     data = dict(row)
     verdict_text = data.pop("verdict_text", "") or ""
     data["verdicts"] = [v for v in verdict_text.split("\n") if v]
-    data.pop("search", None)
-    data.pop("rank", None)
+    for column in ("search", "rank", "distance", "embedding"):
+        data.pop(column, None)
     return MemoryRecord.model_validate(data)
+
+
+def _vector_literal(vector: list[float]) -> str:
+    """pgvector's text input form: `[0.1,0.2,...]`."""
+    return "[" + ",".join(repr(float(v)) for v in vector) + "]"
 
 
 class PgMemoryRepo:
@@ -634,11 +639,8 @@ class PgMemoryRepo:
         row = self._conn.execute("SELECT * FROM memory WHERE id = %s", (record_id,)).fetchone()
         return _memory_row(row) if row else None
 
-    def search(
-        self, *, question, participant, line_id, since, limit, viewer=None, all_cases=True
-    ) -> list[MemoryRecord]:
-        where = ["superseded_by IS NULL"]
-        params: list = []
+    @staticmethod
+    def _visible(where: list[str], viewer, all_cases) -> None:
         # what the reader may see (hub-memory.md section 8): cases for everyone under
         # auto, for their participants under manual; accepted notes by scope
         if viewer is None:
@@ -649,19 +651,24 @@ class PgMemoryRepo:
                 f"((kind = 'case' AND {case_rule}) OR (kind = 'note' AND status = 'accepted'"
                 " AND (scope = 'team' OR participant_ids @> %(viewer)s::uuid[])))"
             )
-        select = _MEMORY_LISTING + " FROM memory"
-        order = " ORDER BY created_at DESC"
-        named: dict = {"viewer": [viewer] if viewer else None, "limit": limit}
-        if question and question.strip():
-            # websearch syntax: plain words, quoted phrases, `or`, `-not`; the weights of
-            # migrations 0020/0021 put the ask, a note's body and the domains first
-            select = (
-                _MEMORY_LISTING + ", ts_rank_cd(search, q) AS rank"
-                " FROM memory, websearch_to_tsquery('english', %(question)s) q"
-            )
-            named["question"] = question.strip()
-            where.append("search @@ q")
-            order = " ORDER BY rank DESC, created_at DESC"
+
+    def search(
+        self,
+        *,
+        question,
+        participant,
+        line_id,
+        since,
+        limit,
+        viewer=None,
+        all_cases=True,
+        mode="exact",
+        query_vector=None,
+        model=None,
+    ) -> list[MemoryRecord]:
+        where = ["superseded_by IS NULL"]
+        self._visible(where, viewer, all_cases)
+        named: dict = {"viewer": [viewer] if viewer else None}
         if participant is not None:
             where.append("participant_ids @> %(participant)s::uuid[]")
             named["participant"] = [participant]
@@ -671,14 +678,90 @@ class PgMemoryRepo:
         if since is not None:
             where.append("created_at >= %(since)s")
             named["since"] = since
-        del params
+        question = (question or "").strip()
+        can_vector = bool(question) and query_vector is not None and model is not None
+        if mode == "vector" and not can_vector:
+            mode = "exact"
+        if mode == "hybrid" and not can_vector:
+            mode = "exact"
+        if mode == "exact":
+            return self._search_exact(where, named, question, limit)
+        if mode == "vector":
+            return self._search_vector(where, named, query_vector, model, limit)
+        # hybrid: reciprocal rank fusion of the two rankings, each fetched a little deeper
+        deep = limit * 3
+        exact = self._search_exact(where, named, question, deep)
+        near = self._search_vector(where, named, query_vector, model, deep)
+        score: dict = {}
+        by_id: dict = {}
+        for ranking in (exact, near):
+            for rank, record in enumerate(ranking, 1):
+                score[record.id] = score.get(record.id, 0.0) + 1.0 / (60 + rank)
+                by_id[record.id] = record
+        ordered = sorted(by_id.values(), key=lambda r: -score[r.id])
+        return ordered[:limit]
+
+    def _search_exact(self, where, named, question, limit) -> list[MemoryRecord]:
+        select = _MEMORY_LISTING + " FROM memory"
+        order = " ORDER BY created_at DESC"
+        where = list(where)
+        params = dict(named)
+        if question:
+            # websearch syntax: plain words, quoted phrases, `or`, `-not`; the weights of
+            # migrations 0020/0021 put the ask, a note's body and the domains first
+            select = (
+                _MEMORY_LISTING + ", ts_rank_cd(search, q) AS rank"
+                " FROM memory, websearch_to_tsquery('english', %(question)s) q"
+            )
+            params["question"] = question
+            where.append("search @@ q")
+            order = " ORDER BY rank DESC, created_at DESC"
+        params["limit"] = limit
         rows = self._conn.execute(
-            select + " WHERE " + " AND ".join(where) + order + " LIMIT %(limit)s", named
+            select + " WHERE " + " AND ".join(where) + order + " LIMIT %(limit)s", params
+        ).fetchall()
+        return [_memory_row(r) for r in rows]
+
+    def _search_vector(self, where, named, query_vector, model, limit) -> list[MemoryRecord]:
+        where = [*where, "embedding IS NOT NULL", "embedding_model = %(model)s"]
+        params = {**named, "model": model, "qvec": _vector_literal(query_vector), "limit": limit}
+        rows = self._conn.execute(
+            _MEMORY_LISTING
+            + ", (embedding <=> %(qvec)s::vector) AS distance FROM memory WHERE "
+            + " AND ".join(where)
+            + " ORDER BY distance ASC, created_at DESC LIMIT %(limit)s",
+            params,
         ).fetchall()
         return [_memory_row(r) for r in rows]
 
     def count(self) -> int:
         return self._conn.execute("SELECT count(*) AS n FROM memory").fetchone()["n"]
+
+    def set_embedding(self, record_id: UUID, model: str, vector: list[float]) -> None:
+        self._conn.execute(
+            "UPDATE memory SET embedding = %s::vector, embedding_model = %s, embedded_at = now()"
+            " WHERE id = %s",
+            (_vector_literal(vector), model, record_id),
+        )
+
+    def list_unembedded(self, model: str, limit: int) -> list[MemoryRecord]:
+        rows = self._conn.execute(
+            _MEMORY_LISTING + " FROM memory"
+            " WHERE (kind = 'case' OR status = 'accepted') AND superseded_by IS NULL"
+            "   AND (embedding IS NULL OR embedding_model IS DISTINCT FROM %s)"
+            " ORDER BY created_at LIMIT %s",
+            (model, limit),
+        ).fetchall()
+        return [_memory_row(r) for r in rows]
+
+    def embedding_stats(self, model: str) -> dict[str, int]:
+        row = self._conn.execute(
+            "SELECT count(*) AS total,"
+            " count(*) FILTER (WHERE embedding IS NOT NULL AND embedding_model = %s) AS embedded"
+            " FROM memory WHERE (kind = 'case' OR status = 'accepted') AND superseded_by IS NULL",
+            (model,),
+        ).fetchone()
+        return {"total": row["total"], "embedded": row["embedded"]}
 
 
 class PgChannelRepo:

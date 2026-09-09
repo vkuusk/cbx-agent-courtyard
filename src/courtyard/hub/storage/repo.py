@@ -379,16 +379,32 @@ class MemoryRepo(Protocol):
         limit: int,
         viewer: UUID | None = None,
         all_cases: bool = True,
+        mode: str = "exact",
+        query_vector: list[float] | None = None,
+        model: str | None = None,
     ) -> list[MemoryRecord]:
-        """Trimmed listing (no document): best full-text match first when there is a
-        question (domain-aware weights, migrations 0020/0021), newest first otherwise.
-        Every filter narrows before ranking. Superseded records and notes that are not
-        `accepted` are left out. `viewer` is the reading agent, when there is one: a
-        line-scoped note is seen only by that line's agents, and with `all_cases` False
-        (manual discovery) the viewer sees only the case files it appears in."""
+        """Trimmed listing (no document). `exact`: best full-text match first when there
+        is a question (domain-aware weights, migrations 0020/0021), newest first
+        otherwise. `vector`: nearest by cosine distance to `query_vector` among rows
+        embedded with `model`. `hybrid`: both, fused by reciprocal rank. Every filter
+        narrows before ranking. Superseded records and notes that are not `accepted` are
+        left out. `viewer` is the reading agent, when there is one: a line-scoped note is
+        seen only by that line's agents, and with `all_cases` False (manual discovery)
+        the viewer sees only the case files it appears in."""
         ...
 
     def count(self) -> int: ...
+
+    def set_embedding(self, record_id: UUID, model: str, vector: list[float]) -> None: ...
+
+    def list_unembedded(self, model: str, limit: int) -> list[MemoryRecord]:
+        """Records that are memory (cases, accepted notes) and carry no vector from `model`
+        yet: never embedded, or embedded by another model. Oldest first."""
+        ...
+
+    def embedding_stats(self, model: str) -> dict[str, int]:
+        """{"total": records that are memory, "embedded": those with a vector from `model`}."""
+        ...
 
 
 class UnitOfWork(Protocol):

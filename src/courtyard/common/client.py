@@ -176,6 +176,13 @@ class HubClient:
             MemoryRecord.model_validate(r) for r in self._call("GET", "/api/memory", params=params)
         ]
 
+    def memory_encoder(self) -> dict:
+        return self._call("GET", "/api/memory/encoder")
+
+    def memory_embed(self) -> int:
+        """Run one embedding pass now; returns how many records got a vector."""
+        return int(self._call("POST", "/api/memory/embed")["embedded"])
+
     def memory_record(self, record_id: UUID | str) -> MemoryRecord:
         return MemoryRecord.model_validate(self._call("GET", f"/api/memory/{record_id}"))
 

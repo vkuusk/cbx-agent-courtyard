@@ -18,6 +18,7 @@ The hub renders the model-facing text (D14), so both adapters forward it as-is.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
@@ -31,6 +32,7 @@ from courtyard.common.models import (
     Thread,
 )
 from courtyard.hub.core.deliver import Deliverer
+from courtyard.hub.core.encoder import Encoder, EncoderError, NoEncoder
 from courtyard.hub.core.errors import (
     LineNotFound,
     MemoryNotFound,
@@ -42,7 +44,11 @@ from courtyard.hub.core.events import EventBus
 from courtyard.hub.core.registry import OPERATOR_NAME, Registry
 from courtyard.hub.storage.repo import Storage, UnitOfWork
 
+logger = logging.getLogger("courtyard.hub")
+
 RECALL_MAX = 20  # the hard ceiling on one recall, whatever the setting says
+EMBED_BATCH = 32  # records embedded per sweep pass
+SEARCH_MODES = ("exact", "vector", "hybrid")
 NOTE_MAX_CHARS = 2000
 
 
@@ -227,6 +233,17 @@ def render_note_result(record: MemoryRecord) -> str:
     )
 
 
+def embedding_text(record: MemoryRecord) -> str:
+    """What a record's vector is computed from: the trimmed view a future question would
+    resemble (hub-memory.md section 7). Cases: ask, resolution, verdict comments, the
+    participants' domains. Notes: the body."""
+    if record.kind == "note":
+        return record.body
+    domains = " ".join(p.sme_domain or "" for p in record.participants).strip()
+    parts = [record.ask, record.resolution, *record.verdicts, domains]
+    return "\n".join(part for part in parts if part)
+
+
 def sample_records() -> list[MemoryRecord]:
     """Deterministic records for the Admin page's envelope preview (item 29): what a recall
     listing costs, built through the same render as a real one."""
@@ -274,6 +291,7 @@ class Memory:
         events: EventBus,
         deliverer: Deliverer | None = None,
         discovery: Callable[[], str] | None = None,
+        encoder: Encoder | None = None,
     ):
         self._storage = storage
         self._registry = registry
@@ -281,6 +299,58 @@ class Memory:
         self._events = events
         self._deliverer = deliverer
         self._discovery = discovery or (lambda: "auto")
+        self._encoder = encoder or NoEncoder()
+
+    # -- similarity (hub-memory.md section 7) --------------------------------------------
+
+    @property
+    def similarity(self) -> bool:
+        return self._encoder.name != "none"
+
+    def default_mode(self) -> str:
+        """Hybrid when an encoder is configured, full text otherwise. The recall tool never
+        exposes the mode; it always gets the best the hub has."""
+        return "hybrid" if self.similarity else "exact"
+
+    def _question_vector(self, question: str) -> list[float] | None:
+        if not self.similarity or not question.strip():
+            return None
+        try:
+            return self._encoder.embed([question.strip()])[0]
+        except EncoderError as exc:
+            logger.warning("similarity search unavailable, falling back to full text: %s", exc)
+            return None
+
+    def embed_pending(self, batch: int = EMBED_BATCH) -> int:
+        """Give a vector to records that lack one from the current encoder (never embedded,
+        or embedded by another model). Called by the hub's sweep and by the admin endpoint;
+        tolerant of the encoder being down: nothing changes, the next pass retries."""
+        if not self.similarity:
+            return 0
+        with self._storage.transaction() as uow:
+            records = uow.memory.list_unembedded(self._encoder.model, batch)
+        if not records:
+            return 0
+        try:
+            vectors = self._encoder.embed([embedding_text(r) for r in records])
+        except EncoderError as exc:
+            logger.warning("embedding %d memory record(s) failed: %s", len(records), exc)
+            return 0
+        with self._storage.transaction() as uow:
+            for record, vector in zip(records, vectors, strict=True):
+                uow.memory.set_embedding(record.id, self._encoder.model, vector)
+        return len(records)
+
+    def encoder_status(self) -> dict:
+        with self._storage.transaction() as uow:
+            stats = uow.memory.embedding_stats(self._encoder.model)
+        return {
+            "encoder": self._encoder.name,
+            "model": self._encoder.model,
+            "default_mode": self.default_mode(),
+            **stats,
+            "pending": stats["total"] - stats["embedded"],
+        }
 
     # -- visibility (hub-memory.md section 8) -------------------------------------------
 
@@ -303,10 +373,13 @@ class Memory:
         since: datetime | None = None,
         limit: int | None = None,
         as_agent: Agent | None = None,
+        mode: str | None = None,
     ) -> list[MemoryRecord]:
         settings = self._settings()
         limit = min(limit or settings.recall_limit, RECALL_MAX)
         viewer, all_cases = self._viewer(as_agent)
+        mode = mode or self.default_mode()
+        vector = self._question_vector(question or "") if mode != "exact" else None
         with self._storage.transaction() as uow:
             who = self._registry.resolve(uow, participant).id if participant else None
             records = uow.memory.search(
@@ -317,6 +390,9 @@ class Memory:
                 limit=limit,
                 viewer=viewer,
                 all_cases=all_cases,
+                mode=mode,
+                query_vector=vector,
+                model=self._encoder.model if vector is not None else None,
             )
         return [trim(r, settings.recall_trim_chars) for r in records]
 

@@ -60,6 +60,7 @@ export const api = {
   memory: (params) => call("GET", `/api/memory?${new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v)))}`),
   memoryRecord: (id) => call("GET", `/api/memory/${id}`),
   pendingNotes: () => call("GET", "/api/memory/pending"),
+  memoryEncoder: () => call("GET", "/api/memory/encoder"),
   writeNote: (body) => call("POST", "/api/memory/notes", body),
   decideNote: (id, verdict, note) => call("POST", `/api/memory/${id}/decide`, { verdict, note }),
   shift: () => call("GET", "/api/shift"),

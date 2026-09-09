@@ -483,3 +483,148 @@ class TestNotes:
         block = blocks["A recall listing"]
         assert "2 records from the team's memory" in block["text"]
         assert "note by tf-agent" in block["text"] and block["overhead_tokens"] > 0
+
+
+class TestVectors:
+    """Slice 3: vectors behind the same door. The test app runs the fake encoder (a
+    deterministic bag of words with a small synonym table), which proves every code path
+    around real vectors: the sweep, the model tag, vector and hybrid ranking, fallbacks."""
+
+    def seed(self, client):
+        infra = register(client, "infra", sme_domain="the AWS estate")
+        tf = register(client, "tf", sme_domain="terraform modules")
+        db = register(client, "db", sme_domain="postgres databases")
+        settle(
+            client,
+            asker=("infra", infra[1]),
+            answerer=("tf", tf[1]),
+            ask="which module pins provider 5?",
+            answer="the vpc module 3.2 pins aws provider 5",
+        )
+        settle(
+            client,
+            asker=("infra", infra[1]),
+            answerer=("db", db[1]),
+            ask="which postgres do we run?",
+            answer="postgres 17 everywhere since the migration",
+        )
+        return infra, tf, db
+
+    def test_the_sweep_gives_every_record_a_vector_from_the_current_model(self, client):
+        self.seed(client)
+        status = client.get("/api/memory/encoder").json()
+        assert status["encoder"] == "fake" and status["default_mode"] == "hybrid"
+        assert status["total"] == 2 and status["pending"] == 2
+        assert client.post("/api/memory/embed").json() == {"embedded": 2}
+        status = client.get("/api/memory/encoder").json()
+        assert status["embedded"] == 2 and status["pending"] == 0
+        assert client.post("/api/memory/embed").json() == {"embedded": 0}  # nothing left
+
+    def test_a_pending_note_is_not_embedded_an_accepted_one_is(self, client):
+        _infra, tf, _ = self.seed(client)
+        client.post("/api/memory/embed")
+        note = client.post(
+            "/api/agents/tf/notes",
+            json={"body": "always run tflint first", "peer": "infra"},
+            headers=auth(tf[1]),
+        ).json()
+        assert note["status"] == "pending"
+        assert client.post("/api/memory/embed").json() == {"embedded": 0}
+        client.post(f"/api/memory/{note['id']}/decide", json={"verdict": "approve"})
+        assert client.post("/api/memory/embed").json() == {"embedded": 1}
+
+    def test_vector_search_finds_what_full_text_misses(self, client):
+        """`pg` never appears in any record; the fake encoder folds it onto the same word
+        as `postgres`, so the database case file is the nearest vector."""
+        self.seed(client)
+        client.post("/api/memory/embed")
+        exact = client.get("/api/memory", params={"q": "pg", "mode": "exact"}).json()
+        assert exact == []
+        near = client.get("/api/memory", params={"q": "pg", "mode": "vector"}).json()
+        assert near[0]["resolution"].startswith("postgres 17")
+        # hybrid is the default with an encoder: the tool and the page get it unasked
+        default = client.get("/api/memory", params={"q": "pg"}).json()
+        assert default[0]["resolution"].startswith("postgres 17")
+        # and where full text agrees, the fusion keeps the agreed record first
+        both = client.get("/api/memory", params={"q": "terraform provider"}).json()
+        assert both[0]["resolution"].startswith("the vpc module")
+
+    def test_recall_uses_hybrid_and_keeps_visibility(self, client):
+        infra, tf, _db = self.seed(client)
+        client.post("/api/memory/embed")
+        view = client.get(
+            "/api/agents/infra/recall", params={"q": "pg release"}, headers=auth(infra[1])
+        ).json()
+        assert view["records"][0]["resolution"].startswith("postgres 17")
+        client.patch("/api/settings", json={"discovery": "manual"})
+        try:
+            as_tf = client.get(
+                "/api/agents/tf/recall", params={"q": "pg release"}, headers=auth(tf[1])
+            ).json()
+            assert all(not r["resolution"].startswith("postgres") for r in as_tf["records"])
+        finally:
+            client.patch("/api/settings", json={"discovery": "auto"})
+
+    def test_unembedded_records_are_still_found_by_full_text_in_hybrid(self, client):
+        self.seed(client)  # no embed pass: vectors are all missing
+        hits = client.get("/api/memory", params={"q": "provider"}).json()
+        assert hits and hits[0]["resolution"].startswith("the vpc module")
+        assert client.get("/api/memory", params={"q": "pg", "mode": "vector"}).json() == []
+
+    def test_no_question_lists_newest_first_whatever_the_mode(self, client):
+        self.seed(client)
+        client.post("/api/memory/embed")
+        for mode in ("exact", "vector", "hybrid"):
+            listing = client.get("/api/memory", params={"mode": mode}).json()
+            assert [r["resolution"][:8] for r in listing] == ["postgres", "the vpc "]
+        assert client.get("/api/memory", params={"mode": "cosine"}).status_code == 422
+
+    def test_a_model_change_means_a_re_embed_not_a_new_column(self, client, config):
+        import psycopg
+
+        self.seed(client)
+        client.post("/api/memory/embed")
+        with psycopg.connect(config.database_url, autocommit=True) as conn:
+            conn.execute("UPDATE memory SET embedding_model = 'old-model'")
+        status = client.get("/api/memory/encoder").json()
+        assert status["embedded"] == 0 and status["pending"] == 2  # another model's vectors
+        assert client.get("/api/memory", params={"q": "pg", "mode": "vector"}).json() == []
+        assert client.post("/api/memory/embed").json() == {"embedded": 2}
+        assert client.get("/api/memory/encoder").json()["pending"] == 0
+
+
+def test_encoder_config_refuses_a_remote_endpoint_without_the_override():
+    import pytest
+
+    from courtyard.hub.config import RemoteEncoderError, load_config
+    from courtyard.hub.core.encoder import FakeEncoder, HttpEncoder, NoEncoder, encoder_from_config
+
+    assert isinstance(encoder_from_config(load_config(env={})), NoEncoder)
+    assert isinstance(
+        encoder_from_config(load_config(env={"COURTYARD_EMBEDDINGS_URL": "fake://"})), FakeEncoder
+    )
+    local = load_config(env={"COURTYARD_EMBEDDINGS_URL": "http://127.0.0.1:11434/v1/embeddings"})
+    assert (
+        isinstance(encoder_from_config(local), HttpEncoder)
+        and local.embeddings_model == "nomic-embed-text"
+    )
+    with pytest.raises(RemoteEncoderError):
+        load_config(env={"COURTYARD_EMBEDDINGS_URL": "https://api.example.com/v1/embeddings"})
+    remote = load_config(
+        env={
+            "COURTYARD_EMBEDDINGS_URL": "https://api.example.com/v1/embeddings",
+            "COURTYARD_EMBEDDINGS_ALLOW_REMOTE": "1",
+            "COURTYARD_EMBEDDINGS_MODEL": "text-embedding-3-small",
+        }
+    )
+    assert remote.embeddings_model == "text-embedding-3-small"
+
+
+def test_fake_encoder_folds_synonyms_and_normalizes():
+    from courtyard.hub.core.encoder import FakeEncoder
+
+    enc = FakeEncoder()
+    a, b, c = enc.embed(["pg version", "postgres release", "kubernetes ingress"])
+    assert a == b  # every word folded onto the same synonym
+    assert sum(x * x for x in a) > 0.999
+    assert sum(x * y for x, y in zip(a, c, strict=True)) < 0.01  # nothing shared

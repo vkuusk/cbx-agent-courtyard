@@ -101,13 +101,17 @@ export function MemoryPage() {
   const [pending, setPending] = useState([]);
   const [open, setOpen] = useState(null);
   const [tick, setTick] = useState(0);
+  const [mode, setMode] = useState(""); // "" = the hub's default (hybrid with an encoder)
+  const [encoder, setEncoder] = useState(null);
   const agents = [...store.agents.values()].filter((a) => a.type !== "human" && !a.removed_at);
   const refresh = () => setTick((t) => t + 1);
 
   useEffect(() => {
-    api.memory({ q, participant, limit: 20 }).then(setList).catch(() => setList([]));
+    api.memory({ q, participant, mode, limit: 20 }).then(setList).catch(() => setList([]));
     api.pendingNotes().then(setPending).catch(() => setPending([]));
-  }, [q, participant, store.memoryVersion, tick]);
+    api.memoryEncoder().then(setEncoder).catch(() => setEncoder(null));
+  }, [q, participant, mode, store.memoryVersion, tick]);
+  const similarity = encoder && encoder.encoder !== "none";
 
   const show = async (r) => {
     try {
@@ -127,6 +131,13 @@ export function MemoryPage() {
           <option value="">any participant</option>
           ${agents.map((a) => html`<option key=${a.id} value=${a.name}>${a.name}</option>`)}
         </select>
+        ${similarity
+          ? html`<select value=${mode} onChange=${(e) => setMode(e.target.value)} title="how the question is matched">
+              <option value="">hybrid (default)</option>
+              <option value="exact">full text only</option>
+              <option value="vector">similarity only</option>
+            </select>`
+          : null}
         <button class="btn primary">search</button>
         ${q ? html`<button type="button" class="btn" onClick=${() => setQ("")}>clear</button>` : null}
       </form>
@@ -146,7 +157,12 @@ export function MemoryPage() {
                 : `closed ${fmtWhen(r.closed_at || r.created_at)} · ${r.message_count} message${r.message_count === 1 ? "" : "s"}${verdictSummary(r) ? ` · ${verdictSummary(r)}` : ""}`}</span>
             </button>`)}</div>`}
       <div class="small muted" style="margin-top:.5rem">${q ? "Best match first, the way courtyard_recall ranks: the ask, a note's body and the participants' domains weigh most." : "Newest first."}
-        Agents see the same records through courtyard_recall${store.settings?.discovery === "manual" ? ", limited to the lines they are party to" : ""}; a line's note only reaches that line's two agents.</div>
+        Agents see the same records through courtyard_recall${store.settings?.discovery === "manual" ? ", limited to the lines they are party to" : ""}; a line's note only reaches that line's two agents.
+        ${encoder
+          ? similarity
+            ? html`<span class="similarity">Similarity search is on (${encoder.model}): ${encoder.embedded} of ${encoder.total} records have a vector${encoder.pending ? `, ${encoder.pending} waiting for the next sweep` : ""}.</span>`
+            : html`<span class="similarity">Similarity search is off: recall is full text only. Set COURTYARD_EMBEDDINGS_URL to a local embeddings endpoint to turn it on.</span>`
+          : null}</div>
     </div>
     ${open
       ? open.kind === "note"

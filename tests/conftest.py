@@ -40,7 +40,8 @@ def config():
         conn.execute(f"CREATE DATABASE {TEST_DB}")
     test_url = base.database_url.rsplit("/", 1)[0] + f"/{TEST_DB}"
     apply_migrations(test_url)
-    return replace(base, database_url=test_url)
+    # the test double for similarity search: every vector code path, no model server
+    return replace(base, database_url=test_url, embeddings_url="fake://")
 
 
 def _truncate(config):

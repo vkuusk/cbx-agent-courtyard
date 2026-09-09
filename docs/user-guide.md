@@ -245,6 +245,24 @@ The **Admin** page has these sections:
 - **Message envelope**: a preview of exactly what the agents receive around a message
   body, with the token overhead of each block.
 
+**Similarity search for memory.** Recall is full text by default. With a local
+embeddings endpoint configured, it becomes hybrid: full text and vector similarity fused,
+so a paraphrased question finds a case file that shares no word with it. Set in `.env`:
+
+```sh
+COURTYARD_EMBEDDINGS_URL=http://127.0.0.1:11434/v1/embeddings   # Ollama's OpenAI-compatible endpoint
+COURTYARD_EMBEDDINGS_MODEL=nomic-embed-text                      # after: ollama pull nomic-embed-text
+```
+
+Any OpenAI-compatible embeddings endpoint works (LM Studio, vLLM, llama.cpp). The hub
+embeds records in the background, a batch every few seconds, and the Memory page shows how
+many carry a vector; `POST /api/memory/embed` runs a pass at once. Changing the model
+re-embeds everything on its own, since each vector remembers the model that made it. A
+non-local endpoint sends message bodies off your machine and is refused unless
+`COURTYARD_EMBEDDINGS_ALLOW_REMOTE=1` is set. The postgres image is `pgvector/pgvector`,
+postgres 18 with the vector extension. Moving to it from an older major needs a fresh
+data volume: `make db-nuke`, then register the agents again.
+
 **The API reference.** http://127.0.0.1:2626/api/docs is the interactive reference to
 every hub route (Swagger UI over the OpenAPI document at `/api/openapi.json`). Each
 route can be tried against the running hub from the page. Admin routes need nothing;

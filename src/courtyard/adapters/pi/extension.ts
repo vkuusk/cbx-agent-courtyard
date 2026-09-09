@@ -8,7 +8,7 @@
  *    extension injects it into the session via pi.sendMessage (triggerTurn wakes
  *    an idle session; deliverAs "followUp" queues politely on a busy one);
  *  - a toolbox: courtyard_send / courtyard_close_thread / courtyard_inbox /
- *    courtyard_peers / courtyard_recall / courtyard_ack, registered natively;
+ *    courtyard_peers / courtyard_recall / courtyard_note / courtyard_ack, registered natively;
  *  - a hub adapter: attaches with a channel endpoint, heartbeats, detaches at
  *    session end. Attach retries forever, so hub/agent launch order is free.
  *
@@ -417,6 +417,37 @@ export default function (pi) {
       if (params.limit) query.set("limit", String(params.limit));
       const view = await api("GET", `/api/agents/${AGENT_NAME}/recall?${query}`);
       return { content: [{ type: "text", text: view.rendered }], details: {} };
+    },
+  });
+
+  pi.registerTool({
+    name: "courtyard_note",
+    label: "Courtyard Note",
+    description:
+      "Leave a note in the team's memory: a lesson, a decision, a fact the rest of the " +
+      "team should find later through courtyard_recall. Not a message — nobody is " +
+      "addressed and nobody owes an answer. Scoped to your line with `peer` (or your only " +
+      "line) unless `team_wide`. The operator gates notes the way messages are gated: on " +
+      "a supervised line, or team-wide, yours waits for approval; you are told if it is " +
+      "returned or dropped.",
+    parameters: {
+      type: "object",
+      properties: {
+        body: { type: "string", description: "the note, in plain words" },
+        peer: { type: "string", description: "the other agent on the line this note is for" },
+        team_wide: { type: "boolean", description: "make it visible to the whole team, not one line" },
+      },
+      required: ["body"],
+    },
+    async execute(_toolCallId, params) {
+      const body = (params.body || "").trim();
+      if (!body) throw new Error("`body` is required");
+      const record = await api("POST", `/api/agents/${AGENT_NAME}/notes`, {
+        body,
+        peer: (params.peer || "").trim() || null,
+        team_wide: Boolean(params.team_wide),
+      });
+      return { content: [{ type: "text", text: record.rendered || `Noted (id ${record.id}).` }], details: {} };
     },
   });
 

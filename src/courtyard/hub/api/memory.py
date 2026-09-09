@@ -14,10 +14,11 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel, Field
 
-from courtyard.common.models import Agent, MemoryRecord, RecallView
+from courtyard.common.models import Agent, GateVerdict, MemoryRecord, MemoryScope, RecallView
 from courtyard.hub.api.deps import get_memory, get_registry, require_agent
-from courtyard.hub.core.errors import NotAllowed
+from courtyard.hub.core.errors import NotAllowed, NoteScopeUnclear
 from courtyard.hub.core.memory import Memory
 from courtyard.hub.core.registry import Registry
 
@@ -44,6 +45,44 @@ def count_memory(memory: Annotated[Memory, Depends(get_memory)]) -> dict[str, in
     return {"count": memory.count()}
 
 
+@router.get("/memory/pending")
+def pending_notes(memory: Annotated[Memory, Depends(get_memory)]) -> list[MemoryRecord]:
+    """Agents' notes waiting for the operator's verdict, oldest first."""
+    return memory.pending()
+
+
+class OperatorNote(BaseModel):
+    body: str = Field(min_length=1, max_length=2000)
+    scope: MemoryScope = "team"
+    line: UUID | None = None  # required when scope is `line`
+
+
+@router.post("/memory/notes", status_code=201)
+def operator_note(
+    body: OperatorNote,
+    registry: Annotated[Registry, Depends(get_registry)],
+    memory: Annotated[Memory, Depends(get_memory)],
+) -> MemoryRecord:
+    """The operator's standing guidance: accepted at once, team-wide unless scoped."""
+    operator = registry.get("operator")
+    if body.scope == "line" and body.line is None:
+        raise NoteScopeUnclear("a line-scoped note needs the line")
+    return memory.note(operator, body.body, line_id=body.line, team_wide=body.scope == "team")
+
+
+class NoteDecision(BaseModel):
+    verdict: GateVerdict
+    note: str | None = None
+
+
+@router.post("/memory/{record_id}/decide")
+def decide_note(
+    record_id: UUID, body: NoteDecision, memory: Annotated[Memory, Depends(get_memory)]
+) -> MemoryRecord:
+    """Approve, return (with the comment) or drop a pending note."""
+    return memory.decide(record_id, body.verdict, body.note)
+
+
 @router.get("/memory/{record_id}")
 def get_memory_record(
     record_id: UUID, memory: Annotated[Memory, Depends(get_memory)]
@@ -67,6 +106,29 @@ def recall(
     if agent.id != caller.id:
         raise NotAllowed("token does not belong to this agent")
     return memory.recall(agent, q, limit)
+
+
+class AgentNote(BaseModel):
+    body: str = Field(min_length=1, max_length=2000)
+    peer: str | None = None  # the line the note is for, named by the other agent
+    team_wide: bool = False
+
+
+@router.post("/agents/{name_or_id}/notes", status_code=201)
+def agent_note(
+    name_or_id: str,
+    body: AgentNote,
+    caller: Annotated[Agent, Depends(require_agent)],
+    registry: Annotated[Registry, Depends(get_registry)],
+    memory: Annotated[Memory, Depends(get_memory)],
+) -> MemoryRecord:
+    """The `courtyard_note` tool: deposit a lesson into the team's memory. Scoped to
+    the line with `peer` (or the agent's only line) unless `team_wide`; waits at the
+    gate when that line is supervised, and always when team-wide."""
+    agent = registry.get(name_or_id)
+    if agent.id != caller.id:
+        raise NotAllowed("token does not belong to this agent")
+    return memory.note(agent, body.body, peer=body.peer, team_wide=body.team_wide)
 
 
 @router.get("/agents/{name_or_id}/recall/{record_id}")

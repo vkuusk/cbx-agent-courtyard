@@ -206,7 +206,7 @@ class TestRecall:
             ).json()
             assert len(view["records"]) == 1
             text = view["rendered"]
-            assert text.startswith("1 case file from the team's memory (best match first)")
+            assert text.startswith("1 record from the team's memory (best match first)")
             assert "courtyard_recall(case=" in text
             assert f"[{view['records'][0]['id']}]" in text
             assert "ask (infra):" in text and "resolution:" in text
@@ -306,3 +306,180 @@ def test_trim_marks_and_cuts():
     assert trimmed.trimmed is True and len(trimmed.ask) == 20 and trimmed.ask.endswith("…")
     assert trimmed.resolution == "short" and trimmed.document is None
     assert memory_core.trim(record, 200).trimmed is False
+
+
+class TestNotes:
+    """Slice 2: a note is a memory record with an author, a body and a scope, no thread.
+    It is not a message (nobody is addressed, no turn, no answer owed) but it passes the
+    gate like one; only accepted notes are memory."""
+
+    def pair(self, client, mode="supervised"):
+        infra = register(client, "infra", sme_domain="the AWS estate")
+        tf = register(client, "tf", sme_domain="terraform modules")
+        q = send(client, infra[1], "tf", "hello", new_thread=True)
+        decide(client, q["id"], "approve")
+        pull(client, "tf", tf[1])  # drain the hello, so later inboxes hold only notices
+        if mode == "auto_pass":
+            client.post(f"/api/lines/{q['line_id']}/mode", json={"mode": "auto_pass"})
+        return infra, tf, q["line_id"]
+
+    def note(self, client, token, name, body, **fields):
+        return client.post(
+            f"/api/agents/{name}/notes", json={"body": body, **fields}, headers=auth(token)
+        )
+
+    def test_a_note_on_a_supervised_line_waits_for_the_operator(self, client):
+        infra, tf, line_id = self.pair(client)
+        resp = self.note(client, tf[1], "tf", "pin aws provider 5 in every module", peer="infra")
+        assert resp.status_code == 201, resp.text
+        note = resp.json()
+        assert note["kind"] == "note" and note["status"] == "pending"
+        assert note["scope"] == "line" and note["line_id"] == line_id
+        assert {p["name"] for p in note["participants"]} == {"infra", "tf"}
+        assert note["author_name"] == "tf" and "held for the operator" in note["rendered"]
+        # pending: on the operator's list, not in anyone's memory yet
+        assert [n["id"] for n in client.get("/api/memory/pending").json()] == [note["id"]]
+        assert client.get("/api/memory").json() == []
+        view = client.get(
+            "/api/agents/infra/recall", params={"q": "provider"}, headers=auth(infra[1])
+        ).json()
+        assert view["records"] == []
+        # the author may still read its own pending note by handle; the peer may not
+        assert (
+            client.get(f"/api/agents/tf/recall/{note['id']}", headers=auth(tf[1])).status_code
+            == 200
+        )
+        assert (
+            client.get(f"/api/agents/infra/recall/{note['id']}", headers=auth(infra[1])).status_code
+            == 403
+        )
+
+    def test_approve_makes_it_memory_for_the_lines_two_agents_only(self, client):
+        infra, tf, _ = self.pair(client)
+        argo = register(client, "argo", sme_domain="argocd")
+        note = self.note(
+            client, tf[1], "tf", "pin aws provider 5 in every module", peer="infra"
+        ).json()
+        decided = client.post(
+            f"/api/memory/{note['id']}/decide", json={"verdict": "approve"}
+        ).json()
+        assert decided["status"] == "accepted" and decided["decided_at"] is not None
+        assert client.get("/api/memory/pending").json() == []
+        for name, token in (("infra", infra[1]), ("tf", tf[1])):
+            view = client.get(
+                f"/api/agents/{name}/recall", params={"q": "provider"}, headers=auth(token)
+            ).json()
+            assert [r["id"] for r in view["records"]] == [note["id"]]
+            assert (
+                "note by tf (for infra ↔ tf)" in view["rendered"]
+                or "note by tf (for tf ↔ infra)" in view["rendered"]
+            )
+            assert "pin aws provider 5" in view["rendered"]
+        view = client.get(
+            "/api/agents/argo/recall", params={"q": "provider"}, headers=auth(argo[1])
+        ).json()
+        assert view["records"] == []  # a line's note reaches that line's agents only
+        assert (
+            client.get(f"/api/agents/argo/recall/{note['id']}", headers=auth(argo[1])).status_code
+            == 403
+        )
+        # the operator's door sees it, and the full record renders as a note
+        (r,) = client.get("/api/memory").json()
+        assert r["kind"] == "note" and r["body"] == "pin aws provider 5 in every module"
+        full = client.get(f"/api/agents/tf/recall/{note['id']}", headers=auth(tf[1])).json()
+        assert full["rendered"].startswith(f"Note [{note['id']}] by tf, for ")
+        # approve is silent: nothing landed on the author's operator line
+        assert pull(client, "tf", tf[1]) == []
+
+    def test_return_and_drop_tell_the_author_on_the_operators_line(self, client):
+        _infra, tf, _ = self.pair(client)
+        first = self.note(client, tf[1], "tf", "always use latest", peer="infra").json()
+        returned = client.post(
+            f"/api/memory/{first['id']}/decide",
+            json={"verdict": "return", "note": "too vague: which module, which version?"},
+        ).json()
+        assert returned["status"] == "returned" and returned["gate_note"].startswith("too vague")
+        notices = pull(client, "tf", tf[1])
+        assert len(notices) == 1 and notices[0]["kind"] == "system"
+        assert "was returned to you" in notices[0]["body"]
+        assert "Operator's comment: too vague" in notices[0]["body"]
+        assert notices[0]["sender_name"] is None and notices[0]["recipient_name"] == "tf"
+
+        second = self.note(client, tf[1], "tf", "delete prod first", peer="infra").json()
+        dropped = client.post(f"/api/memory/{second['id']}/decide", json={"verdict": "drop"}).json()
+        assert dropped["status"] == "dropped"
+        (notice,) = pull(client, "tf", tf[1])
+        assert "dropped (do not resend it)" in notice["body"]
+        # neither is memory; a second verdict on the same note is refused
+        assert client.get("/api/memory").json() == []
+        again = client.post(f"/api/memory/{second['id']}/decide", json={"verdict": "approve"})
+        assert again.status_code == 409 and again.json()["error"]["code"] == "note_not_pending"
+
+    def test_auto_pass_lines_take_notes_without_the_gate(self, client):
+        _infra, tf, _ = self.pair(client, mode="auto_pass")
+        note = self.note(client, tf[1], "tf", "module 3.2 is the floor", peer="infra").json()
+        assert note["status"] == "accepted" and "Noted and remembered" in note["rendered"]
+        assert client.get("/api/memory/pending").json() == []
+        assert len(client.get("/api/memory").json()) == 1
+
+    def test_team_wide_notes_always_wait_and_then_reach_everyone(self, client):
+        _infra, tf, _ = self.pair(client, mode="auto_pass")
+        argo = register(client, "argo")
+        note = self.note(
+            client, tf[1], "tf", "we never force-push shared branches", team_wide=True
+        ).json()
+        assert note["status"] == "pending" and note["scope"] == "team"
+        client.post(f"/api/memory/{note['id']}/decide", json={"verdict": "approve"})
+        client.patch("/api/settings", json={"discovery": "manual"})
+        try:
+            view = client.get("/api/agents/argo/recall", headers=auth(argo[1])).json()
+            assert [r["id"] for r in view["records"]] == [note["id"]]  # not party to any line
+            assert "note by tf (team-wide)" in view["rendered"]
+        finally:
+            client.patch("/api/settings", json={"discovery": "auto"})
+
+    def test_the_only_line_is_the_default_scope_otherwise_the_agent_must_say(self, client):
+        _infra, tf, line_id = self.pair(client, mode="auto_pass")
+        note = self.note(client, tf[1], "tf", "one line, no peer needed").json()
+        assert note.get("line_id") == line_id
+        argo = register(client, "argo")
+        q = send(client, argo[1], "tf", "hi", new_thread=True)
+        decide(client, q["id"], "approve")
+        resp = self.note(client, tf[1], "tf", "two lines now")
+        assert resp.status_code == 422 and resp.json()["error"]["code"] == "note_scope_unclear"
+        resp = self.note(client, tf[1], "tf", "with nobody", peer="operator")
+        assert resp.status_code == 404  # no line with the operator yet
+        lonely = register(client, "lonely")
+        resp = self.note(client, lonely[1], "lonely", "nobody talks to me")
+        assert resp.status_code == 422 and "team_wide" in resp.json()["error"]["message"]
+        assert self.note(client, tf[1], "tf", "   ").status_code == 422
+        assert self.note(client, tf[1], "tf", "x" * 2001, team_wide=True).status_code == 422
+
+    def test_the_operators_note_is_accepted_at_once(self, client):
+        _infra, tf, line_id = self.pair(client)
+        team = client.post("/api/memory/notes", json={"body": "ask before deleting anything"})
+        assert team.status_code == 201, team.text
+        assert team.json()["status"] == "accepted" and team.json()["scope"] == "team"
+        assert team.json()["author_name"] == "operator"
+        scoped = client.post(
+            "/api/memory/notes",
+            json={"body": "this pair uses semver", "scope": "line", "line": line_id},
+        ).json()
+        assert scoped["scope"] == "line" and {p["name"] for p in scoped["participants"]} == {
+            "infra",
+            "tf",
+        }
+        assert (
+            client.post("/api/memory/notes", json={"body": "x", "scope": "line"}).status_code == 422
+        )
+        view = client.get("/api/agents/tf/recall", headers=auth(tf[1])).json()
+        assert {r["body"] for r in view["records"]} == {
+            "ask before deleting anything",
+            "this pair uses semver",
+        }
+
+    def test_the_envelope_preview_shows_a_recall_listing(self, client):
+        blocks = {b["title"]: b for b in client.get("/api/envelope").json()}
+        block = blocks["A recall listing"]
+        assert "2 records from the team's memory" in block["text"]
+        assert "note by tf-agent" in block["text"] and block["overhead_tokens"] > 0

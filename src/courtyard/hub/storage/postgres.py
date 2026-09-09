@@ -516,7 +516,8 @@ class PgArchiveRepo:
 _MEMORY_LISTING = (
     "SELECT id, kind, thread_id, line_id, participants, opened_by, opened_by_name, opened_at,"
     " closed_at, created_at, message_count, approved, returned, dropped, ask, resolution,"
-    " verdict_text, superseded_by"
+    " verdict_text, body, scope, status, author, author_name, gate_note, decided_at,"
+    " superseded_by"
 )
 
 
@@ -587,37 +588,92 @@ class PgMemoryRepo:
         ).fetchone()
         return _memory_row(row)
 
+    def insert_note(
+        self, *, record_id, body, scope, status, author, author_name, line_id, participants
+    ) -> MemoryRecord:
+        row = self._conn.execute(
+            "INSERT INTO memory (id, kind, line_id, participants, participant_ids, ask,"
+            " resolution, names_text, domains_text, document, body, scope, status, author,"
+            " author_name)"
+            " VALUES (%s, 'note', %s, %s, %s, '', '', %s, %s, %s, %s, %s, %s, %s, %s)"
+            " RETURNING *",
+            (
+                record_id,
+                line_id,
+                Json(participants),
+                [UUID(str(p["id"])) for p in participants],
+                " ".join(p["name"] for p in participants),
+                " ".join(p.get("sme_domain") or "" for p in participants),
+                Json({}),
+                body,
+                scope,
+                status,
+                author,
+                author_name,
+            ),
+        ).fetchone()
+        return _memory_row(row)
+
+    def decide_note(
+        self, record_id: UUID, status: str, gate_note: str | None
+    ) -> MemoryRecord | None:
+        row = self._conn.execute(
+            "UPDATE memory SET status = %s, gate_note = %s, decided_at = now()"
+            " WHERE id = %s AND kind = 'note' AND status = 'pending' RETURNING *",
+            (status, gate_note, record_id),
+        ).fetchone()
+        return _memory_row(row) if row else None
+
+    def list_pending(self) -> list[MemoryRecord]:
+        rows = self._conn.execute(
+            _MEMORY_LISTING + " FROM memory WHERE status = 'pending' ORDER BY created_at"
+        ).fetchall()
+        return [_memory_row(r) for r in rows]
+
     def get(self, record_id: UUID) -> MemoryRecord | None:
         row = self._conn.execute("SELECT * FROM memory WHERE id = %s", (record_id,)).fetchone()
         return _memory_row(row) if row else None
 
-    def search(self, *, question, participant, line_id, since, limit) -> list[MemoryRecord]:
+    def search(
+        self, *, question, participant, line_id, since, limit, viewer=None, all_cases=True
+    ) -> list[MemoryRecord]:
         where = ["superseded_by IS NULL"]
         params: list = []
+        # what the reader may see (hub-memory.md section 8): cases for everyone under
+        # auto, for their participants under manual; accepted notes by scope
+        if viewer is None:
+            where.append("(kind = 'case' OR status = 'accepted')")
+        else:
+            case_rule = "TRUE" if all_cases else "participant_ids @> %(viewer)s::uuid[]"
+            where.append(
+                f"((kind = 'case' AND {case_rule}) OR (kind = 'note' AND status = 'accepted'"
+                " AND (scope = 'team' OR participant_ids @> %(viewer)s::uuid[])))"
+            )
         select = _MEMORY_LISTING + " FROM memory"
         order = " ORDER BY created_at DESC"
+        named: dict = {"viewer": [viewer] if viewer else None, "limit": limit}
         if question and question.strip():
             # websearch syntax: plain words, quoted phrases, `or`, `-not`; the weights of
-            # migration 0020 put the ask and the participants' domains first
+            # migrations 0020/0021 put the ask, a note's body and the domains first
             select = (
                 _MEMORY_LISTING + ", ts_rank_cd(search, q) AS rank"
-                " FROM memory, websearch_to_tsquery('english', %s) q"
+                " FROM memory, websearch_to_tsquery('english', %(question)s) q"
             )
-            params.append(question.strip())
+            named["question"] = question.strip()
             where.append("search @@ q")
             order = " ORDER BY rank DESC, created_at DESC"
         if participant is not None:
-            where.append("participant_ids @> %s::uuid[]")
-            params.append([participant])
+            where.append("participant_ids @> %(participant)s::uuid[]")
+            named["participant"] = [participant]
         if line_id is not None:
-            where.append("line_id = %s")
-            params.append(line_id)
+            where.append("line_id = %(line_id)s")
+            named["line_id"] = line_id
         if since is not None:
-            where.append("created_at >= %s")
-            params.append(since)
-        params.append(limit)
+            where.append("created_at >= %(since)s")
+            named["since"] = since
+        del params
         rows = self._conn.execute(
-            select + " WHERE " + " AND ".join(where) + order + " LIMIT %s", params
+            select + " WHERE " + " AND ".join(where) + order + " LIMIT %(limit)s", named
         ).fetchall()
         return [_memory_row(r) for r in rows]
 

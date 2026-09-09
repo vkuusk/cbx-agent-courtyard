@@ -346,6 +346,29 @@ class MemoryRepo(Protocol):
         """One record with its document."""
         ...
 
+    def insert_note(
+        self,
+        *,
+        record_id: UUID,
+        body: str,
+        scope: str,
+        status: str,
+        author: UUID,
+        author_name: str,
+        line_id: UUID | None,
+        participants: list[dict],
+    ) -> MemoryRecord: ...
+
+    def decide_note(
+        self, record_id: UUID, status: str, gate_note: str | None
+    ) -> MemoryRecord | None:
+        """Rule on a pending note: accepted, returned or dropped; None if it was not pending."""
+        ...
+
+    def list_pending(self) -> list[MemoryRecord]:
+        """Notes waiting for the operator, oldest first."""
+        ...
+
     def search(
         self,
         *,
@@ -354,10 +377,15 @@ class MemoryRepo(Protocol):
         line_id: UUID | None,
         since: datetime | None,
         limit: int,
+        viewer: UUID | None = None,
+        all_cases: bool = True,
     ) -> list[MemoryRecord]:
         """Trimmed listing (no document): best full-text match first when there is a
-        question (domain-aware weights, migration 0020), newest first otherwise. Every
-        filter narrows before ranking. Superseded records are left out."""
+        question (domain-aware weights, migrations 0020/0021), newest first otherwise.
+        Every filter narrows before ranking. Superseded records and notes that are not
+        `accepted` are left out. `viewer` is the reading agent, when there is one: a
+        line-scoped note is seen only by that line's agents, and with `all_cases` False
+        (manual discovery) the viewer sees only the case files it appears in."""
         ...
 
     def count(self) -> int: ...

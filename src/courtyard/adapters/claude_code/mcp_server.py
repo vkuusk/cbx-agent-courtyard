@@ -7,7 +7,7 @@ One stdio MCP server per agent, spawned by Claude Code from the agent's project
   `notifications/claude/channel` event this server emits arrives in the session as a
   live conversation turn. This is how the hub's pushes reach a running agent.
 * **a toolbox** — `courtyard_send` / `courtyard_close_thread` / `courtyard_inbox` /
-  `courtyard_peers` / `courtyard_recall`, the agent's side of the adapter contract (§7.1).
+  `courtyard_peers` / `courtyard_recall` / `courtyard_note`, the agent's side of the adapter contract (§7.1).
 * **a hub adapter** — attaches with a channel endpoint + channel token, heartbeats, and
   detaches at session end, exactly like the dummy has done since step 2.
 
@@ -193,6 +193,32 @@ TOOLS: list[dict[str, Any]] = [
                     "description": "how many case files at most (the hub caps this; default from its settings)",
                 },
             },
+        },
+    },
+    {
+        "name": "courtyard_note",
+        "description": (
+            "Leave a note in the team's memory: a lesson, a decision, a fact the rest of the "
+            "team should find later through courtyard_recall. Not a message — nobody is "
+            "addressed and nobody owes an answer. Scoped to your line with `peer` (or your only "
+            "line) unless `team_wide`. The operator gates notes the way messages are gated: on "
+            "a supervised line, or team-wide, yours waits for approval; you are told if it is "
+            "returned or dropped."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "body": {"type": "string", "description": "the note, in plain words"},
+                "peer": {
+                    "type": "string",
+                    "description": "the other agent on the line this note is for",
+                },
+                "team_wide": {
+                    "type": "boolean",
+                    "description": "make it visible to the whole team, not one line",
+                },
+            },
+            "required": ["body"],
         },
     },
     {
@@ -516,6 +542,7 @@ class CourtyardAdapter:
             "courtyard_inbox": self._tool_inbox,
             "courtyard_peers": self._tool_peers,
             "courtyard_recall": self._tool_recall,
+            "courtyard_note": self._tool_note,
             "courtyard_ack": self._tool_ack,
         }
         handler = handlers.get(name)
@@ -584,6 +611,14 @@ class CourtyardAdapter:
         question = (arguments.get("question") or "").strip()
         limit = arguments.get("limit")
         return _tool_result(self._client.recall(question, int(limit) if limit else None).rendered)
+
+    def _tool_note(self, arguments: dict) -> dict:
+        body = (arguments.get("body") or "").strip()
+        if not body:
+            return _tool_result("`body` is required", is_error=True)
+        peer = (arguments.get("peer") or "").strip() or None
+        record = self._client.note(body, peer, bool(arguments.get("team_wide")))
+        return _tool_result(record.rendered or f"Noted (id {record.id}).")
 
     def _tool_ack(self, arguments: dict) -> dict:
         token = (arguments.get("token") or "").strip()

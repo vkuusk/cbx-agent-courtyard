@@ -214,6 +214,7 @@ def test_envelope_api_serves_the_blocks_plus_adapter_instructions(client):
     blocks = client.get("/api/envelope").json()
     titles = [b["title"] for b in blocks]
     assert titles[-1] == "The adapter instructions"
-    assert len(titles) == 9
+    assert titles[-2] == "A recall listing"  # hub memory: what a recall costs (item 29)
+    assert len(titles) == 10
     assert all(b["text"].strip() and b["note"].strip() for b in blocks)
     assert all(b["overhead_tokens"] > 0 for b in blocks)

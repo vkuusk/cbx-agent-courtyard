@@ -99,6 +99,7 @@ def test_pi_extension_end_to_end(live_hub, tmp_path):
             "courtyard_inbox",
             "courtyard_peers",
             "courtyard_recall",
+            "courtyard_note",
             "courtyard_ack",
         ):
             harness.wait_for(

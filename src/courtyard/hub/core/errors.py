@@ -112,6 +112,20 @@ class MemoryNotFound(DomainError):
     http_status = 404
 
 
+class NoteNotPending(DomainError):
+    """A verdict on a note the operator already ruled on, or on a case file."""
+
+    code = "note_not_pending"
+    http_status = 409
+
+
+class NoteScopeUnclear(DomainError):
+    """A note without a body, too long, or with no line to attach to and no team_wide."""
+
+    code = "note_scope_unclear"
+    http_status = 422
+
+
 class NotAllowed(DomainError):
     code = "not_allowed"
     http_status = 403

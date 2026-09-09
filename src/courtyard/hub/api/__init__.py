@@ -18,6 +18,7 @@ from courtyard.hub.api import (
     teams,
 )
 from courtyard.hub.core import envelope as envelope_core
+from courtyard.hub.core import memory as memory_core
 from courtyard.hub.core.errors import WorkdirNotFound
 from courtyard.hub.core.install import adapter_command
 
@@ -35,8 +36,18 @@ def envelope() -> list[dict[str, str | int]]:
     """Item 29 (visibility): every model-facing text, for the Admin page. The envelope
     variants come from the same render() that wraps real deliveries; the last block is
     the adapter's once-per-session instructions."""
+    recall_sample = memory_core.render_listing("vpc module ipv6", memory_core.sample_records())
     return [
         *envelope_core.preview(),
+        {
+            "title": "A recall listing",
+            "note": (
+                "what courtyard_recall returns for a question (hub-memory.md); bounded by "
+                "Admin → Recall returns, each field cut to Recall trims to"
+            ),
+            "text": recall_sample,
+            "overhead_tokens": envelope_core.estimate_tokens(recall_sample),
+        },
         {
             "title": "The adapter instructions",
             "note": "given to the session once, when the courtyard MCP server connects",

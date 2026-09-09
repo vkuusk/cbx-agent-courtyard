@@ -158,6 +158,11 @@ class MemoryParticipant(BaseModel):
 
 
 MemoryKind = Literal["case", "note"]
+# a note's scope (hub-memory.md section 8): one line's two agents, or the whole team
+MemoryScope = Literal["line", "team"]
+# a note's gate state: an agent's note waits `pending` until the operator rules; only
+# `accepted` notes are memory. Case files are always `accepted`.
+NoteStatus = Literal["pending", "accepted", "returned", "dropped"]
 
 
 class MemoryRecord(BaseModel):
@@ -184,6 +189,14 @@ class MemoryRecord(BaseModel):
     ask: str
     resolution: str
     verdicts: list[str] = []  # "return: <comment>", one per verdict that carried a comment
+    # notes (slice 2): what was said, by whom, for whom, and where it stands at the gate
+    body: str = ""
+    scope: MemoryScope = "line"
+    status: NoteStatus = "accepted"
+    author: UUID | None = None
+    author_name: str | None = None
+    gate_note: str | None = None
+    decided_at: datetime | None = None
     superseded_by: UUID | None = None
     trimmed: bool = False  # ask/resolution were cut to the recall length
     document: dict | None = None  # full case file on single reads; omitted in listings

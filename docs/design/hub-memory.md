@@ -1,8 +1,9 @@
 # Hub memory: the team remembers collaboration, not craft
 
-Status: accepted; slice 1 implemented (the case file, `courtyard_recall` in both
-adapters, `GET /api/memory`, the read-only Memory page, the two recall settings;
-migration 0020, decision D37 in `architecture-v1.md` §13). Slices 2 to 4 are open.
+Status: accepted; slices 1 and 2 implemented (the case file and `courtyard_recall`,
+migration 0020; notes with `courtyard_note`, the gate on the Memory page and the
+operator's note form, migration 0021; decision D37 in `architecture-v1.md` §13).
+Slices 3 and 4 are open.
 Origin: feedback item 39. The architecture's non-goals (`architecture-v1.md`
 section 2) listed a memory subsystem as a v2 candidate; this document is the design
 that lifted it out of that list.

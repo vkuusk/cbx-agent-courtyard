@@ -136,6 +136,38 @@ class HubClient:
             self._call("GET", f"/api/agents/{self.name}/recall/{record_id}")
         )
 
+    def note(self, body: str, peer: str | None = None, team_wide: bool = False) -> MemoryRecord:
+        """The `courtyard_note` tool's write: a lesson into the team's memory, scoped to the
+        line with `peer` (or this agent's only line) unless `team_wide`."""
+        data = self._call(
+            "POST",
+            f"/api/agents/{self.name}/notes",
+            {"body": body, "peer": peer, "team_wide": team_wide},
+        )
+        return MemoryRecord.model_validate(data)
+
+    def memory_pending(self) -> list[MemoryRecord]:
+        return [MemoryRecord.model_validate(r) for r in self._call("GET", "/api/memory/pending")]
+
+    def memory_note(
+        self, body: str, scope: str = "team", line: UUID | str | None = None
+    ) -> MemoryRecord:
+        """The operator's note (admin): team-wide, or for one line."""
+        data = self._call(
+            "POST",
+            "/api/memory/notes",
+            {"body": body, "scope": scope, "line": str(line) if line else None},
+        )
+        return MemoryRecord.model_validate(data)
+
+    def memory_decide(
+        self, record_id: UUID | str, verdict: str, note: str | None = None
+    ) -> MemoryRecord:
+        data = self._call(
+            "POST", f"/api/memory/{record_id}/decide", {"verdict": verdict, "note": note}
+        )
+        return MemoryRecord.model_validate(data)
+
     def memory(self, question: str | None = None, **filters: Any) -> list[MemoryRecord]:
         """Admin read of the memory store: trimmed records; filters are the endpoint's
         query parameters (participant, line, since, limit)."""

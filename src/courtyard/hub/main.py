@@ -163,7 +163,12 @@ def create_app(config: Config | None = None) -> FastAPI:
         # Hub memory (hub-memory.md): recall reads through the same settings and discovery
         # dial as the board; the case files themselves are written by the board at close.
         app.state.memory = Memory(
-            storage, registry, settings=shift.get_settings, discovery=discovery
+            storage,
+            registry,
+            settings=shift.get_settings,
+            events=events,
+            deliverer=deliverer,
+            discovery=discovery,
         )
         # Projection (D33) registers agents and links lines through the same services the
         # operator's own gestures use, so events and invariants come along for free.

@@ -940,3 +940,51 @@ uv run python scripts/runbook/memory_recall.py
    session: the ask ends in an ellipsis and the full record is one more call away.
 4. Admin, Settings, Discovery `manual` (on a scratch hub): an agent's recall lists
    only case files it took part in; the Memory page still shows all of them.
+
+---
+
+## Hub memory: notes (design hub-memory.md, slice 2)
+
+**Feature under test:** `courtyard_note` (both adapters) deposits a lesson into the
+team's memory. A note is not a message: nobody is addressed, no turn is taken, no
+answer is owed. Its scope is the line named by `peer` (or the agent's only line)
+unless `team_wide`. It passes the gate like a message: on a supervised line, or
+team-wide, an agent's note waits `pending`; the operator approves, returns with a
+comment, or drops it on the Memory page. Return and drop reach the author as a hub
+notice on the operator's line; approve is silent. Only accepted notes are memory: a
+line's note is recalled by that line's two agents, a team-wide note by everyone. The
+operator's own notes are accepted at once, team-wide unless scoped. The Admin page's
+envelope preview gains "A recall listing".
+
+**Run** (hub started with `make run`; nothing courtyard-wide is changed):
+
+```
+uv run python scripts/runbook/memory_notes.py
+```
+
+**Expected:** four blocks, then `(cleaned up ...)`, exit 0.
+
+1. **Waits**: the tool text `Noted (id ...); held for the operator ...`, `status :
+   pending`, `on the operator's pending list: True`, `peer recalls it already? : False`.
+2. **Return, then approve**: one `[system]` notice for the author, `was returned to
+   you. Operator's comment: too vague ...`; the approved note recalled by infra and tf
+   (`True`) but not by argo (`False`); the rendered listing shows `note by tf-... (for
+   ...)` with the body.
+3. **Team-wide**: `line note on auto-pass : accepted`, `team-wide note : pending`,
+   after approval `third agent recalls it : True`.
+4. **The operator's note**: `status: accepted, scope: team, author: operator`, and a
+   third agent's recall lists it.
+
+**Manual part:**
+
+1. From an agent's session: `courtyard_note` with a body and a peer. Memory page:
+   "Notes waiting for you (1)" at the top with the author, scope and body; a comment
+   field and approve / return to sender / drop. Return with a comment: the agent's
+   terminal gets the hub notice with your comment.
+2. "+ write a note": a team-wide note saves and appears in the list as `note by
+   operator · team-wide`; one scoped to a line appears as `for a ↔ b`. Click a note: the
+   detail shows its body, scope, status and your comment if any.
+3. Search finds notes by their words, ranked with case files; a line's note is absent
+   from a third agent's `courtyard_recall`.
+4. Admin, Message envelope: the block "A recall listing" shows a case file and a note
+   as an agent would read them, with the token figure.

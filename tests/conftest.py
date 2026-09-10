@@ -91,7 +91,16 @@ def live_hub(config, tmp_path_factory):
     def _start(**overrides) -> str:
         cfg = replace(config, port=_free_port(), **overrides)
         server = uvicorn.Server(
-            uvicorn.Config(create_app(cfg), host=cfg.host, port=cfg.port, log_level="warning")
+            uvicorn.Config(
+                create_app(cfg),
+                host=cfg.host,
+                port=cfg.port,
+                log_level="warning",
+                # a client a test forgot to close must not keep this hub alive into the
+                # next test: hubs share the database, and a straggler's liveness sweep
+                # judges the next test's agents with its own windows
+                timeout_graceful_shutdown=2,
+            )
         )
         thread = threading.Thread(target=server.run, daemon=True)
         thread.start()
@@ -112,6 +121,8 @@ def live_hub(config, tmp_path_factory):
     for server, thread in running:
         server.should_exit = True
         thread.join(timeout=10)
+    stragglers = [server.config.port for server, thread in running if thread.is_alive()]
+    assert not stragglers, f"test hub(s) still running after teardown on port(s) {stragglers}"
 
 
 @pytest.fixture()

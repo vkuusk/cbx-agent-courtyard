@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import plistlib
 import shutil
 import subprocess
 import sys
@@ -45,6 +46,34 @@ REQUIRED_PYTHON = (3, 14)
 
 def say(text: str) -> None:
     print(text, flush=True)
+
+
+# -- the install summary: every step's verdict, warnings repeated in full at the end ------------
+# The steps print as they run; a summary block after the last one repeats each step's status
+# so that a warning printed halfway (an existing database, a LaunchAgent taken over from another
+# directory) is not lost above a screen of pip output.
+
+STEPS: list[tuple[str, str, list[str]]] = []  # (label, "OK" | "WARNING", detail lines)
+
+
+def record(label: str, status: str = "OK", details: list[str] | None = None) -> None:
+    STEPS.append((label, status, list(details or [])))
+
+
+def format_summary(steps: list[tuple[str, str, list[str]]]) -> str:
+    width = 60
+    rule = "*" * width
+    lines = [rule, (" Summary ").center(width, "*")]
+    for i, (label, status, details) in enumerate(steps, 1):
+        lines.append(f"{i}. {label} - {status}" + (":" if details else ""))
+        if details:
+            lines.append("--------")
+            lines.extend("  " + d for d in details)
+            lines.append("--------")
+    warnings = sum(1 for _, status, _ in steps if status != "OK")
+    lines.append(rule)
+    lines.append("no warnings" if not warnings else f"{warnings} warning(s), see above")
+    return "\n".join(lines)
 
 
 def sh(
@@ -85,13 +114,20 @@ WEB_APPS = (
 )
 
 
+def installed_dock_app(web_apps=WEB_APPS) -> Path | None:
+    for app in web_apps:
+        if Path(app).exists():
+            return Path(app)
+    return None
+
+
 def webui_command(url: str, web_apps=WEB_APPS, chrome: str = CHROME) -> list[str]:
     """Open the board as its own window, never as a tab with the browser's decorations:
     the installed Dock app when there is one, else Chrome in app mode (what `make
     run-chrome` does), else whatever the default browser makes of the URL."""
-    for app in web_apps:
-        if Path(app).exists():
-            return ["open", "-a", str(app)]
+    app = installed_dock_app(web_apps)
+    if app:
+        return ["open", "-a", str(app)]
     if Path(chrome).exists():
         return [chrome, f"--app={url}"]
     return ["open", url]
@@ -172,11 +208,12 @@ def make_venv() -> None:
     if shutil.which("uv"):
         # dev tools included so a clone stays a working checkout; `tray` = the menu bar app
         sh(["uv", "sync", "--extra", "tray"], cwd=ROOT)
-        return
-    python = python_for_venv()
-    if not (ROOT / ".venv").exists():
-        sh([python, "-m", "venv", ".venv"], cwd=ROOT)
-    sh([str(ROOT / ".venv" / "bin" / "pip"), "install", "-q", "-e", ".[tray]"], cwd=ROOT)
+    else:
+        python = python_for_venv()
+        if not (ROOT / ".venv").exists():
+            sh([python, "-m", "venv", ".venv"], cwd=ROOT)
+        sh([str(ROOT / ".venv" / "bin" / "pip"), "install", "-q", "-e", ".[tray]"], cwd=ROOT)
+    record("the hub's environment (.venv)")
 
 
 def make_env_file() -> None:
@@ -184,9 +221,11 @@ def make_env_file() -> None:
     target = ROOT / ".env"
     if target.exists():
         say("  .env exists, kept as is")
+        record("local settings (.env)", details=[".env existed and was kept as is"])
     else:
         shutil.copy(ROOT / ".env.default", target)
         say("  .env created from .env.default (edit it for ports, log level, embeddings)")
+        record("local settings (.env)")
 
 
 def project() -> str:
@@ -251,14 +290,54 @@ def prepare_postgres() -> None:
     report = database_report()
     say(f"  {report}")
     if report.startswith("EXISTING"):
-        say("  One machine, one courtyard database, by design: every checkout and install")
-        say("  shares it. To start from nothing instead: `make db-nuke` here (deletes it),")
-        say("  or give this install its own COURTYARD_COMPOSE_PROJECT, COURTYARD_PG_PORT and")
-        say("  COURTYARD_PORT in .env, then run `make install` again.")
+        details = [report, *EXISTING_DATABASE_ADVICE]
+        for line in EXISTING_DATABASE_ADVICE:
+            say("  " + line)
+        record("postgres", "WARNING", details)
+    else:
+        record("postgres")
+
+
+EXISTING_DATABASE_ADVICE = [
+    "One machine, one courtyard database, by design: every checkout and install",
+    "shares it. To start from nothing instead: `make db-nuke` here (deletes it),",
+    "or give this install its own COURTYARD_COMPOSE_PROJECT, COURTYARD_PG_PORT and",
+    "COURTYARD_PORT in .env, then run `make install` again.",
+]
+
+
+def previous_root(plist: Path = PLIST) -> Path | None:
+    """The directory an already installed LaunchAgent runs from, if there is one and it is
+    not this directory: this install is about to take the hub over from it."""
+    if not plist.exists():
+        return None
+    try:
+        root = plistlib.loads(plist.read_bytes()).get("WorkingDirectory")
+    except (plistlib.InvalidFileException, ValueError):
+        return None
+    if not root or Path(root).resolve() == ROOT.resolve():
+        return None
+    return Path(root)
+
+
+def takeover_warning(old_root: Path) -> list[str]:
+    return [
+        f"the LaunchAgents already existed and ran the hub from {old_root};",
+        "this directory takes them over: the hub and the menu bar app now start from here,",
+        "that directory no longer starts anything at login (its files are untouched).",
+        "Both share the same database, by design.",
+    ]
 
 
 def write_agent() -> None:
     say("4. the LaunchAgents (the hub, and the menu bar app)")
+    old_root = previous_root()
+    if old_root:
+        for line in takeover_warning(old_root):
+            say("  " + line)
+        record("the LaunchAgents", "WARNING", takeover_warning(old_root))
+    else:
+        record("the LaunchAgents")
     PLIST.parent.mkdir(parents=True, exist_ok=True)
     LOG.parent.mkdir(parents=True, exist_ok=True)
     PLIST.write_text(render_plist())
@@ -302,19 +381,30 @@ def install() -> None:
     if not report:
         sys.exit(f"the hub did not answer at {url} within a minute; see {LOG}")
     say(f"  hub up at {url} (status {report.get('status')}, db {report.get('db')})")
+    record("starting the hub and the menu bar app")
+    say("6. opening the WebUI")
+    dock_app = installed_dock_app()
+    if dock_app:
+        # already in the Dock from an earlier install: open that, not a tab beside it
+        say(f"  the Dock app is already installed ({dock_app}); opening it")
+        subprocess.Popen(["open", "-a", str(dock_app)], stdout=subprocess.DEVNULL)
+        record("opening the WebUI", details=["opened the installed Dock app, not the browser"])
+    else:
+        say("  in your browser. It asks whether to keep the courtyard in your Dock: Chrome")
+        say("  installs it from the button, Safari from File > Add to Dock. The Dock icon counts")
+        say("  what waits for you. (Chrome remembers a 'not now' from before; the question is")
+        say("  then gone until the site's data is cleared.)")
+        subprocess.run(
+            ["open", url], check=False
+        )  # a normal window on purpose: the install button lives there
+        record("opening the WebUI")
+    say("")
+    say(format_summary(STEPS))
     say("")
     say("Done. The hub now starts at login and restarts if it dies.")
     say("The Courtyard icon in the menu bar has the buttons: Open WebUI, Start / Stop /")
     say("Restart hub, Start / End shift; beside it, the number of messages waiting at the gate.")
     say(f"Logs: {LOG}, {TRAY_LOG}")
-    say("")
-    say("6. opening the WebUI")
-    say("  It asks whether to keep the courtyard in your Dock: Chrome installs it from the")
-    say("  button, Safari from File > Add to Dock. The Dock icon counts what waits for you.")
-    subprocess.run(
-        ["open", url], check=False
-    )  # a normal window on purpose: the install button lives there
-    say("")
     say("make hub-status | hub-stop | hub-start | hub-restart | hub-open ; make uninstall")
 
 

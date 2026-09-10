@@ -42,7 +42,7 @@ from courtyard.common.models import Message
 logger = logging.getLogger("courtyard.adapter")
 
 SERVER_NAME = "courtyard"
-SERVER_VERSION = "0.1.0"
+SERVER_VERSION = "0.1.2"
 FALLBACK_PROTOCOL_VERSION = "2025-06-18"
 CHANNEL_NOTIFICATION = "notifications/claude/channel"
 

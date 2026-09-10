@@ -183,3 +183,63 @@ def test_the_webui_opens_as_its_own_window(tmp_path):
         "-a",
         str(dock_app),
     ]
+
+
+def test_the_summary_lists_every_step_and_repeats_warnings_in_full():
+    steps = [
+        ("the hub's environment (.venv)", "OK", []),
+        ("local settings (.env)", "OK", [".env existed and was kept as is"]),
+        (
+            "postgres",
+            "WARNING",
+            ["EXISTING courtyard database found and used: 3 agent(s)", "shared"],
+        ),
+        ("the LaunchAgents", "OK", []),
+    ]
+    text = install.format_summary(steps)
+    lines = text.splitlines()
+    assert lines[0] == "*" * 60 and "Summary" in lines[1]
+    assert "1. the hub's environment (.venv) - OK" in lines
+    assert "2. local settings (.env) - OK:" in lines
+    assert "3. postgres - WARNING:" in lines
+    assert "  EXISTING courtyard database found and used: 3 agent(s)" in lines
+    assert lines.count("--------") == 4  # one block around each step's details
+    assert lines[-1] == "1 warning(s), see above"
+    assert install.format_summary([("postgres", "OK", [])]).endswith("no warnings")
+
+
+def test_install_records_the_existing_database_as_a_warning(monkeypatch):
+    monkeypatch.setattr(install, "STEPS", [])
+    monkeypatch.setattr(install, "sh", lambda *a, **k: None)
+    monkeypatch.setattr(install, "read_env", dict)
+    monkeypatch.setattr(install, "database_report", lambda: install.describe_database(3, 0, 0, "t"))
+    install.prepare_postgres()
+    monkeypatch.setattr(install, "database_report", lambda: install.describe_database(0, 0, 0, ""))
+    install.prepare_postgres()
+    (label, status, details), (_, fresh, _) = install.STEPS
+    assert (label, status, fresh) == ("postgres", "WARNING", "OK")
+    assert details[0].startswith("EXISTING courtyard database") and "make db-nuke" in "\n".join(
+        details
+    )
+
+
+def test_install_warns_when_the_launchagent_ran_from_another_directory(tmp_path):
+    """A second checkout's install takes the hub over from the first: said, not silent."""
+    plist = tmp_path / "com.courtyard.hub.plist"
+    assert install.previous_root(plist) is None  # nothing installed
+    plist.write_text(install.render_plist(root=install.ROOT))
+    assert install.previous_root(plist) is None  # same directory: a reinstall
+    other = tmp_path / "elsewhere"
+    plist.write_text(install.render_plist(root=other))
+    assert install.previous_root(plist) == other
+    warning = install.takeover_warning(other)
+    assert str(other) in warning[0] and "no longer starts anything at login" in warning[2]
+    plist.write_text("not a plist")
+    assert install.previous_root(plist) is None
+
+
+def test_install_opens_the_dock_app_when_it_is_already_installed(tmp_path):
+    app = tmp_path / "Agent Courtyard.app"
+    assert install.installed_dock_app(web_apps=(app,)) is None
+    app.mkdir()
+    assert install.installed_dock_app(web_apps=(app,)) == app

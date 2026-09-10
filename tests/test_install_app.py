@@ -98,6 +98,7 @@ def test_tray_plist_runs_the_venv_app_with_the_root_in_its_environment(tmp_path)
     assert plist["KeepAlive"] is True and plist["RunAtLoad"] is True
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="install.sh refuses anything but macOS")
 def test_install_sh_unpacks_a_zip_package_into_an_empty_directory(tmp_path):
     """The one-command install, minus the download and the install itself: a zip from
     `make zip-package` lands flattened in the target directory, dotfiles included, the

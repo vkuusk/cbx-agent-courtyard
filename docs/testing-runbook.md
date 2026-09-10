@@ -1042,7 +1042,9 @@ uv run python scripts/runbook/memory_vectors.py
 present, else python3.14 + pip), copies `.env.default` to `.env`, brings postgres up,
 writes `~/Library/LaunchAgents/com.courtyard.hub.plist` (RunAtLoad, KeepAlive, log
 `sandbox/hub.log`, `COURTYARD_SUPERVISED=launchd`) and `com.courtyard.tray.plist` (the
-menu bar app, `courtyard-tray`, log `sandbox/tray.log`) and loads both; the wrapper
+menu bar app, `courtyard-tray`, log `sandbox/tray.log`) and loads both, and writes
+`~/Applications/Courtyard Admin.app` (a shell-script bundle with the courtyard's icon that
+bootstraps the tray's LaunchAgent, or alerts when nothing is installed); the wrapper
 `scripts/hub-launch.sh` sets PATH, loads `.env`, waits for Docker, brings postgres up and
 execs the venv's hub. `make hub-start|stop|restart|status|open` drive it. Under the
 supervisor the Admin page shows a restart button (`POST /api/hub/restart`, refused with
@@ -1107,13 +1109,21 @@ uv run pytest tests/test_install_app.py tests/test_tray.py tests/test_health.py 
    `make hub-status` says `up` again (KeepAlive). `make hub-stop`: `down`, and the Dock
    app shows a connection error; `make hub-start`: back.
 5. Log out and in (or reboot): the hub is up without any command.
-6. The menu bar: a Courtyard icon in the top bar. Its first line reads `hub: up (db ok) ·
+6. The menu bar: a Courtyard icon in the top bar, and nothing else: no Python tile in
+   the Dock, no entry under Cmd-Tab or Force Quit (`lsappinfo list | grep -A8 courtyard-tray`
+   says `type="UIElement"`, not `Foreground`). Its first line reads `hub: up (db ok) ·
    no shift · 0 at the gate`. Hold a message at the gate: `1` appears beside the icon;
    approve it: gone. **Stop hub**: the line turns `hub: down`, a hollow dot beside the
    icon, Start hub enabled, Stop and Restart greyed; **Start hub**: up again. **Start
    shift** opens the agents' terminals and greys itself; **End shift** with a
    conversation mid-work asks "End the shift anyway?"; **Open WebUI** opens the board as its own window (the Dock app when added, else Chrome's app mode, never a decorated tab);
-   **Show hub log** opens `sandbox/hub.log` in Console.
-7. `make uninstall`: both plists gone, the menu bar icon gone, containers down, `.venv`
-   gone, `.env` and the data volume kept; `make db-up` and `make run` still work from
-   the same directory.
+   **Show hub log** opens `sandbox/hub.log` in Console. **Quit Courtyard Admin**: the icon
+   is gone and stays gone (`make hub-status` says `menu bar : not loaded`, the hub is
+   untouched). Spotlight (Cmd-Space) `Courtyard Admin` shows the courtyard icon; open it:
+   the menu bar icon is back within a second (`launchctl print gui/$(id -u)/com.courtyard.tray`
+   says `state = running`). `make hub-start` brings it back the same way. Kill the process
+   instead (`pkill -f courtyard-tray`): back by itself within about five seconds.
+7. `make uninstall`: both plists gone, the menu bar icon gone, `~/Applications/Courtyard
+   Admin.app` gone (opening a leftover copy alerts `Courtyard is not installed`),
+   containers down, `.venv` gone, `.env` and the data volume kept; `make db-up` and
+   `make run` still work from the same directory.

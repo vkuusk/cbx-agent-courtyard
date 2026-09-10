@@ -7,6 +7,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 from courtyard import traycore
 from courtyard.traycore import HubControl, HubState
 
@@ -63,3 +65,43 @@ def test_state_against_a_live_hub(live_hub, tmp_path):
     down = HubControl(root=tmp_path)
     down.url = "http://127.0.0.1:9"
     assert down.state().up is False
+
+
+def test_the_tray_is_a_menu_bar_app_with_the_courtyard_icon(tmp_path):
+    """No Dock tile or task-switcher entry (accessory policy); the app icon, shown by its
+    alerts, is the courtyard's when the file is there, and nothing is set when it is not."""
+    tray = pytest.importorskip("courtyard.tray")
+
+    class FakeApp:
+        policy = None
+        icon = None
+
+        def setActivationPolicy_(self, policy):
+            self.policy = policy
+
+        def setApplicationIconImage_(self, image):
+            self.icon = image
+
+    loaded = []
+    load = lambda path: loaded.append(path) or f"image:{path}"
+    app = FakeApp()
+    tray.keep_out_of_the_dock(app, tmp_path / "missing.png", load)
+    assert app.policy == tray.ACCESSORY and app.icon is None and loaded == []
+    icon = tmp_path / "icon-512.png"
+    icon.write_bytes(b"png")
+    tray.keep_out_of_the_dock(FakeApp(), None, load)
+    app = FakeApp()
+    tray.keep_out_of_the_dock(app, icon, load)
+    assert app.icon == f"image:{icon}" and loaded == [str(icon)]
+
+
+def test_quit_unloads_the_tray_launchagent_instead_of_exiting(tmp_path):
+    """A plain exit under launchd is a restart (KeepAlive); Quit must bootout."""
+    import os
+
+    control = HubControl(root=tmp_path)
+    assert control.quit_command() == [
+        "launchctl",
+        "bootout",
+        f"gui/{os.getuid()}/com.courtyard.tray",
+    ]

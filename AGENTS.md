@@ -35,10 +35,12 @@ Verify: `curl -sf http://127.0.0.1:2626/api/health` returns success.
 For day-to-day use instead of `make run`: `make install` (or, from an empty directory,
 `curl -fsSL https://raw.githubusercontent.com/vkuusk/cbx-agent-courtyard/main/install.sh | sh`,
 which downloads the newest release and runs it) registers the hub as a macOS
-LaunchAgent (starts at login, restarts on exit) plus a second one for the Courtyard
-icon in the menu bar (two files under `~/Library/LaunchAgents`, `com.courtyard.hub` and
-`com.courtyard.tray`); the menu has the buttons Open WebUI, Start / Stop / Restart hub,
-Start / End shift. The install runs six numbered steps and ends with a Summary block:
+LaunchAgent (starts at login, restarts on exit) plus a second one for Courtyard Admin,
+the icon in the menu bar (two files under `~/Library/LaunchAgents`, `com.courtyard.hub`
+and `com.courtyard.tray`, and `~/Applications/Courtyard Admin.app`, the launcher that
+brings the menu bar icon back after Quit Courtyard Admin); the menu has the buttons Open
+WebUI, Start / Stop / Restart hub, Start / End shift, Quit Courtyard Admin. The install
+runs six numbered steps and ends with a Summary block:
 one line per step, OK or WARNING, every warning repeated in full. Read it and report
 any warning to your operator; the two it knows are an EXISTING courtyard database
 (one database per machine by design, shared by every checkout and install; the block

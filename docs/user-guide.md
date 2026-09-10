@@ -79,10 +79,11 @@ make install
 
 Prerequisites: macOS, Docker (Desktop or Colima) set to start at login, Python 3.14
 (`brew install python@3.14`); `uv` is used when present and not required. The install
-creates `.venv` and `.env`, pulls the postgres image, and writes two files outside the
+creates `.venv` and `.env`, pulls the postgres image, and writes three things outside the
 directory: `~/Library/LaunchAgents/com.courtyard.hub.plist`, a LaunchAgent that runs the
-hub at login and restarts it if it exits, and `com.courtyard.tray.plist` for the menu
-bar icon described below. The logs are `sandbox/hub.log` and `sandbox/tray.log`.
+hub at login and restarts it if it exits, `com.courtyard.tray.plist` for the menu bar app
+described below, and `~/Applications/Courtyard Admin.app`, the launcher that brings the
+menu bar app back after you quit it. The logs are `sandbox/hub.log` and `sandbox/tray.log`.
 
 Install ends by opening the WebUI, which asks whether to keep the courtyard in your Dock.
 One click is yours, because browsers only install a site as an app from a click inside
@@ -99,13 +100,20 @@ an existing courtyard database on this machine (used as is, with the way to star
 nothing), and LaunchAgents that ran the hub from another directory (this install takes
 them over; the other directory no longer starts anything at login, its files stay).
 
-Install also puts a **Courtyard icon in the menu bar**, its own small app beside the hub
-(a second LaunchAgent, `com.courtyard.tray`). Its menu has the buttons for everything
-below: Open WebUI, Start hub, Stop hub, Restart hub, Start shift, End shift, Show hub log.
+Install also puts a **Courtyard icon in the menu bar**: Courtyard Admin, its own small
+app beside the hub (a second LaunchAgent, `com.courtyard.tray`). Its menu has the buttons
+for everything below: Open WebUI, Start hub, Stop hub, Restart hub, Start shift, End
+shift, Show hub log, Quit Courtyard Admin.
 Beside the icon: nothing while all is quiet, the number of messages waiting at the gate
 when something needs you, a hollow dot when the hub is down. The menu bar app is what
 starts a hub that is down; the WebUI cannot, and it has no stop button on purpose, so the
-hub stays the same program whether it runs here or, later, on another machine.
+hub stays the same program whether it runs here or, later, on another machine. It lives
+in the menu bar only: no Dock tile, no entry under Cmd-Tab or Force Quit. **Quit
+Courtyard Admin** takes the icon away until you want it back (killing the process instead
+brings it back within seconds: launchd keeps both LaunchAgents alive). To bring it back,
+open **Courtyard Admin** from Spotlight, the Dock or any launcher (it is an app in
+`~/Applications`), or run `make hub-start`; it also returns at the next login. Quitting
+the menu bar app never touches the hub.
 
 | command | what it does |
 |---|---|

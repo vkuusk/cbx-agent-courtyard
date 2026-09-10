@@ -79,16 +79,25 @@ make install
 
 Prerequisites: macOS, Docker (Desktop or Colima) set to start at login, Python 3.14
 (`brew install python@3.14`); `uv` is used when present and not required. The install
-creates `.venv` and `.env`, pulls the postgres image, and writes one file outside the
+creates `.venv` and `.env`, pulls the postgres image, and writes two files outside the
 directory: `~/Library/LaunchAgents/com.courtyard.hub.plist`, a LaunchAgent that runs the
-hub at login and restarts it if it exits. The log is `sandbox/hub.log`.
+hub at login and restarts it if it exits, and `com.courtyard.tray.plist` for the menu
+bar icon described below. The logs are `sandbox/hub.log` and `sandbox/tray.log`.
 
 Install ends by opening the WebUI, which asks whether to keep the courtyard in your Dock.
 One click is yours, because browsers only install a site as an app from a click inside
 the page: in Chrome the banner's **Add to Dock** button opens the install dialog; in
 Safari the banner points at File, Add to Dock. "Not now" hides the question in that
-browser. The Dock icon opens the board in its own window and shows how many messages
-wait at the gate or are unread for you.
+browser, also across later installs; clear the browser's data for 127.0.0.1:2626 to
+see it again. When the Dock app already exists from an earlier install, the install opens
+it instead of a browser tab. The Dock icon opens the board in its own window and shows
+how many messages wait at the gate or are unread for you.
+
+The install closes with a summary: one line per step, OK or WARNING, with every warning
+repeated in full so it is not lost above the package output. The two warnings it knows:
+an existing courtyard database on this machine (used as is, with the way to start from
+nothing), and LaunchAgents that ran the hub from another directory (this install takes
+them over; the other directory no longer starts anything at login, its files stay).
 
 Install also puts a **Courtyard icon in the menu bar**, its own small app beside the hub
 (a second LaunchAgent, `com.courtyard.tray`). Its menu has the buttons for everything

@@ -1076,15 +1076,29 @@ uv run pytest tests/test_install_app.py tests/test_tray.py tests/test_health.py 
    steps below. In a non-empty directory it stops with `is not empty`. Without Docker
    running it stops naming the fix.
 1. `make hub-stop` any `make run` hub first (port 2626 must be free). `make install`:
-   five numbered steps, then `hub up at http://127.0.0.1:2626`, the Add to Dock
-   instructions, and the command list. `ls ~/Library/LaunchAgents/com.courtyard.hub.plist`
-   exists; `make hub-status` says `loaded` and `up`.
+   six numbered steps (`hub up at http://127.0.0.1:2626` under step 5, the Add to Dock
+   instructions under step 6), then a `Summary` block framed in `*` lines: one row per
+   step, `- OK` or `- WARNING:` with the warning's full text repeated between `--------`
+   rules, closed by `no warnings` or `N warning(s), see above`; then the command list.
+   With an existing database step 3 is the warning. `ls
+   ~/Library/LaunchAgents/com.courtyard.hub.plist` exists; `make hub-status` says
+   `loaded` and `up`.
+1a. Take-over: `make install` from a second checkout (or a release unpacked elsewhere)
+   while the first install's plists exist. Step 4 prints `the LaunchAgents already
+   existed and ran the hub from <first directory>` and the summary shows step 4 as
+   `WARNING`; `plutil -p ~/Library/LaunchAgents/com.courtyard.hub.plist` now names the
+   second directory; the first directory's files are untouched. A reinstall from the same
+   directory prints no such warning.
 2. Admin, Status: `supervisor: launchd ... [restart hub]`. Press it, confirm: the button
    reads `restarting…`, the hub log shows a clean shutdown and a new ready line, the page
    reloads by itself within a few seconds; agents' cards turn green again on their next
    heartbeat.
 3. Install ended by opening the WebUI, with the banner "Keep the courtyard in your
-   Dock?" at the top. Chrome: **Add to Dock** opens Chrome's install dialog; accept, and
+   Dock?" at the top (a browser that was told "not now" before keeps that answer; clear
+   the site's data for 127.0.0.1:2626 to see the banner again). When the Dock app already
+   exists (`~/Applications/Chrome Apps.localized/Agent Courtyard.app` or
+   `~/Applications/Agent Courtyard.app`) step 6 says so and opens the app instead of a
+   browser tab. Chrome: **Add to Dock** opens Chrome's install dialog; accept, and
    the banner is gone for good in the installed app. Safari: the banner names File, Add
    to Dock. "not now" hides it in that browser (localStorage). The Dock app opens the
    board in its own window; hold a message at the gate: the Dock icon shows a badge with

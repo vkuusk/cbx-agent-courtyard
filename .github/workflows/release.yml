@@ -1,0 +1,38 @@
+# A GitHub Release for every version tag: the install zip as a fixed-name asset, so
+# `releases/latest/download/courtyard.zip` always is the newest version, plus the
+# versioned name and generated notes. install.sh downloads the tag's zip; this makes the
+# version visible and gives it a page.
+#
+#   git tag v0.2.0 && git push --tags
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # git describe needs the tags
+
+      - name: Build the install zip
+        run: |
+          make zip-package
+          cp courtyard-*.zip courtyard.zip
+          ls -la courtyard*.zip
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            courtyard.zip courtyard-*.zip \
+            --title "Agent Courtyard ${GITHUB_REF_NAME}" \
+            --generate-notes

@@ -1,5 +1,8 @@
 """HTTP API. Thin layer: routes validate input and call services; no domain logic here."""
 
+import asyncio
+import os
+import signal
 from pathlib import Path
 
 from fastapi import APIRouter, Request
@@ -19,16 +22,38 @@ from courtyard.hub.api import (
 )
 from courtyard.hub.core import envelope as envelope_core
 from courtyard.hub.core import memory as memory_core
-from courtyard.hub.core.errors import WorkdirNotFound
+from courtyard.hub.core.errors import NotSupervised, WorkdirNotFound
 from courtyard.hub.core.install import adapter_command
 
 router = APIRouter(prefix="/api")
 
 
 @router.get("/config")
-def config() -> dict[str, str]:
-    """What the WebUI needs to write an agent's launch configuration."""
-    return {"adapter_command": adapter_command()}
+def config() -> dict[str, str | bool]:
+    """What the WebUI needs to write an agent's launch configuration, and whether a
+    supervisor (launchd, `make install`) restarts the hub when it exits."""
+    return {"adapter_command": adapter_command(), "supervised": supervised()}
+
+
+def supervised() -> bool:
+    return bool(os.environ.get("COURTYARD_SUPERVISED"))
+
+
+def _exit_hub() -> None:
+    """Ask uvicorn to shut down cleanly; under launchd's KeepAlive that is a restart."""
+    os.kill(os.getpid(), signal.SIGTERM)
+
+
+@router.post("/hub/restart", status_code=202)
+async def restart_hub() -> dict[str, bool]:
+    """The Admin page's restart button. Only under a supervisor: without one the hub would
+    simply stop, so the request is refused instead (`not_supervised`)."""
+    if not supervised():
+        raise NotSupervised(
+            "the hub is not running under a supervisor (make install); restarting would stop it"
+        )
+    asyncio.get_running_loop().call_later(0.5, _exit_hub)
+    return {"restarting": True}
 
 
 @router.get("/envelope")

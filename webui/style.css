@@ -382,3 +382,8 @@ pre.cmd { background: var(--code-bg); color: var(--code-fg); border-radius: 9px;
 
 @media (prefers-reduced-motion: reduce) { .rail, .agent { transition: none; } }
 @media (max-width: 720px) { .team .agent { min-width: 100%; } .page, .composer { padding-left: 1rem; padding-right: 1rem; } }
+
+/* the "keep this in the Dock?" question (app.js DockBanner); gone once installed or dismissed */
+.dock-banner { display: flex; gap: .7rem; align-items: center; flex-wrap: wrap; padding: .5rem .9rem;
+  margin: .6rem .9rem 0; border: 1px solid var(--border); border-radius: 10px; background: var(--rail); font-size: .9rem; }
+.dock-banner > span:first-child { flex: 1; min-width: 14rem; }

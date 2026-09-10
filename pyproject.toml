@@ -21,6 +21,12 @@ courtyard-hub = "courtyard.hub.main:cli"
 courtyard-dummy = "courtyard.dummy.main:cli"
 courtyard-claude-mcp = "courtyard.adapters.claude_code.mcp_server:cli"
 courtyard-invite = "courtyard.adapters.claude_code.invite:cli"
+courtyard-tray = "courtyard.tray:main"
+
+[project.optional-dependencies]
+tray = [
+    "rumps>=0.4",
+]
 
 [dependency-groups]
 dev = [

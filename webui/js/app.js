@@ -65,6 +65,58 @@ function Conn() {
   return html`<div class="conn" title=${`hub connection: ${text}`}><span class="dot ${state}" /><span class="label">${text}</span></div>`;
 }
 
+// "Keep this in the Dock?" The install itself needs a click inside the browser (Chrome
+// installs a site as an app only from a user gesture; Safari has no API at all), so the
+// question lives here, where the click can happen. Chrome: the button opens its own
+// install dialog. Safari and others: the menu path. Dismissed = remembered per browser;
+// running as the installed app = never shown.
+const DOCK_KEY = "courtyard-dock-dismissed";
+let installPrompt = null; // Chrome's deferred beforeinstallprompt event, if it fired
+addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  installPrompt = e;
+  notifyInstallable();
+});
+const installListeners = new Set();
+function notifyInstallable() {
+  for (const fn of installListeners) fn();
+}
+
+export function DockBanner() {
+  const [, bump] = useState(0);
+  const [dismissed, setDismissed] = useState(() => {
+    try { return localStorage.getItem(DOCK_KEY) === "1"; } catch { return false; }
+  });
+  useEffect(() => {
+    const fn = () => bump((n) => n + 1);
+    installListeners.add(fn);
+    return () => installListeners.delete(fn);
+  }, []);
+  const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+  if (standalone || dismissed) return null;
+  const dismiss = () => {
+    try { localStorage.setItem(DOCK_KEY, "1"); } catch { /* private window */ }
+    setDismissed(true);
+  };
+  const install = async () => {
+    const e = installPrompt;
+    installPrompt = null;
+    await e.prompt();
+    const { outcome } = await e.userChoice;
+    if (outcome === "accepted") dismiss();
+  };
+  const isSafari = /safari/i.test(navigator.userAgent) && !/chrome|chromium|crios|edg/i.test(navigator.userAgent);
+  return html`<div class="dock-banner" role="status">
+    <span>Keep the courtyard in your Dock? It opens in its own window and its icon counts what waits for you.</span>
+    ${installPrompt
+      ? html`<button class="btn primary" onClick=${install}>Add to Dock</button>`
+      : isSafari
+        ? html`<span class="muted">Safari: <b>File › Add to Dock</b></span>`
+        : html`<span class="muted">Chrome: the install icon at the right of the address bar</span>`}
+    <button class="btn" onClick=${dismiss}>not now</button>
+  </div>`;
+}
+
 function App() {
   useStore();
   const hash = useHash();
@@ -73,6 +125,14 @@ function App() {
   const attention = store.pending.size + totalUnread();
   useEffect(() => {
     document.title = attention ? `(${attention}) Agent Courtyard` : "Agent Courtyard";
+    // Installed as a Dock app (Add to Dock / Install app), the badge is the same count
+    // the tab title carries: messages held at the gate plus unread replies to you.
+    try {
+      if (attention) navigator.setAppBadge?.(attention);
+      else navigator.clearAppBadge?.();
+    } catch {
+      /* not installed, or the browser has no badge API */
+    }
   }, [attention]);
   useEffect(() => {
     if (store.ui.page !== current) setUi({ page: current });
@@ -80,6 +140,7 @@ function App() {
   return html`<div class="app ${store.ui.collapsed ? "collapsed" : ""}">
     <${Rail} current=${current} />
     <div class="main">
+      <${DockBanner} />
       <div class="page ${current}"><${View} /></div>
       ${current === "board" ? html`<${Composer} />` : null}
     </div>

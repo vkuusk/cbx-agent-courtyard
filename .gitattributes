@@ -1,0 +1,9 @@
+# What stays out of the install zip (`make zip-package`, and GitHub's own source zips for
+# a tag: both honour export-ignore). Development machinery only; the tests stay in, so
+# `make check` works from an unzipped install, and so do the user-facing docs.
+.github/            export-ignore
+.claude/            export-ignore
+.gitattributes      export-ignore
+docs/planning/      export-ignore
+docs/archived/      export-ignore
+sandbox/            export-ignore

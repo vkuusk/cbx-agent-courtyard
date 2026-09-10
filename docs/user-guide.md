@@ -13,6 +13,22 @@ directory; the hub carries, records and optionally gates every message between t
 
 ## Installation
 
+The short way, for using the hub day to day (details under "Installing as an app" below):
+
+```sh
+mkdir -p ~/Applications/courtyard && cd ~/Applications/courtyard
+curl -fsSL https://raw.githubusercontent.com/vkuusk/cbx-agent-courtyard/main/install.sh | sh
+```
+
+The script checks the prerequisites (macOS, Docker running, Python 3.14) and names what
+is missing with the command that installs it; it installs nothing itself. Then it
+downloads the newest release zip, unpacks it into the current directory, which must be
+empty, and runs `make install`. If you would rather look first: download `install.sh`,
+read it, run it. Or skip the script: download the release zip from GitHub, unzip it,
+`cd` in, `make install`. The three are the same install.
+
+The long way, for working on the code:
+
 Requirements: macOS, [uv](https://docs.astral.sh/uv/), Docker with compose, and the
 agent runtime itself: [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
 (`claude` on your PATH) and, for agents of type `pi`, the pi coding agent
@@ -41,6 +57,68 @@ Local settings live in `.env` (copied from `.env.default`, never committed):
 
 Stopping: `make db-down` stops postgres and keeps the data; `make db-nuke` stops it
 and deletes all courtyard data (registrations, tokens, history).
+
+### Installing as an app
+
+For day-to-day use the hub should be out of the way: started at login, restarted if it
+dies, opened from the Dock when something needs you. That is `make install`:
+
+```sh
+unzip courtyard-<version>.zip && cd courtyard-<version>   # or the git clone
+make install
+```
+
+Prerequisites: macOS, Docker (Desktop or Colima) set to start at login, Python 3.14
+(`brew install python@3.14`); `uv` is used when present and not required. The install
+creates `.venv` and `.env`, pulls the postgres image, and writes one file outside the
+directory: `~/Library/LaunchAgents/com.courtyard.hub.plist`, a LaunchAgent that runs the
+hub at login and restarts it if it exits. The log is `sandbox/hub.log`.
+
+Install ends by opening the WebUI, which asks whether to keep the courtyard in your Dock.
+One click is yours, because browsers only install a site as an app from a click inside
+the page: in Chrome the banner's **Add to Dock** button opens the install dialog; in
+Safari the banner points at File, Add to Dock. "Not now" hides the question in that
+browser. The Dock icon opens the board in its own window and shows how many messages
+wait at the gate or are unread for you.
+
+Install also puts a **Courtyard icon in the menu bar**, its own small app beside the hub
+(a second LaunchAgent, `com.courtyard.tray`). Its menu has the buttons for everything
+below: Open WebUI, Start hub, Stop hub, Restart hub, Start shift, End shift, Show hub log.
+Beside the icon: nothing while all is quiet, the number of messages waiting at the gate
+when something needs you, a hollow dot when the hub is down. The menu bar app is what
+starts a hub that is down; the WebUI cannot, and it has no stop button on purpose, so the
+hub stays the same program whether it runs here or, later, on another machine.
+
+| command | what it does |
+|---|---|
+| `make hub-status` | are the LaunchAgents loaded, is the hub answering |
+| `make hub-stop` | unload: the hub stays down until `hub-start` |
+| `make hub-start` | load: the hub starts, and again at every login |
+| `make hub-restart` | restart under launchd; the Admin page has the same as a button |
+| `make hub-open` | open the WebUI in the default browser |
+| `make tray` | run the menu bar app by hand (install runs it at login) |
+| `make uninstall` | remove both LaunchAgents, stop the containers, delete `.venv`; the data volume and `.env` stay |
+| `make uninstall PURGE=1` | the same, plus the postgres volume and images |
+
+The compose project is named `courtyard`, so the data volume is
+`courtyard_courtyard-pgdata` whatever the directory is called. A hub that ran from a clone
+before this name existed kept its data in `cbx-agent-courtyard_courtyard-pgdata`; copy it
+once before the first `make db-up` from the renamed project:
+
+```sh
+docker volume create --label com.docker.compose.project=courtyard \
+    --label com.docker.compose.volume=courtyard-pgdata courtyard_courtyard-pgdata
+docker run --rm -v cbx-agent-courtyard_courtyard-pgdata:/from -v courtyard_courtyard-pgdata:/to \
+    alpine sh -c "cp -a /from/. /to/"
+docker rm -f courtyard-postgres   # the old project's container; the new one takes its name
+```
+
+The labels tell compose the volume is its own; without them every `make db-up` warns.
+
+Uninstall lists the agents' project directories first: they hold the files registration
+wrote (`.mcp.json`, the settings profile, the start script), and `courtyard-invite
+--remove` takes them out per agent. `make zip-package` produces the zip from a checkout,
+in the checkout's root, named after the git version.
 
 ## Creating a Team
 
@@ -230,7 +308,8 @@ delivered when the agent starts again with the same command.
 
 The **Admin** page has these sections:
 
-- **Status**: hub health and configuration, counts for the courtyard, and two links for
+- **Status**: hub health and configuration, whether a supervisor runs the hub (with a
+  restart button when launchd does), counts for the courtyard, and two links for
   looking under the hood: the API reference and the database browser (below).
 - **Teams**: the registered charters, which one is current, each team's last load
   report, its agents and links, and **reload from disk**.

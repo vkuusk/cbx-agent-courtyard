@@ -13,6 +13,19 @@ from courtyard.common.client import HubClient, HubError
 from courtyard.common.models import Message
 from courtyard.dummy.core import Dummy, ScriptBehavior, ScriptStep
 
+_started: list[Dummy] = []
+
+
+@pytest.fixture(autouse=True)
+def _stop_dummies():
+    """Every dummy a test starts is stopped at its end, whether the test stopped it or
+    not: a forgotten dummy's heartbeat thread outlives its hub and prints
+    `heartbeat failed: Connection refused` into some later test's output."""
+    yield
+    for dummy in _started:
+        dummy.stop()
+    _started.clear()
+
 
 def make_dummy(hub: str, name: str, behavior) -> Dummy:
     admin = HubClient(hub)
@@ -20,6 +33,7 @@ def make_dummy(hub: str, name: str, behavior) -> Dummy:
     admin.close()
     dummy = Dummy(hub, name, token, behavior, heartbeat_seconds=0.5)
     dummy.start()
+    _started.append(dummy)
     return dummy
 
 

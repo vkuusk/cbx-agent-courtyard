@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from courtyard.hub.api import router
-from courtyard.hub.config import Config, load_config
+from courtyard.hub.config import DEFAULT_PG_PORT, Config, load_config
 from courtyard.hub.core.archive import Archiver
 from courtyard.hub.core.board import Board
 from courtyard.hub.core.channels import ChannelService
@@ -108,9 +108,13 @@ def create_app(config: Config | None = None) -> FastAPI:
 
     @contextlib.asynccontextmanager
     async def lifespan(app: FastAPI):
-        from courtyard.hub.storage.migrate import apply_migrations
+        from courtyard.hub.storage.migrate import ForeignDatabaseError, apply_migrations
 
-        applied = apply_migrations(cfg.database_url)
+        try:
+            applied = apply_migrations(cfg.database_url)
+        except ForeignDatabaseError as exc:
+            logger.error("%s", exc)
+            raise
         if applied:
             logger.info("migrations applied: %s", ", ".join(applied))
         storage = PostgresStorage(cfg.database_url)
@@ -265,7 +269,7 @@ def startup_banner(cfg: Config) -> str:
     hub's silence reads as health, not as a hang). The database URL loses its
     credentials; the rest of it says which postgres this hub is on."""
     db = urlsplit(cfg.database_url)
-    where = f"{db.hostname or 'localhost'}:{db.port or 5432}{db.path}"
+    where = f"{db.hostname or 'localhost'}:{db.port or DEFAULT_PG_PORT}{db.path}"
     quiet = {
         "DEBUG": "everything shows",
         "INFO": "routine request lines show",

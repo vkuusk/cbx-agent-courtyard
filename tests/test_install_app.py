@@ -153,3 +153,33 @@ def test_release_workflow_publishes_the_zip_package():
     text = (ROOT / ".github" / "workflows" / "release.yml").read_text()
     assert "make zip-package" in text and "courtyard.zip" in text and "gh release create" in text
     assert 'tags: ["v*"]' in text
+
+
+def test_install_says_which_database_it_found():
+    assert (
+        install.describe_database(0, 0, 0, "")
+        == "fresh courtyard database (nothing registered yet)"
+    )
+    text = install.describe_database(3, 12, 4, "devops-team")
+    assert text.startswith("EXISTING courtyard database found and used: 3 agent(s), 12 message(s)")
+    assert "4 memory record(s), team devops-team" in text
+
+
+def test_the_webui_opens_as_its_own_window(tmp_path):
+    """Never a tab with the browser's decorations: the installed Dock app first, then
+    Chrome in app mode (what make run-chrome does), then the default browser."""
+    url = "http://127.0.0.1:2626"
+    dock_app = tmp_path / "Agent Courtyard.app"
+    chrome = tmp_path / "Google Chrome"
+    assert install.webui_command(url, web_apps=(dock_app,), chrome=str(chrome)) == ["open", url]
+    chrome.write_text("")
+    assert install.webui_command(url, web_apps=(dock_app,), chrome=str(chrome)) == [
+        str(chrome),
+        f"--app={url}",
+    ]
+    dock_app.mkdir()
+    assert install.webui_command(url, web_apps=(dock_app,), chrome=str(chrome)) == [
+        "open",
+        "-a",
+        str(dock_app),
+    ]

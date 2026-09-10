@@ -56,6 +56,8 @@ class Dummy:
         return self.summary
 
     def stop(self) -> None:
+        if self._stop.is_set():
+            return  # already stopped; a second stop is a no-op
         self._stop.set()
         try:
             self.client.detach()

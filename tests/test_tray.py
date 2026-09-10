@@ -25,7 +25,7 @@ def test_state_line_and_glyph():
 
 def test_the_buttons_run_the_installer_the_make_targets_run(tmp_path):
     control = HubControl(root=tmp_path)
-    for action in ("start", "stop", "restart", "status"):
+    for action in ("start", "stop", "restart", "status", "open"):
         assert control.command(action) == [
             sys.executable,
             str(tmp_path / "scripts" / "install.py"),

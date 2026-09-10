@@ -24,6 +24,18 @@ def test_nonlocal_bind_with_explicit_override():
     assert cfg.host == "0.0.0.0"
 
 
+def test_postgres_defaults_to_an_unusual_port():
+    """Not 5432: a developer's own postgres lives there, and the hub must neither collide
+    with it nor be mistaken for it. COURTYARD_PG_PORT still moves it."""
+    assert (
+        load_config(env={}).database_url
+        == "postgresql://courtyard:courtyard@127.0.0.1:26432/courtyard"
+    )
+    assert load_config(env={"COURTYARD_PG_PORT": "5433"}).database_url.endswith(
+        "@127.0.0.1:5433/courtyard"
+    )
+
+
 def test_env_overrides():
     cfg = load_config(env={"COURTYARD_PORT": "3000", "DATABASE_URL": "postgresql://x/y"})
     assert cfg.port == 3000

@@ -22,16 +22,21 @@ class EventTap:
         assert self._ready.wait(5), "SSE stream never opened"
 
     def _run(self, hub_url: str) -> None:
-        with httpx.stream("GET", f"{hub_url}/api/events", timeout=30) as resp:
-            event_type = None
-            for line in resp.iter_lines():
-                if line == ": connected":
-                    self._ready.set()
-                elif line.startswith("event:"):
-                    event_type = line.removeprefix("event:").strip()
-                elif line.startswith("data:") and event_type:
-                    self.events.append((event_type, json.loads(line.removeprefix("data:"))))
-                    event_type = None
+        try:
+            with httpx.stream("GET", f"{hub_url}/api/events", timeout=30) as resp:
+                event_type = None
+                for line in resp.iter_lines():
+                    if line == ": connected":
+                        self._ready.set()
+                    elif line.startswith("event:"):
+                        event_type = line.removeprefix("event:").strip()
+                    elif line.startswith("data:") and event_type:
+                        self.events.append((event_type, json.loads(line.removeprefix("data:"))))
+                        event_type = None
+        except httpx.HTTPError:
+            # the test hub closed the stream at teardown (its graceful-shutdown timeout):
+            # the end of the stream, nothing to report from a background thread
+            pass
 
     def wait_for(self, event_type: str, timeout: float = 5.0) -> dict:
         deadline = time.monotonic() + timeout

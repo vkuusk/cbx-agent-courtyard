@@ -47,3 +47,9 @@ src = ["src", "tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+filterwarnings = [
+    # CPython 3.14's own asyncio.to_thread calls the function it deprecated; not ours to fix
+    "ignore:'asyncio.iscoroutinefunction' is deprecated:DeprecationWarning",
+    # TestTtyProbe forks a pty from the (multi-threaded) test process; the child execs at once
+    "ignore:This process .* is multi-threaded, use of forkpty:DeprecationWarning",
+]

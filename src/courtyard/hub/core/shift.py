@@ -113,8 +113,9 @@ class ShiftService:
         if patch.get("team_mode") == "always_on":
             raise InvalidSetting("team mode 'always_on' is not available in v1")
         with self._lock:
-            merged = self._settings.model_copy(update=patch)
-            merged = Settings.model_validate(merged.model_dump())  # re-check literals
+            # validate the patched document as a whole (literals, nested models): a
+            # model_copy(update=) would leave raw dicts inside the model
+            merged = Settings.model_validate({**self._settings.model_dump(), **patch})
             self._check_terminals(merged)
             with self._storage.transaction() as uow:
                 uow.settings.set(SETTINGS_KEY, merged.model_dump())

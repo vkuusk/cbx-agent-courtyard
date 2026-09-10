@@ -41,6 +41,33 @@ from courtyard.common.models import Message
 
 logger = logging.getLogger("courtyard.adapter")
 
+REWRITE_FILES_HINT = (
+    "the token in this workdir's .mcp.json is not the hub's token for this agent (the"
+    " database was rebuilt or the token rotated after the file was written); on the WebUI"
+    " open Agents, edit this agent, launch config, 'write both files', then restart this"
+    " session"
+)
+
+
+def attach_failure(exc: Exception, attempt: int) -> tuple[int, str] | None:
+    """What to log about a failed attach attempt: None to stay quiet (the first miss is
+    reported, then about one in thirty, once a minute at the 2 s cadence). A hub that is not
+    there yet is a warning, since it usually arrives. A 401 is named for what it is: the
+    token is wrong, and retrying cannot fix it."""
+    if attempt != 1 and attempt % 30 != 0:
+        return None
+    if isinstance(exc, HubError) and exc.code == "invalid_token":
+        text = (
+            f"attach attempt {attempt}: the hub rejected this agent's token ({exc}): "
+            f"{REWRITE_FILES_HINT}. Retrying every 2s, which cannot succeed until then."
+        )
+        return logging.ERROR, text
+    return (
+        logging.WARNING,
+        f"attach attempt {attempt} failed (hub not reachable yet? retrying every 2s): {exc}",
+    )
+
+
 SERVER_NAME = "courtyard"
 SERVER_VERSION = "0.1.2"
 FALLBACK_PROTOCOL_VERSION = "2025-06-18"
@@ -409,12 +436,9 @@ class CourtyardAdapter:
                 )
             except (HubError, httpx.HTTPError) as exc:
                 attempt += 1
-                if attempt == 1 or attempt % 30 == 0:  # first miss, then about once a minute
-                    logger.warning(
-                        "attach attempt %d failed (hub not reachable yet? retrying every 2s): %s",
-                        attempt,
-                        exc,
-                    )
+                report = attach_failure(exc, attempt)
+                if report:
+                    logger.log(*report)
                 self._stop.wait(2.0)
                 continue
             self._attached.set()

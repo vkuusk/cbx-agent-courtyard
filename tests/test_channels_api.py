@@ -162,3 +162,26 @@ def test_attach_roster_carries_declared_domains(client, make_agent):
     roster = {p["name"]: p for p in attach(client, "coding", token).json()["roster"]}
     assert roster["infra"]["sme_domain"] == "the AWS estate"
     assert roster["operator"]["sme_domain"] is None
+
+
+def test_a_rejected_token_under_a_known_name_is_shown_until_the_right_one_attaches(
+    client, make_agent
+):
+    """An .mcp.json written before the database was rebuilt retries attach every 2 s with a
+    dead token. The hub notes it against the agent named in the path so the card can say
+    "token rejected" instead of "not started yet"; the right token ends the note."""
+    _, token = make_agent("alice")
+    resp = attach(client, "alice", "token-from-an-old-mcp-json")
+    assert resp.status_code == 401
+    assert resp.json()["error"]["code"] == "invalid_token"
+    alice = client.get("/api/agents/alice").json()
+    assert alice["status"] == "invited" and alice["token_rejected_at"]
+    flagged = [a["name"] for a in client.get("/api/agents").json() if a.get("token_rejected_at")]
+    assert flagged == ["alice"]
+    # a name the hub does not know is still a plain 401, with nothing to note it on
+    assert attach(client, "nobody", "whatever").status_code == 401
+    # the right token clears it, and the connected agent carries no note
+    resp = attach(client, "alice", token)
+    assert resp.status_code == 200, resp.text
+    alice = client.get("/api/agents/alice").json()
+    assert alice["status"] == "connected" and alice["token_rejected_at"] is None

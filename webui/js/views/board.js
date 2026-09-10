@@ -50,6 +50,13 @@ function AgentCard({ agent }) {
   const noChannel = agent.channel_flag === "absent" && agent.status !== "gone" && agent.status !== "invited";
   let foot = FOOT[agent.status];
   let footCls = agent.status === "invited" || agent.status === "unknown" ? "" : "warn";
+  // A session is retrying attach with a token the hub does not know (an .mcp.json older
+  // than the database, or a rotated token): "not started yet" would send the operator
+  // looking at the wrong thing.
+  if (agent.token_rejected_at && agent.status !== "connected") {
+    foot = "token rejected, rewrite the agent's files";
+    footCls = "warn";
+  }
   if (!foot && noChannel) { foot = "started without the channel"; footCls = "warn"; }
   else if (!foot && agent.delivery_check === "failed") { foot = "delivery check failed"; footCls = "warn"; }
   else if (!foot && agent.delivery_check === "pending") { foot = "checking delivery…"; footCls = ""; }

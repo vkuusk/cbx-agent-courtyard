@@ -481,6 +481,16 @@ uv run python scripts/runbook/delivery_check.py
 3. **On demand:** hover a connected agent's card — the **✓?** chip; click it and watch
    the same pending → ✓ cycle. Hovering the green ✓ shows when delivery was last
    verified.
+4a. **The rejected token:** edit one agent's `.mcp.json` so `COURTYARD_TOKEN` is wrong
+   (or rotate the token on its row without rewriting the files), start its session. The
+   hub log shows `POST /api/agents/<name>/attach ... 401` every two seconds; the card's
+   foot reads `token rejected, rewrite the agent's files` (red) instead of `not started
+   yet`; `GET /api/agents` shows `token_rejected_at` on that agent only. In the session's
+   adapter log (stderr / MCP log) the first attempt reads `the hub rejected this agent's
+   token` with the fix, then about once a minute, never every attempt. Restore the token
+   (edit, launch config, write both files) and restart the session: the card turns
+   green and `token_rejected_at` is null again. Scripted: `uv run pytest
+   tests/test_channels_api.py -k rejected tests/test_claude_adapter.py -k attach_failures`.
 4. **The failure verdict:** repeat step 1's bare session and click its card's **✓?**.
    After the timeout (60 s) the foot turns to *delivery check failed* (the flag warning
    outranks it when both apply). Expected everywhere: the check never appears in any

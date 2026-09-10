@@ -7,6 +7,7 @@ import logging
 import secrets
 from collections import Counter
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -57,6 +58,10 @@ class Registry:
         self._events = events
         # §5.8 (D22): under manual discovery the peers list narrows to linked agents.
         self._discovery = discovery or (lambda: "auto")
+        # agent id -> when an attach under its name last came with a token that is not its
+        # own. In memory on purpose: the adapter retries every 2 s, so a hub restart refills
+        # it within seconds, and an attach with the right token ends it.
+        self._token_rejections: dict[UUID, datetime] = {}
 
     def create(
         self,
@@ -170,11 +175,39 @@ class Registry:
 
     def get(self, name_or_id: str) -> Agent:
         with self._storage.transaction() as uow:
-            return self.resolve(uow, name_or_id)
+            return self._with_rejection(self.resolve(uow, name_or_id))
 
     def list(self) -> list[Agent]:
         with self._storage.transaction() as uow:
-            return uow.agents.list()
+            return [self._with_rejection(a) for a in uow.agents.list()]
+
+    # -- rejected tokens: "not started yet" would hide a file that can never work ---------
+
+    def _with_rejection(self, agent: Agent) -> Agent:
+        at = self._token_rejections.get(agent.id)
+        return agent.model_copy(update={"token_rejected_at": at}) if at else agent
+
+    def note_token_rejected(self, name_or_id: str) -> None:
+        """An attach for a known agent name carried a token the hub does not know. Almost
+        always a workdir's .mcp.json written before the database was rebuilt or the token
+        rotated; retrying cannot fix it, so the card says so until the files are rewritten.
+        Unknown names record nothing (nothing to show them on)."""
+        try:
+            with self._storage.transaction() as uow:
+                agent = self.resolve(uow, name_or_id)
+        except UnknownAgent:
+            return
+        if agent.removed_at is not None:
+            return
+        first = agent.id not in self._token_rejections
+        self._token_rejections[agent.id] = datetime.now(UTC)
+        if first:
+            self._events.publish("agent", self._with_rejection(agent))
+
+    def clear_token_rejected(self, agent: Agent) -> None:
+        """An attach with the right token: the note is over (the attach's own agent event
+        carries the cleared field to the WebUI)."""
+        self._token_rejections.pop(agent.id, None)
 
     def peers(self, agent: Agent) -> PeersView:
         """Who this agent can talk to — ranked, trimmed and rendered hub-side (D14).

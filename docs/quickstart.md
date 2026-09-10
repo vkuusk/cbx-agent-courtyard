@@ -264,11 +264,15 @@ disagree, these are the moves; each one is safe to do at any time.
   `make test-comms`: it proves the whole operator → agent → operator path against a
   live session and prints where it broke. Channels are a research preview; the
   launch-flag contract has drifted before.
-- **You nuked the database** (`make db-nuke`). Registrations and tokens are gone, but
-  each agent directory still holds its old config with a now-dead token; old sessions
-  will retry against the new hub forever (harmless 401 noise). Exit those sessions,
-  re-register the agents (same names and directories), and **install** again: the new
-  config overwrites the stale token in place.
+- **You nuked the database** (`make db-nuke`), or rebuilt the team from its charter.
+  Registrations and tokens are new, but each agent directory still holds its old config
+  with a now-dead token. A session started from it retries attach every two seconds and
+  is refused every time: its card reads **token rejected, rewrite the agent's files**
+  instead of "not started yet", the shift counts it as not on shift, and the adapter's
+  log names the cause and the fix. Exit those sessions, then for each agent open
+  **edit**, **launch config**, **write both files** (after a nuke: re-register first,
+  same names and directories): the new config overwrites the stale token in place. Start
+  the sessions again.
 
 ## Stop and clean up
 

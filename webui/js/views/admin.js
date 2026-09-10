@@ -268,6 +268,32 @@ function EnvelopeSection() {
     </div>`;
 }
 
+// Under launchd the hub can restart itself: it exits cleanly and KeepAlive brings it back.
+function RestartButton() {
+  const [state, setState] = useState("idle"); // idle | restarting | back | failed
+  const restart = async () => {
+    if (!confirm("Restart the hub? Agents reconnect on their own within a few seconds.")) return;
+    setState("restarting");
+    try {
+      await api.restartHub();
+    } catch (err) {
+      alert(err.message);
+      setState("idle");
+      return;
+    }
+    for (let i = 0; i < 60; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      try {
+        const r = await fetch("/api/health", { cache: "no-store" });
+        if (r.ok && i > 1) { setState("back"); setTimeout(() => location.reload(), 800); return; }
+      } catch { /* still down */ }
+    }
+    setState("failed");
+  };
+  const label = { idle: "restart hub", restarting: "restarting…", back: "back up, reloading", failed: "did not come back; see the log" }[state];
+  return html`<button class="btn small" style="margin-left:.5rem" disabled=${state !== "idle"} onClick=${restart}>${label}</button>`;
+}
+
 export function Admin() {
   useStore();
   const [health, setHealth] = useState(null);
@@ -290,6 +316,9 @@ export function Admin() {
         <dt>status</dt><dd>${health ? `${health.status} · db ${health.db ?? "?"}` : "…"}</dd>
         <dt>address</dt><dd>${location.origin}</dd>
         ${config ? Object.entries(config).map(([k, v]) => html`<dt>${k}</dt><dd>${String(v)}</dd>`) : null}
+        <dt>supervisor</dt><dd>${config?.supervised
+          ? html`launchd (starts at login, restarts on exit) <${RestartButton} />`
+          : html`none <span class="small muted">· started by hand (make run); \`make install\` runs it at login</span>`}</dd>
         <dt>API reference</dt><dd><a href="/api/docs" target="_blank" rel="noopener">${location.origin}/api/docs</a>
           <span class="small muted">· every route, try it out against this hub</span></dd>
         <dt>database browser</dt><dd><code>make db-ui</code>

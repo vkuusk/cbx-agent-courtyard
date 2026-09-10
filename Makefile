@@ -1,4 +1,4 @@
-.PHONY: run run-chrome run-stop check test test-comms lint fmt demo demo-chrome demo-stop db-up db-ui db-down db-nuke
+.PHONY: run run-chrome run-stop check test test-comms lint fmt demo demo-chrome demo-stop db-up db-ui db-down db-nuke install uninstall hub-start hub-stop hub-restart hub-status hub-open tray zip-package
 
 # local overrides (copied from .env.default; gitignored); exported so the hub,
 # tests and compose all see the same values
@@ -68,3 +68,34 @@ db-down:        ## stop containers (data volume survives)
 
 db-nuke:        ## stop containers and DELETE the postgres data volume
 	docker compose --profile tools down -v
+
+# ---- the hub as a macOS app: a LaunchAgent that runs at login (scripts/install.py) -------
+
+install:        ## install the hub as a LaunchAgent: venv, .env, postgres image, start at login
+	python3 scripts/install.py install
+
+uninstall:      ## remove the LaunchAgent, stop containers, drop .venv (PURGE=1: also the data volume)
+	python3 scripts/install.py uninstall $(if $(PURGE),--purge)
+
+hub-start:      ## load the LaunchAgent (the hub starts, and again at every login)
+	python3 scripts/install.py start
+
+hub-stop:       ## unload the LaunchAgent (the hub stays down until hub-start)
+	python3 scripts/install.py stop
+
+hub-restart:    ## restart the hub under launchd
+	python3 scripts/install.py restart
+
+hub-status:     ## is the LaunchAgent loaded, is the hub answering
+	python3 scripts/install.py status
+
+hub-open:       ## open the WebUI in the default browser
+	python3 scripts/install.py open
+
+tray:           ## run the menu bar app by hand (make install runs it at login)
+	uv run --extra tray courtyard-tray
+
+zip-package:    ## zip the committed tree for `unzip; make install` -> ./courtyard-<version>.zip
+	@v=$$(git describe --tags --always --dirty); \
+	git archive --worktree-attributes --format=zip --prefix=courtyard-$$v/ -o courtyard-$$v.zip HEAD && \
+	echo "courtyard-$$v.zip  (unzip anywhere, cd in, make install)"

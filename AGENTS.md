@@ -32,6 +32,14 @@ make run            # postgres + the hub on http://127.0.0.1:2626 (foreground)
 
 Verify: `curl -sf http://127.0.0.1:2626/api/health` returns success.
 
+For day-to-day use instead of `make run`: `make install` (or, from an empty directory,
+`curl -fsSL https://raw.githubusercontent.com/vkuusk/cbx-agent-courtyard/main/install.sh | sh`,
+which downloads the newest release and runs it) registers the hub as a macOS
+LaunchAgent (starts at login, restarts on exit; one file under `~/Library/LaunchAgents`)
+and puts a Courtyard icon in the menu bar with the buttons (Open WebUI, Start / Stop /
+Restart hub, Start / End shift). The WebUI asks once whether to keep it in the Dock.
+`make hub-status`, `hub-stop`, `hub-start`, `hub-restart`; `make uninstall` reverses it.
+
 ## Register the team's agents
 
 Ask your operator for the team design first; see the next section. The hub

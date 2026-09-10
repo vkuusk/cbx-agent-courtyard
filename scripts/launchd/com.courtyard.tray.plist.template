@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Agent Courtyard menu bar app, rendered by scripts/install.py (make install). -->
+  <key>Label</key>
+  <string>com.courtyard.tray</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>{{ROOT}}/.venv/bin/courtyard-tray</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>{{ROOT}}</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
+  <key>StandardOutPath</key>
+  <string>{{LOG}}</string>
+  <key>StandardErrorPath</key>
+  <string>{{LOG}}</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>COURTYARD_ROOT</key>
+    <string>{{ROOT}}</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+</dict>
+</plist>

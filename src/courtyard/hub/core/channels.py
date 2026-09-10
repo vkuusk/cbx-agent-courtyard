@@ -247,7 +247,6 @@ class ChannelService:
         younger than one heartbeat window — a live adapter's beat flips them straight to
         connected — and resolved to their true state afterwards, all in one pass."""
         changed: list[Agent] = []
-        judging = datetime.now(UTC) < self._judge_after
         with self._storage.transaction() as uow:
             channels = {channel.agent_id: channel for channel in uow.channels.list()}
             for agent in uow.agents.list():
@@ -257,7 +256,12 @@ class ChannelService:
                 age = (channel.heartbeat_age_seconds or 0.0) if channel else None
                 target = None
                 if agent.status == "unknown":
-                    if judging:
+                    # Read the window HERE, not once per sweep: begin_verification sets
+                    # `_judge_after` before it flips statuses, so a sweep that overlaps
+                    # a shift start and sees the fresh `unknown` also sees the reopened
+                    # window. A snapshot taken before the transaction did not (found on
+                    # a slow CI runner: the flip landed as `stale` within the window).
+                    if datetime.now(UTC) < self._judge_after:
                         continue
                     if age is None or age > self._gone_after:
                         target = "gone"

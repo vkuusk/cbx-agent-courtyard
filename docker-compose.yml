@@ -1,3 +1,8 @@
+# A fixed project name: the volume is `courtyard_courtyard-pgdata` and the network
+# `courtyard_default` whatever directory this lives in (an unzipped release, a clone),
+# so `make uninstall PURGE=1` always finds what `make install` created.
+name: courtyard
+
 services:
   postgres:
     # postgres 18 with the pgvector extension (hub memory's similarity search, migration

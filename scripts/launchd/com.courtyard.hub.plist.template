@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Agent Courtyard hub, rendered by scripts/install.py (make install). -->
+  <key>Label</key>
+  <string>com.courtyard.hub</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>{{LAUNCHER}}</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>{{ROOT}}</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
+  <key>StandardOutPath</key>
+  <string>{{LOG}}</string>
+  <key>StandardErrorPath</key>
+  <string>{{LOG}}</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>COURTYARD_SUPERVISED</key>
+    <string>launchd</string>
+  </dict>
+</dict>
+</plist>

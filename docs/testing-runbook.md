@@ -1033,3 +1033,67 @@ uv run python scripts/runbook/memory_vectors.py
    `recall is full-text only`.
 3. Set `COURTYARD_EMBEDDINGS_URL` to a non-local address: the hub refuses to start with
    `refusing to embed through ...` unless `COURTYARD_EMBEDDINGS_ALLOW_REMOTE=1`.
+
+---
+
+## The hub as a macOS app: make install, the LaunchAgent, the Dock app
+
+**Feature under test:** `make install` builds `.venv` with the `tray` extra (uv if
+present, else python3.14 + pip), copies `.env.default` to `.env`, brings postgres up,
+writes `~/Library/LaunchAgents/com.courtyard.hub.plist` (RunAtLoad, KeepAlive, log
+`sandbox/hub.log`, `COURTYARD_SUPERVISED=launchd`) and `com.courtyard.tray.plist` (the
+menu bar app, `courtyard-tray`, log `sandbox/tray.log`) and loads both; the wrapper
+`scripts/hub-launch.sh` sets PATH, loads `.env`, waits for Docker, brings postgres up and
+execs the venv's hub. `make hub-start|stop|restart|status|open` drive it. Under the
+supervisor the Admin page shows a restart button (`POST /api/hub/restart`, refused with
+`not_supervised` otherwise). The WebUI serves a web app manifest and icons and sets the
+Dock badge to the attention count. `make uninstall` reverses install (`PURGE=1` drops the
+volume and images). `make zip-package` zips the committed tree into the root, without
+the paths `.gitattributes` marks `export-ignore` (`.github`, `.claude`, planning and
+archived docs, sandbox). `install.sh` (curl | sh) checks the prerequisites, downloads the
+newest release zip (or `COURTYARD_ZIP`), unpacks it into the current empty directory
+(or `COURTYARD_DIR`) and runs `make install`; `COURTYARD_UNPACK_ONLY=1` stops before
+the install. The release workflow attaches `courtyard.zip` to every `v*` tag.
+
+**Scripted part** (renders and lints both plists, checks the wrapper, the tray's logic
+against a live hub, the installer's unpack path from a fresh zip; no install):
+
+```
+uv run pytest tests/test_install_app.py tests/test_tray.py tests/test_health.py -q
+```
+
+**Manual part** (this changes your login items; run it once, then uninstall or keep it):
+
+0. The one-command path, once a release exists: in an empty directory,
+   `curl -fsSL https://raw.githubusercontent.com/vkuusk/cbx-agent-courtyard/main/install.sh | sh`
+   prints `downloading Agent Courtyard v...`, `unpacked into ...`, then the five install
+   steps below. In a non-empty directory it stops with `is not empty`. Without Docker
+   running it stops naming the fix.
+1. `make hub-stop` any `make run` hub first (port 2626 must be free). `make install`:
+   five numbered steps, then `hub up at http://127.0.0.1:2626`, the Add to Dock
+   instructions, and the command list. `ls ~/Library/LaunchAgents/com.courtyard.hub.plist`
+   exists; `make hub-status` says `loaded` and `up`.
+2. Admin, Status: `supervisor: launchd ... [restart hub]`. Press it, confirm: the button
+   reads `restarting…`, the hub log shows a clean shutdown and a new ready line, the page
+   reloads by itself within a few seconds; agents' cards turn green again on their next
+   heartbeat.
+3. Install ended by opening the WebUI, with the banner "Keep the courtyard in your
+   Dock?" at the top. Chrome: **Add to Dock** opens Chrome's install dialog; accept, and
+   the banner is gone for good in the installed app. Safari: the banner names File, Add
+   to Dock. "not now" hides it in that browser (localStorage). The Dock app opens the
+   board in its own window; hold a message at the gate: the Dock icon shows a badge with
+   the count; approve it: the badge clears.
+4. `kill -9 $(pgrep -f .venv/bin/courtyard-hub)`: within about five seconds
+   `make hub-status` says `up` again (KeepAlive). `make hub-stop`: `down`, and the Dock
+   app shows a connection error; `make hub-start`: back.
+5. Log out and in (or reboot): the hub is up without any command.
+6. The menu bar: a Courtyard icon in the top bar. Its first line reads `hub: up (db ok) ·
+   no shift · 0 at the gate`. Hold a message at the gate: `1` appears beside the icon;
+   approve it: gone. **Stop hub**: the line turns `hub: down`, a hollow dot beside the
+   icon, Start hub enabled, Stop and Restart greyed; **Start hub**: up again. **Start
+   shift** opens the agents' terminals and greys itself; **End shift** with a
+   conversation mid-work asks "End the shift anyway?"; **Open WebUI** opens the board;
+   **Show hub log** opens `sandbox/hub.log` in Console.
+7. `make uninstall`: both plists gone, the menu bar icon gone, containers down, `.venv`
+   gone, `.env` and the data volume kept; `make db-up` and `make run` still work from
+   the same directory.

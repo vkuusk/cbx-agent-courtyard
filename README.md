@@ -137,6 +137,18 @@ to replay every word that passes between your agents.
 
 ## Getting started
 
+To use the hub day to day, one command from an empty directory installs it as a macOS
+app (starts at login, a menu bar icon for the buttons, a Dock icon if you want one):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/vkuusk/cbx-agent-courtyard/main/install.sh | sh
+```
+
+The script names any missing prerequisite with the command that installs it, then
+downloads the newest release and runs `make install`. Read it first if you prefer, or
+download the release zip and run `make install` yourself; see the
+[user guide](docs/user-guide.md). To work on the code, the development setup follows.
+
 Currently, the requirements are:
 
 - macOS. The hub itself is plain Python + Postgres, but starting the team's shift

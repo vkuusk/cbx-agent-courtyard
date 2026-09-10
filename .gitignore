@@ -18,3 +18,7 @@ sandbox/*
 .claude/settings.local.json
 .env
 docker-compose.override.yml
+
+# release zips (make zip-package)
+courtyard-*.zip
+dist/

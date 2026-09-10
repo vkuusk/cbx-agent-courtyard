@@ -119,6 +119,13 @@ class NoteNotPending(DomainError):
     http_status = 409
 
 
+class NotSupervised(DomainError):
+    """A restart was asked of a hub nobody would start again (no launchd, no `make install`)."""
+
+    code = "not_supervised"
+    http_status = 409
+
+
 class NoteScopeUnclear(DomainError):
     """A note without a body, too long, or with no line to attach to and no team_wide."""
 

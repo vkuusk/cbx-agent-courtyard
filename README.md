@@ -145,9 +145,12 @@ curl -fsSL https://raw.githubusercontent.com/vkuusk/cbx-agent-courtyard/main/ins
 ```
 
 The script names any missing prerequisite with the command that installs it, then
-downloads the newest release and runs `make install`. Read it first if you prefer, or
-download the release zip and run `make install` yourself; see the
-[user guide](docs/user-guide.md). To work on the code, the development setup follows.
+downloads the newest release and runs `make install`, which ends with a summary of its
+steps: a warning there means it found a courtyard database from an earlier install on
+this machine (used as is, one database per machine) or took the hub over from another
+directory. Read the script first if you prefer, or download the release zip and run
+`make install` yourself; see the [user guide](docs/user-guide.md). To work on the code,
+the development setup follows.
 
 Currently, the requirements are:
 

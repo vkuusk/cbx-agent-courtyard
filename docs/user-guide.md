@@ -79,9 +79,10 @@ make install
 
 Prerequisites: macOS, Docker (Desktop or Colima) set to start at login, Python 3.14
 (`brew install python@3.14`); `uv` is used when present and not required. The install
-creates `.venv` and `.env`, pulls the postgres image, and writes one file outside the
+creates `.venv` and `.env`, pulls the postgres image, and writes two files outside the
 directory: `~/Library/LaunchAgents/com.courtyard.hub.plist`, a LaunchAgent that runs the
-hub at login and restarts it if it exits. The log is `sandbox/hub.log`.
+hub at login and restarts it if it exits, and `com.courtyard.tray.plist` for the menu
+bar icon described below. The logs are `sandbox/hub.log` and `sandbox/tray.log`.
 
 Install ends by opening the WebUI, which asks whether to keep the courtyard in your Dock.
 One click is yours, because browsers only install a site as an app from a click inside

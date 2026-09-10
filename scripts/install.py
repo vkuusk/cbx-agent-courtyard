@@ -2,10 +2,13 @@
 """Install the courtyard hub as a macOS LaunchAgent, and take it out again.
 
 Standard library only, so it runs with whatever `python3` the machine has before the
-project's own environment exists. Everything it changes outside this directory is one
-file: `~/Library/LaunchAgents/com.courtyard.hub.plist`. Inside it: `.venv`, `.env` (copied
-from `.env.default` if missing) and `sandbox/hub.log`. Docker gets the postgres image and
-a volume named `courtyard_courtyard-pgdata` (the compose project is named `courtyard`).
+project's own environment exists. Everything it changes outside this directory is two
+files under `~/Library/LaunchAgents`: `com.courtyard.hub.plist` and `com.courtyard.tray.plist`
+(the menu bar app). Inside it: `.venv`, `.env` (copied from `.env.default` if missing),
+`sandbox/hub.log` and `sandbox/tray.log`. Docker gets the postgres image and a volume named
+`courtyard_courtyard-pgdata` (the compose project is named `courtyard`, so every checkout
+and install on the machine shares one database). The install ends with a summary of every
+step, warnings repeated in full.
 
     make install                # venv, .env, postgres image, LaunchAgent; the hub is up
     make hub-start | hub-stop | hub-restart | hub-status | hub-open

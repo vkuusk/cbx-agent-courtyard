@@ -77,6 +77,31 @@ def hub_url() -> str:
     return f"http://127.0.0.1:{read_env().get('COURTYARD_PORT', '2626')}"
 
 
+CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+# where browsers put the WebUI once it is added to the Dock (Chrome, Safari)
+WEB_APPS = (
+    Path.home() / "Applications" / "Chrome Apps.localized" / "Agent Courtyard.app",
+    Path.home() / "Applications" / "Agent Courtyard.app",
+)
+
+
+def webui_command(url: str, web_apps=WEB_APPS, chrome: str = CHROME) -> list[str]:
+    """Open the board as its own window, never as a tab with the browser's decorations:
+    the installed Dock app when there is one, else Chrome in app mode (what `make
+    run-chrome` does), else whatever the default browser makes of the URL."""
+    for app in web_apps:
+        if Path(app).exists():
+            return ["open", "-a", str(app)]
+    if Path(chrome).exists():
+        return [chrome, f"--app={url}"]
+    return ["open", url]
+
+
+def open_webui() -> None:
+    cmd = webui_command(hub_url())
+    subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 def health(url: str, timeout: float = 2.0) -> dict | None:
     try:
         with urllib.request.urlopen(url + "/api/health", timeout=timeout) as resp:
@@ -164,9 +189,72 @@ def make_env_file() -> None:
         say("  .env created from .env.default (edit it for ports, log level, embeddings)")
 
 
+def project() -> str:
+    """The compose project: one per machine by default, so every checkout and install
+    shares the same volume; COURTYARD_COMPOSE_PROJECT names an isolated second instance."""
+    return read_env().get("COURTYARD_COMPOSE_PROJECT") or os.environ.get(
+        "COURTYARD_COMPOSE_PROJECT", "courtyard"
+    )
+
+
+def psql(sql: str) -> str | None:
+    """One query against the compose postgres, through the container; None when the hub's
+    tables are not there yet (a fresh database) or the container is not answering."""
+    result = subprocess.run(
+        [
+            "docker",
+            "exec",
+            f"{project()}-postgres",
+            "psql",
+            "-U",
+            "courtyard",
+            "-d",
+            "courtyard",
+            "-tAc",
+            sql,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def database_report() -> str:
+    """What this install is going to use: a fresh database, or one with a history."""
+    counts = psql(
+        "SELECT (SELECT count(*) FROM agents WHERE type <> 'human' AND removed_at IS NULL),"
+        " (SELECT count(*) FROM messages), (SELECT count(*) FROM memory),"
+        " (SELECT coalesce(string_agg(name, ', '), '') FROM teams)"
+    )
+    if not counts:
+        return "fresh courtyard database (nothing registered yet)"
+    agents, messages, memory, teams = counts.split("|")
+    return describe_database(int(agents), int(messages), int(memory), teams)
+
+
+def describe_database(agents: int, messages: int, memory: int, teams: str) -> str:
+    if not agents and not messages and not memory and not teams:
+        return "fresh courtyard database (nothing registered yet)"
+    return (
+        f"EXISTING courtyard database found and used: {agents} agent(s), {messages} message(s),"
+        f" {memory} memory record(s)" + (f", team {teams}" if teams else "")
+    )
+
+
 def prepare_postgres() -> None:
-    say("3. postgres (docker compose)")
+    say(
+        f"3. postgres (docker compose project {project()!r}, host port"
+        f" {read_env().get('COURTYARD_PG_PORT', '26432')})"
+    )
     sh(["docker", "compose", "up", "-d", "--wait", "postgres"], cwd=ROOT)
+    report = database_report()
+    say(f"  {report}")
+    if report.startswith("EXISTING"):
+        say("  One machine, one courtyard database, by design: every checkout and install")
+        say("  shares it. To start from nothing instead: `make db-nuke` here (deletes it),")
+        say("  or give this install its own COURTYARD_COMPOSE_PROJECT, COURTYARD_PG_PORT and")
+        say("  COURTYARD_PORT in .env, then run `make install` again.")
 
 
 def write_agent() -> None:
@@ -220,10 +308,12 @@ def install() -> None:
     say("Restart hub, Start / End shift; beside it, the number of messages waiting at the gate.")
     say(f"Logs: {LOG}, {TRAY_LOG}")
     say("")
-    say("6. opening the WebUI in your browser")
+    say("6. opening the WebUI")
     say("  It asks whether to keep the courtyard in your Dock: Chrome installs it from the")
     say("  button, Safari from File > Add to Dock. The Dock icon counts what waits for you.")
-    subprocess.run(["open", url], check=False)
+    subprocess.run(
+        ["open", url], check=False
+    )  # a normal window on purpose: the install button lives there
     say("")
     say("make hub-status | hub-stop | hub-start | hub-restart | hub-open ; make uninstall")
 
@@ -350,7 +440,7 @@ def main() -> None:
     elif args.command == "restart":
         restart()
     elif args.command == "open":
-        subprocess.run(["open", hub_url()], check=False)
+        open_webui()
     elif args.command == "render-plist":
         print(render_plist(), end="")
 

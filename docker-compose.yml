@@ -1,7 +1,10 @@
 # A fixed project name: the volume is `courtyard_courtyard-pgdata` and the network
 # `courtyard_default` whatever directory this lives in (an unzipped release, a clone),
-# so `make uninstall PURGE=1` always finds what `make install` created.
-name: courtyard
+# so `make uninstall PURGE=1` always finds what `make install` created, and a reinstall
+# finds the same data. One machine, one courtyard database, by design. A second, isolated
+# instance sets COURTYARD_COMPOSE_PROJECT (its own volume and containers) together with
+# its own COURTYARD_PG_PORT and COURTYARD_PORT.
+name: ${COURTYARD_COMPOSE_PROJECT:-courtyard}
 
 services:
   postgres:
@@ -9,15 +12,16 @@ services:
     # 0022). A major upgrade needs a fresh volume (`make db-nuke`); 19 has no pgvector
     # build yet (beta3 as of 2026-09), switch when it does.
     image: pgvector/pgvector:pg18
-    container_name: courtyard-postgres
+    container_name: ${COURTYARD_COMPOSE_PROJECT:-courtyard}-postgres
     environment:
       POSTGRES_USER: courtyard
       POSTGRES_PASSWORD: courtyard
       POSTGRES_DB: courtyard
     ports:
-      # host port configurable for machines where 5432 is taken (see .env.default);
-      # 127.0.0.1 (not localhost) keeps the mapping IPv4-only and deterministic
-      - "127.0.0.1:${COURTYARD_PG_PORT:-5432}:5432"
+      # an unusual host port on purpose (26432, not 5432): the hub must never collide
+      # with, or be mistaken for, a developer's own postgres; COURTYARD_PG_PORT
+      # overrides. 127.0.0.1 (not localhost) keeps the mapping IPv4-only.
+      - "127.0.0.1:${COURTYARD_PG_PORT:-26432}:5432"
     volumes:
       # 18+ images keep data in a major-version subdirectory; the mount is one level up
       # so a future pg_upgrade --link stays inside the volume
@@ -34,7 +38,7 @@ services:
   # (the tests use `courtyard_test`, scratch hubs `courtyard_scratch_<name>`).
   adminer:
     image: adminer:latest
-    container_name: courtyard-adminer
+    container_name: ${COURTYARD_COMPOSE_PROJECT:-courtyard}-adminer
     profiles: ["tools"]
     environment:
       ADMINER_DEFAULT_SERVER: postgres

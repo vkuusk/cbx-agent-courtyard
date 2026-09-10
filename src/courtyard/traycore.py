@@ -111,7 +111,7 @@ class HubControl:
 
     def command(self, action: str) -> list[str]:
         """`make hub-<action>` without make: the installer script it delegates to."""
-        if action not in ("start", "stop", "restart", "status"):
+        if action not in ("start", "stop", "restart", "status", "open"):
             raise ValueError(action)
         return [sys.executable, str(self.installer), action]
 
@@ -137,7 +137,15 @@ class HubControl:
                 return "http_error"
 
     def open_webui(self) -> None:
-        subprocess.Popen(["open", self.url])
+        """The board as its own window (the installed Dock app, else Chrome's app mode,
+        else the default browser), decided by the install script so `make hub-open` and
+        the menu agree."""
+        subprocess.Popen(
+            self.command("open"),
+            cwd=self.root,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
     def open_log(self) -> None:
         if self.log.exists():

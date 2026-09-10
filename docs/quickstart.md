@@ -26,9 +26,9 @@ uv sync            # creates .venv with everything, including the agent adapter
 make run           # postgres up + the hub on http://127.0.0.1:2626 (leave this terminal up)
 ```
 
-If a local postgres already holds port 5432, uncomment `COURTYARD_PG_PORT` in
-your `.env` and pick a free port (e.g. 5433); the compose postgres, the hub,
-the tests and the runbook scripts all follow it. Colima works as the container
+The compose postgres listens on host port 26432, deliberately not 5432, so it never
+collides with a postgres of your own; `COURTYARD_PG_PORT` in `.env` moves it, and the
+hub, the tests and the runbook scripts all follow. Colima works as the container
 runtime too; be aware that older Colima versions ignore the localhost-only
 port binding and may expose the postgres port on your local network, which is
 a Colima limitation, not a courtyard setting.

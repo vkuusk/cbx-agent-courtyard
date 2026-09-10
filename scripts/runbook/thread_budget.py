@@ -30,7 +30,8 @@ from courtyard.common.client import HubClient, HubError
 PORT = 3637
 HUB = f"http://127.0.0.1:{PORT}"
 DB_NAME = "courtyard_threadbudget_rb"
-PG_PORT = os.environ.get("COURTYARD_PG_PORT", "5432")
+PG_PORT = os.environ.get("COURTYARD_PG_PORT", "26432")
+PG_CONTAINER = os.environ.get("COURTYARD_COMPOSE_PROJECT", "courtyard") + "-postgres"
 DB = f"postgresql://courtyard:courtyard@127.0.0.1:{PG_PORT}/{DB_NAME}"
 
 
@@ -40,7 +41,7 @@ def hr(title):
 
 def psql(*statements, db="postgres"):
     subprocess.run(
-        ["docker", "exec", "courtyard-postgres", "psql", "-U", "courtyard", "-d", db]
+        ["docker", "exec", PG_CONTAINER, "psql", "-U", "courtyard", "-d", db]
         + [arg for s in statements for arg in ("-c", s)],
         check=True,
         capture_output=True,

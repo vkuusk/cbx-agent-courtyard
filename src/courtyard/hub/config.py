@@ -12,10 +12,14 @@ LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
 
 
+DEFAULT_PG_PORT = "26432"  # deliberately not 5432: a developer's own postgres lives there
+
+
 def default_database_url(env: Mapping[str, str]) -> str:
-    # COURTYARD_PG_PORT is the one knob shared with docker-compose.yml for machines
-    # where 5432 is taken; a full DATABASE_URL always wins over it
-    port = env.get("COURTYARD_PG_PORT", "5432")
+    # COURTYARD_PG_PORT is the one knob shared with docker-compose.yml; the compose
+    # postgres listens on an unusual host port so it never collides with, or is mistaken
+    # for, another postgres on the machine. A full DATABASE_URL always wins over it.
+    port = env.get("COURTYARD_PG_PORT", DEFAULT_PG_PORT)
     return f"postgresql://courtyard:courtyard@127.0.0.1:{port}/courtyard"
 
 

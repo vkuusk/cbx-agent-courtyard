@@ -52,11 +52,20 @@ Local settings live in `.env` (copied from `.env.default`, never committed):
 | variable | default | what it does |
 |---|---|---|
 | `COURTYARD_PORT` | `2626` | the hub's port |
-| `COURTYARD_PG_PORT` | `5432` | the container postgres port; change it if a local postgres already holds 5432 |
+| `COURTYARD_PG_PORT` | `26432` | the compose postgres's host port, deliberately not 5432 so it never collides with a postgres of your own |
+| `COURTYARD_COMPOSE_PROJECT` | `courtyard` | the compose project (volume and container names); set it, with the two ports, for a second isolated instance |
 | `COURTYARD_LOG_LEVEL` | `INFO` | stdout verbosity: `DEBUG`, `INFO`, `WARNING` or `ERROR` |
 
 Stopping: `make db-down` stops postgres and keeps the data; `make db-nuke` stops it
 and deletes all courtyard data (registrations, tokens, history).
+
+One machine, one courtyard database, by design: every checkout and install shares the
+compose project `courtyard`, its volume and its postgres, so a reinstall or a second
+directory finds the same team and history. `make install` says which it found ("fresh
+courtyard database" or "EXISTING courtyard database found and used: 3 agents, ...") and
+how to start from nothing instead. The hub also protects everyone else's postgres: on a
+database it has never migrated, tables that are not its own make it refuse to start
+rather than create its schema there.
 
 ### Installing as an app
 
@@ -95,7 +104,7 @@ hub stays the same program whether it runs here or, later, on another machine.
 | `make hub-stop` | unload: the hub stays down until `hub-start` |
 | `make hub-start` | load: the hub starts, and again at every login |
 | `make hub-restart` | restart under launchd; the Admin page has the same as a button |
-| `make hub-open` | open the WebUI in the default browser |
+| `make hub-open` | open the WebUI as its own window: the Dock app if you added one, else Chrome in app mode, else the default browser |
 | `make tray` | run the menu bar app by hand (install runs it at login) |
 | `make uninstall` | remove both LaunchAgents, stop the containers, delete `.venv`; the data volume and `.env` stay |
 | `make uninstall PURGE=1` | the same, plus the postgres volume and images |

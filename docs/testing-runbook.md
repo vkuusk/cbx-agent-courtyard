@@ -1064,6 +1064,12 @@ uv run pytest tests/test_install_app.py tests/test_tray.py tests/test_health.py 
 
 **Manual part** (this changes your login items; run it once, then uninstall or keep it):
 
+00. The database it uses: step 3 of `make install` names the compose project and the
+    host port (26432 by default) and says `fresh courtyard database` or `EXISTING
+    courtyard database found and used: N agent(s), ...` with the way to start from
+    nothing. Point `DATABASE_URL` at a postgres that holds other tables (or create a
+    table in an empty `courtyard` database first): the hub refuses to start with
+    `refusing to create the hub's schema in a database that already holds other tables`.
 0. The one-command path, once a release exists: in an empty directory,
    `curl -fsSL https://raw.githubusercontent.com/vkuusk/cbx-agent-courtyard/main/install.sh | sh`
    prints `downloading Agent Courtyard v...`, `unpacked into ...`, then the five install
@@ -1092,7 +1098,7 @@ uv run pytest tests/test_install_app.py tests/test_tray.py tests/test_health.py 
    approve it: gone. **Stop hub**: the line turns `hub: down`, a hollow dot beside the
    icon, Start hub enabled, Stop and Restart greyed; **Start hub**: up again. **Start
    shift** opens the agents' terminals and greys itself; **End shift** with a
-   conversation mid-work asks "End the shift anyway?"; **Open WebUI** opens the board;
+   conversation mid-work asks "End the shift anyway?"; **Open WebUI** opens the board as its own window (the Dock app when added, else Chrome's app mode, never a decorated tab);
    **Show hub log** opens `sandbox/hub.log` in Console.
 7. `make uninstall`: both plists gone, the menu bar icon gone, containers down, `.venv`
    gone, `.env` and the data volume kept; `make db-up` and `make run` still work from

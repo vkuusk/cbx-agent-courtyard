@@ -21,7 +21,7 @@ additionally need the pi coding agent installed
 ```sh
 git clone https://github.com/vkuusk/cbx-agent-courtyard.git
 cd cbx-agent-courtyard
-cp .env.default .env   # local settings; if port 5432 is taken, set COURTYARD_PG_PORT here
+cp .env.default .env   # local settings; the compose postgres listens on 26432 (COURTYARD_PG_PORT)
 uv sync
 make run            # postgres + the hub on http://127.0.0.1:2626 (foreground)
 ```

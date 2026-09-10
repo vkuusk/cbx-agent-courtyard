@@ -53,7 +53,16 @@ def db_name(name: str) -> str:
 
 def psql(*statements: str) -> None:
     subprocess.run(
-        ["docker", "exec", "courtyard-postgres", "psql", "-U", "courtyard", "-d", "postgres"]
+        [
+            "docker",
+            "exec",
+            os.environ.get("COURTYARD_COMPOSE_PROJECT", "courtyard") + "-postgres",
+            "psql",
+            "-U",
+            "courtyard",
+            "-d",
+            "postgres",
+        ]
         + [arg for s in statements for arg in ("-c", s)],
         check=True,
         capture_output=True,
@@ -127,7 +136,7 @@ def start(name: str, port: int | None, bare: bool = False) -> None:
     env = {
         **os.environ,
         "DATABASE_URL": "postgresql://courtyard:courtyard@127.0.0.1:"
-        + os.environ.get("COURTYARD_PG_PORT", "5432")
+        + os.environ.get("COURTYARD_PG_PORT", "26432")
         + f"/{db}",
         "COURTYARD_PORT": str(port),
     }

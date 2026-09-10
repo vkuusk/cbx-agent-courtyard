@@ -243,3 +243,29 @@ def test_install_opens_the_dock_app_when_it_is_already_installed(tmp_path):
     assert install.installed_dock_app(web_apps=(app,)) is None
     app.mkdir()
     assert install.installed_dock_app(web_apps=(app,)) == app
+
+
+def test_the_courtyard_admin_launcher_is_an_app_bundle_that_reloads_the_tray(tmp_path):
+    """Spotlight (or any launcher) finds "Courtyard Admin"; opening it bootstraps the tray's
+    LaunchAgent, or only kickstarts it when it is already loaded; without an install it
+    says so instead of failing silently. The icon comes from the WebUI's 512px icon where
+    macOS's tools exist (sips, iconutil); elsewhere the bundle simply has none."""
+    app = install.write_admin_app(app=tmp_path / "Courtyard Admin.app", icon_png=install.ICON_PNG)
+    info = plistlib.loads((app / "Contents" / "Info.plist").read_bytes())
+    assert info["CFBundleName"] == "Courtyard Admin"
+    assert info["CFBundleExecutable"] == "Courtyard Admin" and info["LSUIElement"] is True
+    exe = app / "Contents" / "MacOS" / "Courtyard Admin"
+    assert exe.stat().st_mode & 0o111
+    script = exe.read_text()
+    assert script.startswith("#!/bin/sh")
+    assert str(install.TRAY_PLIST) in script
+    assert "launchctl bootstrap" in script and "launchctl kickstart" in script
+    assert "Courtyard is not installed" in script
+    has_tools = shutil.which("sips") and shutil.which("iconutil")
+    assert (app / "Contents" / "Resources" / "Courtyard.icns").exists() == bool(has_tools)
+    assert ("CFBundleIconFile" in info) == bool(has_tools)
+    # a rerun replaces the bundle rather than piling into it
+    again = install.write_admin_app(app=app, icon_png=tmp_path / "no-such.png")
+    assert again == app and "CFBundleIconFile" not in plistlib.loads(
+        (app / "Contents" / "Info.plist").read_bytes()
+    )

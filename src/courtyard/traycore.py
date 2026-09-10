@@ -147,6 +147,18 @@ class HubControl:
             stderr=subprocess.DEVNULL,
         )
 
+    def quit_command(self) -> list[str]:
+        """Quit under launchd means unload: a plain exit would be restarted (KeepAlive)
+        within seconds. The Courtyard Admin app in ~/Applications, `make hub-start` or the
+        next login bring it back."""
+        return ["launchctl", "bootout", f"gui/{os.getuid()}/com.courtyard.tray"]
+
+    def quit_admin(self) -> bool:
+        """True when launchd unloaded us (the process is ending); False when this is not
+        the LaunchAgent (run by hand), so the caller just exits."""
+        result = subprocess.run(self.quit_command(), capture_output=True, check=False)
+        return result.returncode == 0
+
     def open_log(self) -> None:
         if self.log.exists():
             subprocess.Popen(["open", "-a", "Console", str(self.log)])

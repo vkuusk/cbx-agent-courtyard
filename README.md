@@ -138,7 +138,8 @@ to replay every word that passes between your agents.
 ## Getting started
 
 To use the hub day to day, one command from an empty directory installs it as a macOS
-app (starts at login, a menu bar icon for the buttons, a Dock icon if you want one):
+app (starts at login, a menu bar icon for the buttons called Courtyard Admin, a Dock
+icon if you want one):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/vkuusk/cbx-agent-courtyard/main/install.sh | sh

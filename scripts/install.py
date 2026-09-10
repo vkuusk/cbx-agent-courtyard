@@ -4,7 +4,9 @@
 Standard library only, so it runs with whatever `python3` the machine has before the
 project's own environment exists. Everything it changes outside this directory is two
 files under `~/Library/LaunchAgents`: `com.courtyard.hub.plist` and `com.courtyard.tray.plist`
-(the menu bar app). Inside it: `.venv`, `.env` (copied from `.env.default` if missing),
+(the menu bar app, "Courtyard Admin"), plus `~/Applications/Courtyard Admin.app`, a launcher
+that brings the menu bar app back after its Quit (find it in Spotlight or any launcher).
+Inside it: `.venv`, `.env` (copied from `.env.default` if missing),
 `sandbox/hub.log` and `sandbox/tray.log`. Docker gets the postgres image and a volume named
 `courtyard_courtyard-pgdata` (the compose project is named `courtyard`, so every checkout
 and install on the machine shares one database). The install ends with a summary of every
@@ -44,6 +46,9 @@ TRAY_LABEL = "com.courtyard.tray"
 TRAY_PLIST = PLIST.parent / f"{TRAY_LABEL}.plist"
 TRAY_TEMPLATE = TEMPLATE.parent / f"{TRAY_LABEL}.plist.template"
 TRAY_LOG = ROOT / "sandbox" / "tray.log"
+# the launcher app: "Courtyard Admin" in Spotlight brings the menu bar app back after Quit
+ADMIN_APP = Path.home() / "Applications" / "Courtyard Admin.app"
+ICON_PNG = ROOT / "webui" / "icons" / "icon-512.png"
 REQUIRED_PYTHON = (3, 14)
 
 
@@ -333,14 +338,14 @@ def takeover_warning(old_root: Path) -> list[str]:
 
 
 def write_agent() -> None:
-    say("4. the LaunchAgents (the hub, and the menu bar app)")
+    say("4. the LaunchAgents (the hub, and the menu bar app) and the Courtyard Admin launcher")
     old_root = previous_root()
     if old_root:
         for line in takeover_warning(old_root):
             say("  " + line)
-        record("the LaunchAgents", "WARNING", takeover_warning(old_root))
+        record("the LaunchAgents and Courtyard Admin.app", "WARNING", takeover_warning(old_root))
     else:
-        record("the LaunchAgents")
+        record("the LaunchAgents and Courtyard Admin.app")
     PLIST.parent.mkdir(parents=True, exist_ok=True)
     LOG.parent.mkdir(parents=True, exist_ok=True)
     PLIST.write_text(render_plist())
@@ -349,6 +354,75 @@ def write_agent() -> None:
     for plist in (PLIST, TRAY_PLIST):
         sh(["plutil", "-lint", str(plist)], quiet=True, capture_output=True)
         say(f"  wrote {plist}")
+    write_admin_app()
+    say(f"  wrote {ADMIN_APP} (Spotlight: Courtyard Admin, brings the menu bar app back)")
+
+
+def admin_launcher_script(label: str = TRAY_LABEL, plist: Path = TRAY_PLIST) -> str:
+    return f"""#!/bin/sh
+# Courtyard Admin: brings the Courtyard menu bar app back after "Quit Courtyard Admin".
+# Written by scripts/install.py (make install); make uninstall removes it.
+plist="{plist}"
+domain="gui/$(id -u)"
+if [ ! -f "$plist" ]; then
+  osascript -e 'display alert "Courtyard is not installed" message "Run make install in the courtyard directory first."' >/dev/null
+  exit 1
+fi
+if launchctl print "$domain/{label}" >/dev/null 2>&1; then
+  launchctl kickstart "$domain/{label}"
+else
+  launchctl bootstrap "$domain" "$plist"
+fi
+"""
+
+
+def build_icns(png: Path, icns: Path) -> bool:
+    """An .icns from the WebUI's 512px icon with macOS's own tools; False where they are
+    missing (the bundle then has no icon, nothing else changes)."""
+    if not png.exists() or not (shutil.which("sips") and shutil.which("iconutil")):
+        return False
+    iconset = icns.with_suffix(".iconset")
+    shutil.rmtree(iconset, ignore_errors=True)
+    iconset.mkdir(parents=True)
+    for size in (16, 32, 128, 256, 512):
+        out = iconset / f"icon_{size}x{size}.png"
+        subprocess.run(
+            ["sips", "-z", str(size), str(size), str(png), "--out", str(out)],
+            capture_output=True,
+            check=False,
+        )
+        if size > 16:
+            shutil.copy(out, iconset / f"icon_{size // 2}x{size // 2}@2x.png")
+    ok = subprocess.run(
+        ["iconutil", "-c", "icns", str(iconset), "-o", str(icns)], capture_output=True, check=False
+    )
+    shutil.rmtree(iconset, ignore_errors=True)
+    return ok.returncode == 0 and icns.exists()
+
+
+def write_admin_app(app: Path = ADMIN_APP, icon_png: Path = ICON_PNG) -> Path:
+    """A minimal .app bundle (no code signing needed: a shell script) so Spotlight, the
+    Dock or any launcher can bring the menu bar app back. LSUIElement keeps the launcher
+    itself out of the Dock while it runs for its fraction of a second."""
+    shutil.rmtree(app, ignore_errors=True)
+    (app / "Contents" / "MacOS").mkdir(parents=True)
+    (app / "Contents" / "Resources").mkdir()
+    exe = app / "Contents" / "MacOS" / "Courtyard Admin"
+    exe.write_text(admin_launcher_script())
+    exe.chmod(0o755)
+    info = {
+        "CFBundleName": "Courtyard Admin",
+        "CFBundleDisplayName": "Courtyard Admin",
+        "CFBundleIdentifier": "com.courtyard.admin",
+        "CFBundleExecutable": "Courtyard Admin",
+        "CFBundlePackageType": "APPL",
+        "CFBundleShortVersionString": "1.0",
+        "LSUIElement": True,
+    }
+    if build_icns(icon_png, app / "Contents" / "Resources" / "Courtyard.icns"):
+        info["CFBundleIconFile"] = "Courtyard"
+    (app / "Contents" / "Info.plist").write_bytes(plistlib.dumps(info))
+    return app
 
 
 def load_agent(label: str = LABEL, plist: Path = PLIST) -> None:
@@ -434,13 +508,16 @@ def uninstall(purge: bool) -> None:
         say(
             "  remove them with: .venv/bin/courtyard-invite --name <agent> --remove  (before step 3)"
         )
-    say("2. the LaunchAgents")
+    say("2. the LaunchAgents and the Courtyard Admin launcher")
     for label, plist in ((TRAY_LABEL, TRAY_PLIST), (LABEL, PLIST)):
         if loaded(label):
             sh(["launchctl", "bootout", f"{domain()}/{label}"], check=False)
         if plist.exists():
             plist.unlink()
             say(f"  removed {plist}")
+    if ADMIN_APP.exists():
+        shutil.rmtree(ADMIN_APP, ignore_errors=True)
+        say(f"  removed {ADMIN_APP}")
     say("3. containers" + (" and the data volume" if purge else " (data volume kept)"))
     cmd = ["docker", "compose", "--profile", "tools", "down"]
     if purge:
@@ -460,7 +537,7 @@ def uninstall(purge: bool) -> None:
         + ("" if purge else ", the postgres data volume")
     )
     say("Remove the Dock app by dragging it out of the Dock (Safari) or from chrome://apps.")
-    say("The menu bar icon is gone with its LaunchAgent.")
+    say("The menu bar icon is gone with its LaunchAgent, and so is the Courtyard Admin launcher.")
 
 
 def status() -> None:
@@ -476,6 +553,8 @@ def status() -> None:
 def start() -> None:
     if not PLIST.exists():
         sys.exit("not installed: run `make install` first")
+    if TRAY_PLIST.exists() and not loaded(TRAY_LABEL):
+        sh(["launchctl", "bootstrap", domain(), str(TRAY_PLIST)])  # back after its Quit
     if loaded():
         say("already loaded; use `make hub-restart` to restart it")
         return

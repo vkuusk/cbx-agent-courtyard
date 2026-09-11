@@ -198,10 +198,14 @@ blocks an answer.
 git clone https://github.com/vkuusk/cbx-agent-courtyard.git
 cd cbx-agent-courtyard
 cp .env.default .env   # local settings; the defaults work unless a port is taken
+uv sync             # the venv, everything included
 make run            # postgres + the hub, in the foreground
 ```
 
-Then open http://127.0.0.1:2626 in a browser. `make run` is the recommended way:
+Then open http://127.0.0.1:2626 in a browser. If this machine ran a clone from before
+the compose project was named `courtyard`, the old postgres container blocks the new
+one; the [user guide](docs/user-guide.md) (installing as an app) says what to remove
+and how to keep the data. `make run` is the recommended way:
 the hub stays in your terminal, so you always see that it is running and what it
 logs, and Ctrl+C stops it. `make run-chrome` is the background alternative (hub
 logs to `sandbox/courtyard.log`, WebUI in its own Chrome window, `make run-stop`

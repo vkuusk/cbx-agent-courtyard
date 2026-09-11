@@ -243,6 +243,18 @@ class TestRecall:
         ).json()
         assert view["records"] == [] and "holds nothing matching 'kubernetes'" in view["rendered"]
 
+    def test_a_question_without_searchable_words_is_not_reported_as_nothing_settled(self, client):
+        """`websearch_to_tsquery('english', 'the')` is an empty query that matches nothing;
+        rendering that as "nobody has settled this" would state a fact the hub never
+        checked (found by review)."""
+        infra, _, _ = self.seed(client)
+        for question in ("the", "...", "of the and"):
+            view = client.get(
+                "/api/agents/infra/recall", params={"q": question}, headers=auth(infra[1])
+            ).json()
+            assert view["records"] == [] and "no searchable words" in view["rendered"], question
+            assert "Nobody has settled" not in view["rendered"]
+
     def test_recall_needs_the_agents_own_token(self, client):
         _infra, tf, _db = self.seed(client)
         assert client.get("/api/agents/infra/recall").status_code == 401
@@ -628,3 +640,22 @@ def test_fake_encoder_folds_synonyms_and_normalizes():
     assert a == b  # every word folded onto the same synonym
     assert sum(x * x for x in a) > 0.999
     assert sum(x * y for x, y in zip(a, c, strict=True)) < 0.01  # nothing shared
+
+
+def test_the_question_vector_gets_seconds_not_the_sweeps_minute(monkeypatch):
+    """A recall runs inside an agent's turn; a wedged encoder must not hold it for the
+    sweep's 60 s. The question's embed call carries its own short timeout."""
+    from courtyard.hub.core import memory as memory_module
+    from courtyard.hub.core.encoder import FakeEncoder
+
+    seen = {}
+
+    class Encoder(FakeEncoder):
+        def embed(self, texts, timeout=None):
+            seen["timeout"] = timeout
+            return super().embed(texts, timeout)
+
+    mem = memory_module.Memory.__new__(memory_module.Memory)
+    mem._encoder = Encoder()
+    assert mem._question_vector("terraform ipv6") is not None
+    assert seen["timeout"] == memory_module.QUESTION_EMBED_SECONDS

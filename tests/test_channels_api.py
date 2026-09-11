@@ -178,6 +178,13 @@ def test_a_rejected_token_under_a_known_name_is_shown_until_the_right_one_attach
     assert alice["status"] == "invited" and alice["token_rejected_at"]
     flagged = [a["name"] for a in client.get("/api/agents").json() if a.get("token_rejected_at")]
     assert flagged == ["alice"]
+    # the note rides on EVERY agent event, not only the rejection's own: a liveness or
+    # shift event for this agent must not wipe it from the card
+    from courtyard.common.models import Agent
+
+    bare = Agent.model_validate({**alice, "token_rejected_at": None})
+    assert client.app.state.registry._with_rejection(bare).token_rejected_at
+    assert client.app.state.events._views["agent"](bare).token_rejected_at
     # a name the hub does not know is still a plain 401, with nothing to note it on
     assert attach(client, "nobody", "whatever").status_code == 401
     # the right token clears it, and the connected agent carries no note

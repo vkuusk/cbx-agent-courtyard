@@ -74,8 +74,8 @@ db-nuke:        ## stop containers and DELETE the postgres data volume
 install:        ## install the hub as a LaunchAgent: venv, .env, postgres image, start at login
 	python3 scripts/install.py install
 
-uninstall:      ## remove the LaunchAgent, stop containers, drop .venv (PURGE=1: also the data volume)
-	python3 scripts/install.py uninstall $(if $(PURGE),--purge)
+uninstall:      ## remove both LaunchAgents and the Admin app, stop containers, drop .venv (PURGE=1: also the data volume)
+	python3 scripts/install.py uninstall $(if $(filter 1,$(PURGE)),--purge)
 
 hub-start:      ## load the LaunchAgent (the hub starts, and again at every login)
 	python3 scripts/install.py start
@@ -89,11 +89,11 @@ hub-restart:    ## restart the hub under launchd
 hub-status:     ## is the LaunchAgent loaded, is the hub answering
 	python3 scripts/install.py status
 
-hub-open:       ## open the WebUI in the default browser
+hub-open:       ## open the WebUI as its own window: the Dock app, else Chrome app mode, else the browser
 	python3 scripts/install.py open
 
 tray:           ## run the menu bar app by hand (make install runs it at login)
-	uv run --extra tray courtyard-tray
+	uv run courtyard-tray
 
 zip-package:    ## zip the committed tree for `unzip; make install` -> ./courtyard-<version>.zip
 	@v=$$(git describe --tags --always --dirty); \

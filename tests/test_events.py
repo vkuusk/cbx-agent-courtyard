@@ -75,3 +75,31 @@ def test_board_changes_stream_as_events(live_hub):
     assert "dropped" in notices[0]["body"]
     alice.close()
     admin.close()
+
+
+def test_a_view_shapes_every_event_of_its_type_whoever_publishes():
+    """State the hub keeps beside the stored row (an agent's rejected-token note) must
+    reach the WebUI on every agent event, not only the registry's own: the store keeps
+    the last event's object as the whole truth, so an event from the liveness sweep
+    without the note wiped it from the card (found by review of the feedback-06 branch)."""
+    import asyncio
+
+    from pydantic import BaseModel
+
+    from courtyard.hub.core.events import EventBus
+
+    class Thing(BaseModel):
+        name: str
+        note: str | None = None
+
+    bus = EventBus()
+    loop = asyncio.new_event_loop()
+    bus.bind(loop)
+    queue = bus.subscribe()
+    bus.view("thing", lambda m: m.model_copy(update={"note": "rejected"}))
+    bus.publish("thing", Thing(name="a"))
+    bus.publish("other", Thing(name="b"))
+    loop.run_until_complete(asyncio.sleep(0))
+    assert queue.get_nowait()["data"] == {"name": "a", "note": "rejected"}
+    assert queue.get_nowait()["data"] == {"name": "b", "note": None}
+    loop.close()

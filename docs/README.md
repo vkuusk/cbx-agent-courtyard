@@ -32,6 +32,9 @@ The core ideas, each with its section in the design doc:
   `manual` (agents see and reach only whom the operator has linked, forming sub-teams) (§5.8).
 - **The archive**: finished or unlinked conversations move to an immutable archive;
   the WebUI shows only live lines (§5.7).
+- **Memory**: a closed thread becomes a case file, agents leave notes that pass the
+  gate, and `courtyard_recall` brings both back into an agent's context, bounded
+  (`design/hub-memory.md`, D37).
 
 ## The documents
 
@@ -42,7 +45,8 @@ The core ideas, each with its section in the design doc:
 | [design/architecture-v1.md](design/architecture-v1.md) | The full design: concepts, delivery model, liveness, the shift, and a decision log (§13) recording every choice with its reasons |
 | [design/adapter-implementation.md](design/adapter-implementation.md) | Implementation decisions for the Claude Code adapter: one stdio process per agent, why no MCP SDK, threading, delivery and resilience choices |
 | [design/team-charter.md](design/team-charter.md) | The team defined as files: charter directory, agent cards, topology, projection into the hub (accepted, D33; a worked example lives in `examples/team-charters/`) |
-| [design/threads.md](design/threads.md) | Threads, the quant of conversation: one bounded exchange about one ask, its lifecycle and enforcement (accepted, D34; not yet implemented) |
+| [design/threads.md](design/threads.md) | Threads, the quant of conversation: one bounded exchange about one ask, its lifecycle and enforcement (accepted and implemented, D34) |
+| [design/hub-memory.md](design/hub-memory.md) | Hub memory: case files at thread close, notes through the gate, recall, similarity search behind the same door (accepted, D37; slice 4 open) |
 | [next-features-list.md](next-features-list.md) | Postponed features, listed without versions, each pointing at its reasoning |
 | [planning/v1-implementation-steps.md](planning/v1-implementation-steps.md) | The build, step by step, with what changed and when |
 | [planning/feedback-items.md](planning/feedback-items.md) | The architect's live-testing observations and what became of each |
@@ -110,9 +114,13 @@ README is kept); `make run-chrome` writes its log and pid there.
 
 ## Deployment modes
 
-- **dev_mode** (now): postgres in a container, the hub from the working tree
-  (`make run` / `make run-chrome`).
-- **live_mode** (post-v1, D16): hub + postgres both in containers via
-  `docker compose --profile live up`.
+- **dev_mode**: postgres in a container, the hub from the working tree
+  (`make run` / `make run-chrome`), Ctrl+C ends it.
+- **installed** (`make install`, D38): the same hub from the checkout's `.venv`, run by a
+  macOS LaunchAgent at login and restarted when it exits, postgres in the container,
+  the menu bar app beside it. One machine, one hub: `make run` on the same port refuses
+  to bind while the installed hub is up.
+- A hub container (hub + postgres both in compose) is not built; a remote hub is a
+  postponed feature (`next-features-list.md`).
 
 The hub binds `127.0.0.1` only; v1 is an on-my-laptop-only deployment by design.

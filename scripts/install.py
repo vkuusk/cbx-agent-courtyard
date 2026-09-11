@@ -214,13 +214,14 @@ def python_for_venv() -> str:
 def make_venv() -> None:
     say("1. the hub's environment (.venv)")
     if shutil.which("uv"):
-        # dev tools included so a clone stays a working checkout; `tray` = the menu bar app
-        sh(["uv", "sync", "--extra", "tray"], cwd=ROOT)
+        # dev tools included so a clone stays a working checkout (the menu bar app's
+        # dependency is a normal one, so any later `uv sync` keeps it)
+        sh(["uv", "sync"], cwd=ROOT)
     else:
         python = python_for_venv()
         if not (ROOT / ".venv").exists():
             sh([python, "-m", "venv", ".venv"], cwd=ROOT)
-        sh([str(ROOT / ".venv" / "bin" / "pip"), "install", "-q", "-e", ".[tray]"], cwd=ROOT)
+        sh([str(ROOT / ".venv" / "bin" / "pip"), "install", "-q", "-e", "."], cwd=ROOT)
     record("the hub's environment (.venv)")
 
 
@@ -444,6 +445,33 @@ def wait_for_hub(seconds: float = 60.0) -> dict | None:
     return None
 
 
+def hub_is_supervised(url: str, timeout: float = 2.0) -> bool | None:
+    """Is the hub answering on `url` the LaunchAgent's (COURTYARD_SUPERVISED set by the
+    plist), or some other hub on the same port? None when nothing answers."""
+    try:
+        with urllib.request.urlopen(url + "/api/config", timeout=timeout) as resp:
+            return bool(json.loads(resp.read()).get("supervised"))
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+
+
+def refuse_a_hub_already_on_the_port() -> None:
+    """Before the LaunchAgent is loaded: a hub that already answers on the port (a `make
+    run` in some terminal, an older install from another directory still loaded) would
+    make the new one fail to bind, exit, and be restarted by KeepAlive every few seconds,
+    while this install reported the OTHER hub as "up". Say so and stop instead."""
+    url = hub_url()
+    if health(url) is None:
+        return
+    if hub_is_supervised(url):
+        return  # the previous install's hub: load_agent() replaces it in place
+    sys.exit(
+        f"a hub already answers at {url} and it is not the LaunchAgent's (started by hand:"
+        " `make run` ends with Ctrl+C, `make run-chrome` with `make run-stop`). Stop it,"
+        " or give this install its own COURTYARD_PORT in .env, then run make install again."
+    )
+
+
 def install() -> None:
     check_prerequisites()
     make_venv()
@@ -451,12 +479,18 @@ def install() -> None:
     prepare_postgres()
     write_agent()
     say("5. starting the hub and the menu bar app under launchd")
+    refuse_a_hub_already_on_the_port()
     load_agent()
     load_agent(TRAY_LABEL, TRAY_PLIST)
     report = wait_for_hub()
     url = hub_url()
-    if not report:
-        sys.exit(f"the hub did not answer at {url} within a minute; see {LOG}")
+    if not report or not hub_is_supervised(url):
+        # unload again: a hub that cannot start (port taken, a foreign database, a bad
+        # .env) would otherwise be restarted by KeepAlive every few seconds, forever
+        for label in (LABEL, TRAY_LABEL):
+            sh(["launchctl", "bootout", f"{domain()}/{label}"], check=False, capture_output=True)
+        what = "did not answer" if not report else "answers, but it is not the LaunchAgent's"
+        sys.exit(f"the hub {what} at {url} within a minute; see {LOG}. LaunchAgents unloaded.")
     say(f"  hub up at {url} (status {report.get('status')}, db {report.get('db')})")
     record("starting the hub and the menu bar app")
     say("6. opening the WebUI")

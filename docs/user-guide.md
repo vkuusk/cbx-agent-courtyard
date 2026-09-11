@@ -55,6 +55,12 @@ Local settings live in `.env` (copied from `.env.default`, never committed):
 | `COURTYARD_PG_PORT` | `26432` | the compose postgres's host port, deliberately not 5432 so it never collides with a postgres of your own |
 | `COURTYARD_COMPOSE_PROJECT` | `courtyard` | the compose project (volume and container names); set it, with the two ports, for a second isolated instance |
 | `COURTYARD_LOG_LEVEL` | `INFO` | stdout verbosity: `DEBUG`, `INFO`, `WARNING` or `ERROR` |
+| `COURTYARD_ADMINER_PORT` | `8080` | the port `make db-ui` serves the database browser on |
+| `COURTYARD_EMBEDDINGS_URL` | unset | an OpenAI-compatible embeddings endpoint on this machine; set, recall becomes hybrid (see Similarity search under Hub Administration) |
+| `COURTYARD_EMBEDDINGS_MODEL` | `nomic-embed-text` | the model that endpoint serves |
+| `COURTYARD_EMBEDDINGS_API_KEY` | unset | sent as a bearer token if the endpoint wants one |
+| `COURTYARD_EMBEDDINGS_ALLOW_REMOTE` | unset | `1` allows an endpoint off this machine (message bodies leave the machine) |
+| `COURTYARD_EMBED_SWEEP_SECONDS` | `15` | how often the hub embeds records that lack a vector |
 
 Stopping: `make db-down` stops postgres and keeps the data; `make db-nuke` stops it
 and deletes all courtyard data (registrations, tokens, history).
@@ -120,26 +126,31 @@ the menu bar app never touches the hub.
 | `make hub-status` | are the LaunchAgents loaded, is the hub answering |
 | `make hub-stop` | unload: the hub stays down until `hub-start` |
 | `make hub-start` | load: the hub starts, and again at every login |
-| `make hub-restart` | restart under launchd; the Admin page has the same as a button |
+| `make hub-restart` | restart under launchd (`launchctl kickstart -k`); the Admin page's restart button asks the hub itself to exit, and launchd starts it again |
 | `make hub-open` | open the WebUI as its own window: the Dock app if you added one, else Chrome in app mode, else the default browser |
 | `make tray` | run the menu bar app by hand (install runs it at login) |
-| `make uninstall` | remove both LaunchAgents, stop the containers, delete `.venv`; the data volume and `.env` stay |
+| `make uninstall` | remove both LaunchAgents and `~/Applications/Courtyard Admin.app`, stop the containers, delete `.venv`; the data volume and `.env` stay |
 | `make uninstall PURGE=1` | the same, plus the postgres volume and images |
 
 The compose project is named `courtyard`, so the data volume is
-`courtyard_courtyard-pgdata` whatever the directory is called. A hub that ran from a clone
-before this name existed kept its data in `cbx-agent-courtyard_courtyard-pgdata`; copy it
-once before the first `make db-up` from the renamed project:
+`courtyard_courtyard-pgdata` whatever the directory is called. A clone that ran before
+this name existed left two things behind: a container called `courtyard-postgres` under
+the old project, which the new one cannot start beside (same name), and a volume
+`cbx-agent-courtyard_courtyard-pgdata` holding a postgres 17 cluster. The data does not
+carry over by copying: the image is postgres 18 now and keeps its cluster in a different
+place inside the volume, so a copied volume is ignored and an empty database starts.
+Either register the agents again (each project directory keeps its config; write the
+files again from the WebUI), or take a dump from the old container first and load it
+into the new postgres before the hub's first start:
 
 ```sh
-docker volume create --label com.docker.compose.project=courtyard \
-    --label com.docker.compose.volume=courtyard-pgdata courtyard_courtyard-pgdata
-docker run --rm -v cbx-agent-courtyard_courtyard-pgdata:/from -v courtyard_courtyard-pgdata:/to \
-    alpine sh -c "cp -a /from/. /to/"
+docker start courtyard-postgres
+docker exec courtyard-postgres pg_dump -U courtyard courtyard > courtyard.sql
 docker rm -f courtyard-postgres   # the old project's container; the new one takes its name
+make db-up                        # the new postgres, empty
+docker exec -i courtyard-postgres psql -U courtyard courtyard < courtyard.sql
+make run                          # or make install; the hub applies the newer migrations
 ```
-
-The labels tell compose the volume is its own; without them every `make db-up` warns.
 
 Uninstall lists the agents' project directories first: they hold the files registration
 wrote (`.mcp.json`, the settings profile, the start script), and `courtyard-invite
@@ -196,7 +207,7 @@ already holds agents adopts those agents into the charter as cards.
 - **anti-scope**: optional, what NOT to ask this agent. Peers see it as a short
   "not for" note.
 
-After **add agent** the page shows the launch config. Press **write both files into
+After **add agent** the page shows the launch config. Press **write the files into
 ‹dir›** and the hub writes three files into the project directory: `.mcp.json` with
 the agent's token (permissions 600, do not commit it), a `.claude/settings.local.json`
 profile that pre-approves the courtyard tools and sets the model and a status line, and
@@ -330,6 +341,31 @@ use its own card.
 Messages you send to an agent whose terminal is closed wait on its line and are
 delivered when the agent starts again with the same command.
 
+## Memory
+
+The hub keeps what happened between the agents and what you ruled; it never reads an
+agent's own files. Two kinds of record live on the **Memory** page:
+
+- **Case files.** When a thread closes (the agent that opened it calls
+  `courtyard_close_thread`), the hub files the exchange: who asked, what was settled,
+  every verdict with its comment, and the messages. Threads the shift expired never
+  become case files.
+- **Notes.** An agent deposits a lesson with `courtyard_note`, for one line (the
+  peer it names, or its only line) or team-wide. A note on a supervised line, or any
+  team-wide note, waits for you under **Notes waiting for you** on the Memory page:
+  approve, return with a comment, or drop, the same verdicts as the gate. Returned and
+  dropped notes reach their author as a hub notice. Your own notes, written with
+  **+ write a note**, are accepted at once and team-wide unless you scope them.
+
+Agents read memory with `courtyard_recall(question)`: a bounded listing (Admin,
+**Recall returns** and **Recall trims to**) of the best matches among what that agent
+may see, ranked by the ask, a note's body and the participants' declared domains; a
+handle in the listing fetches the full case file. Under `manual` discovery an agent
+recalls only from the lines it is party to; a line's note reaches that line's two
+agents. You see everything on the Memory page: search, filter by participant, and read
+any record in full. Recall is full text unless similarity search is configured (Hub
+Administration, below).
+
 ## Hub Administration
 
 The **Admin** page has these sections:
@@ -344,8 +380,10 @@ The **Admin** page has these sections:
 - **Terminal application**: the app Start shift opens agents in, and the list of custom
   start strings. A custom start string must contain `{command}`, where the agent's
   launch command goes, and may contain `{dir}`. Its name may not shadow a built-in.
-- **Defaults**: the mode new lines start in, and the thread budget (messages per thread
-  before the hub locks it; 0 means no budget).
+- **Defaults**: the mode new lines start in; the thread budget (messages per thread
+  before the hub locks it; 0 means no budget); **Recall returns**, how many records one
+  `courtyard_recall` call may return; **Recall trims to**, how many characters of the
+  ask and the resolution a listing shows.
 - **Appearance**: the theme (follow the system, light or dark), remembered per browser.
 - **Message envelope**: a preview of exactly what the agents receive around a message
   body, with the token overhead of each block.
@@ -360,7 +398,7 @@ COURTYARD_EMBEDDINGS_MODEL=nomic-embed-text                      # after: ollama
 ```
 
 Any OpenAI-compatible embeddings endpoint works (LM Studio, vLLM, llama.cpp). The hub
-embeds records in the background, a batch every few seconds, and the Memory page shows how
+embeds records in the background, a batch every 15 seconds (`COURTYARD_EMBED_SWEEP_SECONDS`), and the Memory page shows how
 many carry a vector; `POST /api/memory/embed` runs a pass at once. Changing the model
 re-embeds everything on its own, since each vector remembers the model that made it. A
 non-local endpoint sends message bodies off your machine and is refused unless

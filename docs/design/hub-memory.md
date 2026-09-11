@@ -134,7 +134,7 @@ they apply. Memory keeps them for later recall; it does not deliver them twice.
    full case file. An agent asks "has the team discussed X before" and gets the
    answer without opening a line and spending a peer's turn. Zero standing token
    cost.
-2. **Notes (write).** A hub tool, `courtyard_note(body, line?, team_wide?)`, by
+2. **Notes (write).** A hub tool, `courtyard_note(body, peer?, team_wide?)`, by
    which an agent deposits a lesson into team memory. A note is not a message: it
    has no recipient, takes no turn and expects no answer. It is scoped to the line
    the author names (or its only line) unless the author says team-wide. It shares
@@ -179,8 +179,8 @@ in JSON Lines. Admin surface, unauthenticated on localhost like the rest (D3).
 
 The operator reads memory on a dedicated **Memory** page: search in each of the
 modes of section 7, filters by participant, line and date, the trimmed and full
-views of a record, and the memory-specific controls (write a note, widen or
-narrow a note's scope, mark a record superseded, delete a note). It is its own
+views of a record, and the memory-specific controls (write a note; in slice 4:
+widen or narrow a note's scope, mark a record superseded, delete a note). It is its own
 page rather than a section of the Archive page because its searches and controls
 are its own; the two pages link to each other by record and archive.
 
@@ -195,19 +195,23 @@ API or the tool:
   dedicated graph or vector store). Changes: the compose image moves from
   `postgres:17-alpine` to the pgvector image, a migration creates the extension
   and adds an `embedding` column, and each record stores `embedding_model`. The
-  dimension is fixed per encoder, so a model change means a new column and a
-  re-embed; the stored model name is what makes that safe. No index until the
+  column has no fixed dimension (the encoder decides it), and every vector search
+  filters on the current model name, so a model change is a re-embed, never a
+  schema change; the stored model name is what makes that safe. No index until the
   table reaches tens of thousands of rows; an HNSW index is one more migration
   then.
-- **What is encoded.** One vector per record, computed from the trimmed view (the
-  ask, the resolution, the verdict comments), because that is the text a future
-  question resembles. Notes are encoded from their body.
-- **When.** At write time, tolerant of the encoder being down: the record is
-  stored with a null embedding and a backfill sweep fills it later, the same
-  shape as the liveness sweep. First enablement and model changes are that same
-  sweep over every record.
+- **What is encoded.** One vector per record, computed from the ask, the
+  resolution and the verdict comments (untrimmed), because that is the text a
+  future question resembles. Notes are encoded from their body.
+- **When.** By a background sweep, never in the write transaction: a record is
+  stored with a null embedding and the sweep (every `COURTYARD_EMBED_SWEEP_SECONDS`,
+  or `POST /api/memory/embed` at once) fills it, the same shape as the liveness
+  sweep, tolerant of the encoder being down. First enablement and model changes are
+  that same sweep over every record. A question is embedded at recall time with a
+  timeout of seconds, not the sweep's minute, and falls back to full text.
 - **The encoder.** An `Encoder` interface with a `none` default. With no encoder
-  configured, recall is full-text only and says so. Implementations, in order:
+  configured, recall is full-text only; the hub's ready line and the Memory page
+  say so (the tool's listing does not name its mode). Implementations, in order:
   a local HTTP encoder (Ollama or any OpenAI-compatible embeddings endpoint on
   localhost; the hub stays light and the same shape works as a sidecar on a
   remote host), an in-process ONNX encoder (small models, no torch) if the extra
@@ -219,9 +223,11 @@ API or the tool:
   `vector`, and `hybrid` (both, merged by reciprocal rank fusion). The tool never
   exposes the mode: it uses hybrid when embeddings exist and full-text otherwise.
   The API exposes it for other consumers and for testing. Filters by participant,
-  line, domain and date are SQL `WHERE` clauses applied before ranking in every
-  mode. Results are records, never scores alone, so adding vectors changes what
-  comes first, not what a result is.
+  line and date are SQL `WHERE` clauses applied before ranking in every mode (a
+  domain filter is not built; domains rank, they do not filter). Results are
+  records, never scores alone, so adding vectors changes what comes first, not
+  what a result is. A question that holds no searchable lexeme (stop words,
+  punctuation) is answered as such, never as "nothing settled".
 
 A remote hub changes nothing here: Postgres with pgvector and the encoder sit
 beside the hub; agents only ever call the tool. The shift's terminal spawning is
@@ -252,8 +258,13 @@ agent. Each rule below answers one of those.
   from the whole team's case files. Under `manual`, an agent recalls from the
   lines it is party to. Notes add their own scope on top: a line-scoped note is
   seen by that line's two agents, a team-wide note by everyone. The operator sees
-  everything. Segregation of duties, applied to memory.
-- **Retention is explicit.** A record lives until superseded or until the
+  everything. Segregation of duties, applied to memory. Visibility is keyed on the
+  agent's id, and a removed name registered again keeps its id (D36): the revived
+  agent inherits the case files and line notes of its previous life. Accepted: the
+  name is the identity the team knows, and the record of what that name was told and
+  ruled on is exactly what a re-registered specialist should find again.
+- **Retention is explicit** (slice 4, not yet enforced: today a deleted archive
+  leaves its case file in place). A record lives until superseded or until the
   archive it was built from is deleted, whichever the operator does. Deleting an
   archive deletes what was distilled from it: the archive is the single source,
   memory is derived. Notes live until the operator deletes them.
@@ -289,8 +300,10 @@ makes no model calls today. In the votes column, 0 means parked.
 3. **Vectors.** pgvector image and migration, the `Encoder` interface with the
    local HTTP implementation, the backfill sweep, `hybrid` mode. Runbook: a
    paraphrased question finds the case file that exact search misses.
-4. **Export and visibility.** JSON Lines export, `superseded_by` and the
-   operator's supersede control, `manual` discovery filtering, retention rules.
+4. **Export and curation.** JSON Lines export, the operator's supersede control
+   (the `superseded_by` column exists and is honoured by every read), a note's scope
+   controls and deletion, retention rules (a case file goes with its archive). The
+   `manual` discovery filtering listed here at first shipped in slice 1.
 
 Each slice ships with tests, a runbook entry and a script, per
 `developer-notes.md`.

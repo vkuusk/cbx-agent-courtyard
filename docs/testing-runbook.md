@@ -927,8 +927,8 @@ uv run python scripts/runbook/memory_recall.py
 1. **The close**: `case files written by the close: 1`, both participants with their
    domains, `ask : 'does the vpc module support ipv6?'`, `resolution : 'yes since
    v3; ...'` (the approved answer, not the returned draft), `verdicts : ['return:
-   look it up ...', 'approve: fine']`, `counts : 3 messages, 2 approved, 1 returned`.
-2. **Recall**: the hub's listing text, `1 case file from the team's memory (best match
+   look it up ...', 'approve: fine']`, `counts : 3 messages, 2 approved, 1 returned, 0 dropped`.
+2. **Recall**: the hub's listing text, `1 record from the team's memory (best match
    first)`, the record with its `[id]`, ask, resolution and both verdict lines;
    `our case first : True`.
 3. **The full case file**: `Case file [id]: ...` then every message numbered, with
@@ -1084,10 +1084,12 @@ uv run pytest tests/test_install_app.py tests/test_tray.py tests/test_health.py 
     `refusing to create the hub's schema in a database that already holds other tables`.
 0. The one-command path, once a release exists: in an empty directory,
    `curl -fsSL https://raw.githubusercontent.com/vkuusk/cbx-agent-courtyard/main/install.sh | sh`
-   prints `downloading Agent Courtyard v...`, `unpacked into ...`, then the five install
+   prints `downloading Agent Courtyard v...`, `unpacked into ...`, then the six install
    steps below. In a non-empty directory it stops with `is not empty`. Without Docker
    running it stops naming the fix.
-1. `make hub-stop` any `make run` hub first (port 2626 must be free). `make install`:
+1. End any `make run` hub first (Ctrl+C; `make run-stop` for a `make run-chrome` one):
+   the install refuses to load the LaunchAgent while a hub that is not its own answers
+   on the port. `make install`:
    six numbered steps (`hub up at http://127.0.0.1:2626` under step 5, the Add to Dock
    instructions under step 6), then a `Summary` block framed in `*` lines: one row per
    step, `- OK` or `- WARNING:` with the warning's full text repeated between `--------`

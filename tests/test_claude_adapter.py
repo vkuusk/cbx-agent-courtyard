@@ -194,6 +194,11 @@ def test_adapter_end_to_end(session):
 
     assert "No unread" in tool_text(adapter.call_tool("courtyard_inbox"))
 
+    # a bad argument is an error RESULT, never a request left without a reply (found by
+    # review: a ValueError escaped the handler and the session waited on the call)
+    bad = adapter.call_tool("courtyard_recall", {"question": "x", "limit": "five"})
+    assert bad["isError"] is True and "whole number" in tool_text(bad)
+
     # --- sending: the gate holds it, and the turn rule is legible --------------------
     held = adapter.call_tool("courtyard_send", {"to": "infra", "message": "can you deploy?"})
     assert held["isError"] is False

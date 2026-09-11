@@ -39,7 +39,7 @@ LaunchAgent (starts at login, restarts on exit) plus a second one for Courtyard 
 the icon in the menu bar (two files under `~/Library/LaunchAgents`, `com.courtyard.hub`
 and `com.courtyard.tray`, and `~/Applications/Courtyard Admin.app`, the launcher that
 brings the menu bar icon back after Quit Courtyard Admin); the menu has the buttons Open
-WebUI, Start / Stop / Restart hub, Start / End shift, Quit Courtyard Admin. The install
+WebUI, Start / Stop / Restart hub, Start / End shift, Show hub log, Quit Courtyard Admin. The install
 runs six numbered steps and ends with a Summary block:
 one line per step, OK or WARNING, every warning repeated in full. Read it and report
 any warning to your operator; the two it knows are an EXISTING courtyard database

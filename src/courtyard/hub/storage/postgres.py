@@ -737,6 +737,12 @@ class PgMemoryRepo:
     def count(self) -> int:
         return self._conn.execute("SELECT count(*) AS n FROM memory").fetchone()["n"]
 
+    def searchable(self, question: str) -> bool:
+        row = self._conn.execute(
+            "SELECT numnode(websearch_to_tsquery('english', %s)) AS n", (question,)
+        ).fetchone()
+        return row["n"] > 0
+
     def set_embedding(self, record_id: UUID, model: str, vector: list[float]) -> None:
         self._conn.execute(
             "UPDATE memory SET embedding = %s::vector, embedding_model = %s, embedded_at = now()"

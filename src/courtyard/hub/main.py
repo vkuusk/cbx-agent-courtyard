@@ -295,15 +295,29 @@ def configure_logging(level: str) -> None:
     startup_logger.setLevel(logging.INFO)
 
 
+# How long a stopping hub waits for open connections before closing them. The WebUI holds
+# its event stream open for as long as the page lives, so without a bound a SIGTERM (the
+# Admin page's restart, `launchctl kickstart -k`, a bootout) leaves the old process
+# waiting on that stream: not serving, not exiting, and under launchd never restarted.
+GRACEFUL_SHUTDOWN_SECONDS = 3
+
+
+def server_config(cfg: Config, **overrides: object) -> uvicorn.Config:
+    """The uvicorn configuration the hub runs with; the test suite runs the same one."""
+    options: dict[str, object] = {
+        "host": cfg.host,
+        "port": cfg.port,
+        "log_level": cfg.log_level.lower(),
+        # uvicorn's access log is replaced by AccessLog so error responses carry their
+        # real severity instead of INFO
+        "access_log": False,
+        "timeout_graceful_shutdown": GRACEFUL_SHUTDOWN_SECONDS,
+    }
+    options.update(overrides)
+    return uvicorn.Config(AccessLog(create_app(cfg)), **options)
+
+
 def cli() -> None:
     cfg = load_config()
-    # uvicorn's access log is replaced by AccessLog so error responses carry their
-    # real severity instead of INFO.
     configure_logging(cfg.log_level)
-    uvicorn.run(
-        AccessLog(create_app(cfg)),
-        host=cfg.host,
-        port=cfg.port,
-        log_level=cfg.log_level.lower(),
-        access_log=False,
-    )
+    uvicorn.Server(server_config(cfg)).run()

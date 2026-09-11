@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 
 from pydantic import BaseModel
 
@@ -22,6 +23,14 @@ class EventBus:
     def __init__(self) -> None:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._queues: set[asyncio.Queue] = set()
+        self._views: dict[str, Callable[[BaseModel], BaseModel]] = {}
+
+    def view(self, type_: str, fn: Callable[[BaseModel], BaseModel]) -> None:
+        """Every published model of this type passes through `fn` first. For state the
+        hub keeps beside the stored row (an agent's rejected-token note): whoever
+        publishes the row, the subscribers see the whole object, since the WebUI
+        replaces what it holds with each event."""
+        self._views[type_] = fn
 
     def bind(self, loop: asyncio.AbstractEventLoop) -> None:
         self._loop = loop
@@ -30,6 +39,8 @@ class EventBus:
         """Thread-safe; a no-op before bind() (e.g. in scripts using the services directly)."""
         if self._loop is None or self._loop.is_closed():
             return
+        if view := self._views.get(type_):
+            model = view(model)
         event = {"type": type_, "data": model.model_dump(mode="json")}
         try:
             self._loop.call_soon_threadsafe(self._fanout, event)

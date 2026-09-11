@@ -62,6 +62,9 @@ class Registry:
         # own. In memory on purpose: the adapter retries every 2 s, so a hub restart refills
         # it within seconds, and an attach with the right token ends it.
         self._token_rejections: dict[UUID, datetime] = {}
+        # every agent event, whoever publishes it (liveness, the shift, a heartbeat),
+        # carries the note: the WebUI keeps the last event's object as the whole truth
+        self._events.view("agent", self._with_rejection)
 
     def create(
         self,
@@ -202,7 +205,7 @@ class Registry:
         first = agent.id not in self._token_rejections
         self._token_rejections[agent.id] = datetime.now(UTC)
         if first:
-            self._events.publish("agent", self._with_rejection(agent))
+            self._events.publish("agent", agent)
 
     def clear_token_rejected(self, agent: Agent) -> None:
         """An attach with the right token: the note is over (the attach's own agent event

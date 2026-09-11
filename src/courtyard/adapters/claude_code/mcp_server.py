@@ -32,6 +32,7 @@ import sys
 import threading
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
+from importlib.metadata import version
 from typing import Any
 
 import httpx
@@ -69,7 +70,7 @@ def attach_failure(exc: Exception, attempt: int) -> tuple[int, str] | None:
 
 
 SERVER_NAME = "courtyard"
-SERVER_VERSION = "0.1.2"
+SERVER_VERSION = version("courtyard")  # the package's, so it never drifts from pyproject
 FALLBACK_PROTOCOL_VERSION = "2025-06-18"
 CHANNEL_NOTIFICATION = "notifications/claude/channel"
 
@@ -584,6 +585,11 @@ class CourtyardAdapter:
                 f"The courtyard hub at {self._config.hub_url} is unreachable: {exc}",
                 is_error=True,
             )
+        except Exception as exc:  # the call must get SOME reply
+            # an exception past this point leaves the request without a JSON-RPC reply
+            # and the session waiting on it; an error result at least says what happened
+            logger.exception("tool %s failed", name)
+            return _tool_result(f"The courtyard tool {name} failed: {exc!r}", is_error=True)
 
     def _tool_send(self, arguments: dict) -> dict:
         to = (arguments.get("to") or "").strip()
@@ -634,7 +640,11 @@ class CourtyardAdapter:
             return _tool_result(self._client.recall_case(case).rendered or "")
         question = (arguments.get("question") or "").strip()
         limit = arguments.get("limit")
-        return _tool_result(self._client.recall(question, int(limit) if limit else None).rendered)
+        try:
+            limit = int(limit) if limit not in (None, "") else None
+        except (TypeError, ValueError):
+            return _tool_result(f"`limit` must be a whole number, got {limit!r}", is_error=True)
+        return _tool_result(self._client.recall(question, limit).rendered)
 
     def _tool_note(self, arguments: dict) -> dict:
         body = (arguments.get("body") or "").strip()

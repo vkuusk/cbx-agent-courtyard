@@ -105,3 +105,13 @@ def test_the_startup_line_shows_at_every_log_level(caplog):
         assert [r.getMessage() for r in caplog.records] == ["ready", "a problem, must show"]
     finally:
         root.setLevel(before)
+
+
+def test_the_encoder_locality_check_leaves_the_bind_host_alone():
+    """Found by review: the check reused the `host` variable, so an embeddings URL on
+    `localhost` rebound the hub to `localhost` and a deliberate non-local bind was
+    silently undone."""
+    env = {"COURTYARD_EMBEDDINGS_URL": "http://localhost:11434/v1/embeddings"}
+    assert load_config(env).host == "127.0.0.1"
+    env.update(COURTYARD_HOST="0.0.0.0", COURTYARD_ALLOW_NONLOCAL_BIND="1")
+    assert load_config(env).host == "0.0.0.0"

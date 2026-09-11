@@ -3,7 +3,20 @@
 # versioned name and generated notes. install.sh downloads the tag's zip; this makes the
 # version visible and gives it a page.
 #
+# The version lives in pyproject.toml and, copied, in uv.lock; the tag must match it, and
+# both files must move together (a hand edit of pyproject.toml leaves uv.lock behind
+# until the next uv command, which then dirties the tree). So, on the branch, before the
+# merge:
+#
+#   uv version 0.2.0            # edits pyproject.toml AND uv.lock (or: --bump patch)
+#   uv lock --check             # exits non-zero if the lock is behind pyproject.toml
+#   git add pyproject.toml uv.lock && git commit -m "- bump version to 0.2.0"
+#
+# then, once it is on main:
+#
 #   git tag v0.2.0 && git push --tags
+#
+# The process is written out in docs/developer-notes.md ("Releasing").
 
 name: release
 

@@ -31,8 +31,11 @@ make run           # postgres up + the hub on http://127.0.0.1:2626 (leave this 
 
 The compose postgres listens on host port 26432, deliberately not 5432, so it never
 collides with a postgres of your own; `COURTYARD_PG_PORT` in `.env` moves it, and the
-hub, the tests and the runbook scripts all follow. Colima works as the container
-runtime too; be aware that older Colima versions ignore the localhost-only
+hub, the tests and the runbook scripts all follow. A clone that ran before the compose
+project was named `courtyard` must first remove the old `courtyard-postgres` container
+(the user guide, installing as an app, has the steps and how to keep the data). Colima
+works as the container runtime too; be aware that older Colima versions ignore the
+localhost-only
 port binding and may expose the postgres port on your local network, which is
 a Colima limitation, not a courtyard setting.
 
@@ -56,7 +59,7 @@ printf '# infra notes\n' > ~/courtyard-quickstart/infra-claude/README.md
 ```
 
 Real project directories work just as well; the only files courtyard puts there are
-the two config files written in the next step.
+the config files written in the next step.
 
 ## 3. Choose the team's directory, then register the agents
 
@@ -95,7 +98,7 @@ After **add agent** the page shows the agent's **launch config**: its `.mcp.json
 the token inside, and a `.claude/settings.local.json` profile that pre-approves the
 courtyard tools (so the agent's sends never stop on a permission prompt in its
 terminal), sets the model you declared, and gives the terminal a status line with the
-agent's name. Click the button **write both files into ‹dir›**. The hub writes
+agent's name. Click the button **write the files into ‹dir›**. The hub writes
 `<dir>/.mcp.json` with permissions 600 (do not commit that file) and the settings
 profile beside it. The hub keeps the token.
 
@@ -231,6 +234,9 @@ by part: teams and agents, lines and the gate, the shift, and the Admin page.
   pane header resets it.
 - **Archive.** When a conversation is done, **archive** in the pane header moves its history
   to the **Archive** page (read it again, export it as JSON) and the line starts empty.
+- **Memory.** A closed thread becomes a case file, and agents can leave notes for the
+  team; the **Memory** page lists both, with the verdicts on notes that wait for you.
+  Agents ask for it with `courtyard_recall`. The user guide's Memory section has the rules.
   Removing an agent archives its lines by itself, so the WebUI only ever shows the team.
 - **Closing a terminal is fine.** Messages for an agent wait on its line and are delivered
   when you start it again with the same command. Messages that arrive while an agent is
@@ -264,11 +270,15 @@ disagree, these are the moves; each one is safe to do at any time.
   `make test-comms`: it proves the whole operator → agent → operator path against a
   live session and prints where it broke. Channels are a research preview; the
   launch-flag contract has drifted before.
-- **You nuked the database** (`make db-nuke`). Registrations and tokens are gone, but
-  each agent directory still holds its old config with a now-dead token; old sessions
-  will retry against the new hub forever (harmless 401 noise). Exit those sessions,
-  re-register the agents (same names and directories), and **install** again: the new
-  config overwrites the stale token in place.
+- **You nuked the database** (`make db-nuke`), or rebuilt the team from its charter.
+  Registrations and tokens are new, but each agent directory still holds its old config
+  with a now-dead token. A session started from it retries attach every two seconds and
+  is refused every time: its card reads **token rejected, rewrite the agent's files**
+  instead of "not started yet", the shift counts it as not on shift, and the adapter's
+  log names the cause and the fix. Exit those sessions, then for each agent open
+  **edit**, **launch config**, **write the files** (after a nuke: re-register first,
+  same names and directories): the new config overwrites the stale token in place. Start
+  the sessions again.
 
 ## Stop and clean up
 

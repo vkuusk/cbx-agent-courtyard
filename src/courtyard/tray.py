@@ -1,6 +1,6 @@
 """Courtyard in the menu bar: the buttons for the hub's make targets, and the shift.
 
-    uv run --extra tray courtyard-tray      # by hand
+    make tray                               # by hand
     make install                            # as its own LaunchAgent, beside the hub's
 
 One icon in the top bar. Beside it: nothing while all is quiet, the number of messages
@@ -52,7 +52,7 @@ def keep_out_of_the_dock(nsapp, icon: Path | None, load_image) -> None:
 
 def main() -> None:
     if rumps is None:
-        sys.exit("the menu bar app needs the `tray` extra: uv sync --extra tray")
+        sys.exit("the menu bar app needs rumps (a macOS dependency of courtyard): uv sync")
     control = HubControl()
     keep_out_of_the_dock(
         NSApplication.sharedApplication(),

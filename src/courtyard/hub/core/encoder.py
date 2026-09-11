@@ -37,14 +37,17 @@ class Encoder(Protocol):
     name: str  # none | http | fake
     model: str  # what is stored with every vector
 
-    def embed(self, texts: list[str]) -> list[list[float]]: ...
+    def embed(self, texts: list[str], timeout: float | None = None) -> list[list[float]]:
+        """`timeout` overrides the encoder's own for one call (a recall waits seconds, the
+        sweep may wait a minute)."""
+        ...
 
 
 class NoEncoder:
     name = "none"
     model = ""
 
-    def embed(self, texts: list[str]) -> list[list[float]]:
+    def embed(self, texts: list[str], timeout: float | None = None) -> list[list[float]]:
         raise EncoderError("no encoder is configured (COURTYARD_EMBEDDINGS_URL)")
 
 
@@ -60,7 +63,7 @@ class HttpEncoder:
         self._headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         self._timeout = timeout
 
-    def embed(self, texts: list[str]) -> list[list[float]]:
+    def embed(self, texts: list[str], timeout: float | None = None) -> list[list[float]]:
         if not texts:
             return []
         try:
@@ -68,7 +71,7 @@ class HttpEncoder:
                 self.url,
                 json={"model": self.model, "input": texts},
                 headers=self._headers,
-                timeout=self._timeout,
+                timeout=timeout or self._timeout,
             )
             resp.raise_for_status()
             data = resp.json()["data"]
@@ -104,7 +107,7 @@ class FakeEncoder:
     name = "fake"
     model = "fake-bag-of-words-32"
 
-    def embed(self, texts: list[str]) -> list[list[float]]:
+    def embed(self, texts: list[str], timeout: float | None = None) -> list[list[float]]:
         return [self._one(t) for t in texts]
 
     @staticmethod

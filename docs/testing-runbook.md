@@ -481,6 +481,16 @@ uv run python scripts/runbook/delivery_check.py
 3. **On demand:** hover a connected agent's card — the **✓?** chip; click it and watch
    the same pending → ✓ cycle. Hovering the green ✓ shows when delivery was last
    verified.
+4a. **The rejected token:** edit one agent's `.mcp.json` so `COURTYARD_TOKEN` is wrong
+   (or rotate the token on its row without rewriting the files), start its session. The
+   hub log shows `POST /api/agents/<name>/attach ... 401` every two seconds; the card's
+   foot reads `token rejected, rewrite the agent's files` (red) instead of `not started
+   yet`; `GET /api/agents` shows `token_rejected_at` on that agent only. In the session's
+   adapter log (stderr / MCP log) the first attempt reads `the hub rejected this agent's
+   token` with the fix, then about once a minute, never every attempt. Restore the token
+   (edit, launch config, write both files) and restart the session: the card turns
+   green and `token_rejected_at` is null again. Scripted: `uv run pytest
+   tests/test_channels_api.py -k rejected tests/test_claude_adapter.py -k attach_failures`.
 4. **The failure verdict:** repeat step 1's bare session and click its card's **✓?**.
    After the timeout (60 s) the foot turns to *delivery check failed* (the flag warning
    outranks it when both apply). Expected everywhere: the check never appears in any
@@ -917,8 +927,8 @@ uv run python scripts/runbook/memory_recall.py
 1. **The close**: `case files written by the close: 1`, both participants with their
    domains, `ask : 'does the vpc module support ipv6?'`, `resolution : 'yes since
    v3; ...'` (the approved answer, not the returned draft), `verdicts : ['return:
-   look it up ...', 'approve: fine']`, `counts : 3 messages, 2 approved, 1 returned`.
-2. **Recall**: the hub's listing text, `1 case file from the team's memory (best match
+   look it up ...', 'approve: fine']`, `counts : 3 messages, 2 approved, 1 returned, 0 dropped`.
+2. **Recall**: the hub's listing text, `1 record from the team's memory (best match
    first)`, the record with its `[id]`, ask, resolution and both verdict lines;
    `our case first : True`.
 3. **The full case file**: `Case file [id]: ...` then every message numbered, with
@@ -1074,10 +1084,12 @@ uv run pytest tests/test_install_app.py tests/test_tray.py tests/test_health.py 
     `refusing to create the hub's schema in a database that already holds other tables`.
 0. The one-command path, once a release exists: in an empty directory,
    `curl -fsSL https://raw.githubusercontent.com/vkuusk/cbx-agent-courtyard/main/install.sh | sh`
-   prints `downloading Agent Courtyard v...`, `unpacked into ...`, then the five install
+   prints `downloading Agent Courtyard v...`, `unpacked into ...`, then the six install
    steps below. In a non-empty directory it stops with `is not empty`. Without Docker
    running it stops naming the fix.
-1. `make hub-stop` any `make run` hub first (port 2626 must be free). `make install`:
+1. End any `make run` hub first (Ctrl+C; `make run-stop` for a `make run-chrome` one):
+   the install refuses to load the LaunchAgent while a hub that is not its own answers
+   on the port. `make install`:
    six numbered steps (`hub up at http://127.0.0.1:2626` under step 5, the Add to Dock
    instructions under step 6), then a `Summary` block framed in `*` lines: one row per
    step, `- OK` or `- WARNING:` with the warning's full text repeated between `--------`

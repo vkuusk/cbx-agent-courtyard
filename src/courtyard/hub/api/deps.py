@@ -52,3 +52,19 @@ def require_agent(
         raise InvalidToken("missing bearer token")
     registry: Registry = request.app.state.registry
     return registry.authenticate(token.strip())
+
+
+def require_agent_named(
+    name_or_id: str,
+    request: Request,
+    _creds: Annotated[HTTPAuthorizationCredentials | None, Security(_bearer)] = None,
+) -> Agent:
+    """`require_agent` for the attach endpoint: a rejected token is also noted against the
+    agent named in the path, so the WebUI can say "token rejected" instead of "not started
+    yet" while an out-of-date .mcp.json retries forever."""
+    try:
+        return require_agent(request, _creds)
+    except InvalidToken:
+        registry: Registry = request.app.state.registry
+        registry.note_token_rejected(name_or_id)
+        raise

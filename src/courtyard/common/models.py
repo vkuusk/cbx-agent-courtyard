@@ -59,6 +59,10 @@ class Agent(BaseModel):
     channel_flag: ChannelFlag | None = None
     delivery_check: DeliveryCheck | None = None
     delivery_checked_at: datetime | None = None
+    # an attach under this agent's name arrived with a token that is not its own (401):
+    # the workdir's files predate a database rebuild or a token rotation. Hub memory only
+    # (the adapter retries every 2 s); cleared by an attach with the right token.
+    token_rejected_at: datetime | None = None
 
 
 class Thread(BaseModel):

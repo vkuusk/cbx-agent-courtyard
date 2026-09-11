@@ -65,7 +65,7 @@ wheels = [
 
 [[package]]
 name = "courtyard"
-version = "0.1.2"
+version = "0.1.4"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
@@ -73,12 +73,8 @@ dependencies = [
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "pydantic" },
     { name = "pyyaml" },
+    { name = "rumps", marker = "sys_platform == 'darwin'" },
     { name = "uvicorn", extra = ["standard"] },
-]
-
-[package.optional-dependencies]
-tray = [
-    { name = "rumps" },
 ]
 
 [package.dev-dependencies]
@@ -95,10 +91,9 @@ requires-dist = [
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2" },
     { name = "pydantic", specifier = ">=2.7" },
     { name = "pyyaml", specifier = ">=6.0" },
-    { name = "rumps", marker = "extra == 'tray'", specifier = ">=0.4" },
+    { name = "rumps", marker = "sys_platform == 'darwin'", specifier = ">=0.4" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
 ]
-provides-extras = ["tray"]
 
 [package.metadata.requires-dev]
 dev = [

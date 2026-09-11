@@ -25,9 +25,10 @@ from courtyard.adapters.claude_code.mcp_server import (
     CHANNEL_NOTIFICATION,
     AdapterConfig,
     ConfigError,
+    attach_failure,
     load_config,
 )
-from courtyard.common.client import HubClient
+from courtyard.common.client import HubClient, HubError
 from courtyard.hub.core.peers import PEER_LIMIT
 
 
@@ -193,6 +194,11 @@ def test_adapter_end_to_end(session):
 
     assert "No unread" in tool_text(adapter.call_tool("courtyard_inbox"))
 
+    # a bad argument is an error RESULT, never a request left without a reply (found by
+    # review: a ValueError escaped the handler and the session waited on the call)
+    bad = adapter.call_tool("courtyard_recall", {"question": "x", "limit": "five"})
+    assert bad["isError"] is True and "whole number" in tool_text(bad)
+
     # --- sending: the gate holds it, and the turn rule is legible --------------------
     held = adapter.call_tool("courtyard_send", {"to": "infra", "message": "can you deploy?"})
     assert held["isError"] is False
@@ -352,3 +358,26 @@ def test_judge_channel_flag_from_process_ancestry():
     assert judge_channel_flag(["sh -c courtyard-claude-mcp", "claude --model haiku"]) == "absent"
     assert judge_channel_flag(["/usr/bin/login", "-zsh"]) == "unknown"
     assert judge_channel_flag([]) == "unknown"
+
+
+def test_attach_failures_name_a_rejected_token_and_report_about_once_a_minute():
+    """A hub that is not there yet is a warning (it usually arrives). A 401 is an error
+    that names the cause and the fix: the token in .mcp.json is not the hub's token for
+    this agent, and retrying cannot repair that. Either way: the first miss, then one
+    in thirty (a minute at the 2 s cadence), never every attempt."""
+    import logging
+
+    unreachable = ConnectionError("connection refused")
+    level, text = attach_failure(unreachable, 1)
+    assert level == logging.WARNING and "hub not reachable yet" in text
+    assert attach_failure(unreachable, 2) is None and attach_failure(unreachable, 29) is None
+    assert attach_failure(unreachable, 30) is not None and attach_failure(unreachable, 60)
+    rejected = HubError(401, "invalid_token", "unknown or revoked agent token")
+    level, text = attach_failure(rejected, 1)
+    assert level == logging.ERROR
+    assert "rejected this agent's token" in text and "invalid_token" in text
+    assert "write both files" in text and "restart this session" in text
+    assert "not reachable" not in text
+    assert attach_failure(rejected, 7) is None
+    other = HubError(403, "not_allowed", "token does not belong to this agent")
+    assert attach_failure(other, 1)[0] == logging.WARNING

@@ -392,6 +392,9 @@ class TestBuiltinSpawners:
         monkeypatch.setattr(spawn, "_kill_tty", lambda tty: order.append(f"kill {tty}"))
 
         def fake_osascript(script):
+            if script == f"return {spawner.app} is running":
+                order.append("running?")  # asked OUTSIDE a tell block: never launches
+                return "true"
             assert script.startswith(f"tell {spawner.app}")
             # the id is compared in its own type: quoted text, or a bare integer
             literal = f'"{WINDOW_IDS[app]}"' if spawner.text_ids else WINDOW_IDS[app]
@@ -405,13 +408,59 @@ class TestBuiltinSpawners:
 
         monkeypatch.setattr(spawn, "_osascript", fake_osascript)
         assert spawner.close(self.ref(app, tty="/dev/ttys042")) is True
-        assert order == ["count", "kill /dev/ttys042", "close"]
+        assert order == ["running?", "count", "kill /dev/ttys042", "close"]
 
     @pytest.mark.parametrize("app", BUILTIN_TERMINALS)
-    def test_close_reports_a_window_that_was_already_gone(self, app, monkeypatch):
-        monkeypatch.setattr(spawn, "_kill_tty", lambda tty: None)
-        monkeypatch.setattr(spawn, "_osascript", lambda script: "0")
+    def test_close_leaves_a_reused_tty_alone_when_the_window_is_gone(self, app, monkeypatch):
+        """A freed tty name goes to the next window that opens, so once the agent's window
+        is gone, whatever runs on its tty is somebody else's: the operator's own shell,
+        an editor, a `make run`. The gone count ends the close before any signal."""
+        signalled, scripts = [], []
+        monkeypatch.setattr(spawn, "_kill_tty", lambda tty: signalled.append(tty))
+
+        def fake_osascript(script):
+            scripts.append(script)
+            return "true" if "is running" in script else "0"
+
+        monkeypatch.setattr(spawn, "_osascript", fake_osascript)
         assert make_spawner(app).close(self.ref(app, tty="/dev/ttys042")) is False
+        assert signalled == [] and not any("close" in s for s in scripts)
+
+    @pytest.mark.parametrize("app", BUILTIN_TERMINALS)
+    def test_a_quit_app_is_not_launched_by_close_or_alive(self, app, monkeypatch):
+        monkeypatch.setattr(spawn, "_kill_tty", lambda tty: pytest.fail("must not signal"))
+        monkeypatch.setattr(spawn, "_tty_busy", lambda name: True)
+        tells = []
+
+        def fake_osascript(script):
+            if script.startswith("tell"):
+                tells.append(script)  # a tell block launches a quit app
+            return "false"
+
+        monkeypatch.setattr(spawn, "_osascript", fake_osascript)
+        spawner = make_spawner(app)
+        assert spawner.close(self.ref(app, tty="/dev/ttys042")) is False
+        assert spawner.alive(self.ref(app, tty="/dev/ttys042")) is False
+        assert tells == []
+
+    @pytest.mark.parametrize("app", BUILTIN_TERMINALS)
+    def test_alive_needs_the_window_as_well_as_a_busy_tty(self, app, monkeypatch):
+        """Resume respawns the dead and the stale-shift question waits on the living, so
+        liveness must not mistake a stranger on a reused tty for the agent (D25)."""
+        monkeypatch.setattr(spawn, "_tty_busy", lambda name: True)
+        answers = {"is running": "true", "count of": "0"}
+        monkeypatch.setattr(
+            spawn, "_osascript", lambda script: next(v for k, v in answers.items() if k in script)
+        )
+        spawner = make_spawner(app)
+        assert spawner.alive(self.ref(app, tty="/dev/ttys042")) is False
+        answers["count of"] = "1"
+        assert spawner.alive(self.ref(app, tty="/dev/ttys042")) is True
+        monkeypatch.setattr(
+            spawn, "_tty_busy", lambda name: False
+        )  # an idle tty: dead, no osascript
+        monkeypatch.setattr(spawn, "_osascript", lambda script: pytest.fail("no need to ask"))
+        assert spawner.alive(self.ref(app, tty="/dev/ttys042")) is False
 
     @pytest.mark.parametrize("app", BUILTIN_TERMINALS)
     def test_close_survives_an_app_that_refuses(self, app, monkeypatch):

@@ -13,6 +13,19 @@ from courtyard import traycore
 from courtyard.traycore import HubControl, HubState
 
 
+def test_the_menu_bar_dependency_survives_a_plain_uv_sync():
+    """rumps is a normal (macOS-only) dependency, never an extra: the tray LaunchAgent
+    execs .venv/bin/courtyard-tray, and `uv sync` removes what an extra installed, so
+    the documented dev step left the tray restarting every 5 s under KeepAlive."""
+    import tomllib
+
+    project = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())["project"]
+    assert any(d.startswith("rumps") and "darwin" in d for d in project["dependencies"])
+    assert "tray" not in project.get("optional-dependencies", {})
+    installer = (Path(__file__).parents[1] / "scripts" / "install.py").read_text()
+    assert "--extra" not in installer and "[tray]" not in installer
+
+
 def test_state_line_and_glyph():
     assert HubState(up=False).line() == "hub: down"
     assert HubState(up=False).glyph() == "○"

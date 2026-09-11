@@ -32,6 +32,7 @@ import sys
 import threading
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
+from importlib.metadata import version
 from typing import Any
 
 import httpx
@@ -41,8 +42,35 @@ from courtyard.common.models import Message
 
 logger = logging.getLogger("courtyard.adapter")
 
+REWRITE_FILES_HINT = (
+    "the token in this workdir's .mcp.json is not the hub's token for this agent (the"
+    " database was rebuilt or the token rotated after the file was written); on the WebUI"
+    " open Agents, edit this agent, launch config, 'write both files', then restart this"
+    " session"
+)
+
+
+def attach_failure(exc: Exception, attempt: int) -> tuple[int, str] | None:
+    """What to log about a failed attach attempt: None to stay quiet (the first miss is
+    reported, then about one in thirty, once a minute at the 2 s cadence). A hub that is not
+    there yet is a warning, since it usually arrives. A 401 is named for what it is: the
+    token is wrong, and retrying cannot fix it."""
+    if attempt != 1 and attempt % 30 != 0:
+        return None
+    if isinstance(exc, HubError) and exc.code == "invalid_token":
+        text = (
+            f"attach attempt {attempt}: the hub rejected this agent's token ({exc}): "
+            f"{REWRITE_FILES_HINT}. Retrying every 2s, which cannot succeed until then."
+        )
+        return logging.ERROR, text
+    return (
+        logging.WARNING,
+        f"attach attempt {attempt} failed (hub not reachable yet? retrying every 2s): {exc}",
+    )
+
+
 SERVER_NAME = "courtyard"
-SERVER_VERSION = "0.1.2"
+SERVER_VERSION = version("courtyard")  # the package's, so it never drifts from pyproject
 FALLBACK_PROTOCOL_VERSION = "2025-06-18"
 CHANNEL_NOTIFICATION = "notifications/claude/channel"
 
@@ -409,12 +437,9 @@ class CourtyardAdapter:
                 )
             except (HubError, httpx.HTTPError) as exc:
                 attempt += 1
-                if attempt == 1 or attempt % 30 == 0:  # first miss, then about once a minute
-                    logger.warning(
-                        "attach attempt %d failed (hub not reachable yet? retrying every 2s): %s",
-                        attempt,
-                        exc,
-                    )
+                report = attach_failure(exc, attempt)
+                if report:
+                    logger.log(*report)
                 self._stop.wait(2.0)
                 continue
             self._attached.set()
@@ -560,6 +585,11 @@ class CourtyardAdapter:
                 f"The courtyard hub at {self._config.hub_url} is unreachable: {exc}",
                 is_error=True,
             )
+        except Exception as exc:  # the call must get SOME reply
+            # an exception past this point leaves the request without a JSON-RPC reply
+            # and the session waiting on it; an error result at least says what happened
+            logger.exception("tool %s failed", name)
+            return _tool_result(f"The courtyard tool {name} failed: {exc!r}", is_error=True)
 
     def _tool_send(self, arguments: dict) -> dict:
         to = (arguments.get("to") or "").strip()
@@ -610,7 +640,11 @@ class CourtyardAdapter:
             return _tool_result(self._client.recall_case(case).rendered or "")
         question = (arguments.get("question") or "").strip()
         limit = arguments.get("limit")
-        return _tool_result(self._client.recall(question, int(limit) if limit else None).rendered)
+        try:
+            limit = int(limit) if limit not in (None, "") else None
+        except (TypeError, ValueError):
+            return _tool_result(f"`limit` must be a whole number, got {limit!r}", is_error=True)
+        return _tool_result(self._client.recall(question, limit).rendered)
 
     def _tool_note(self, arguments: dict) -> dict:
         body = (arguments.get("body") or "").strip()

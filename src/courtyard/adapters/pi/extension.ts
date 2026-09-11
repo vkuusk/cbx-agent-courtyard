@@ -163,9 +163,20 @@ export default function (pi) {
       try {
         await attach();
         break;
-      } catch {
+      } catch (exc) {
         attempt += 1;
-        if (attempt === 1) {
+        if (exc?.code === "invalid_token") {
+          // The token in this workdir's files is not the hub's token for this agent
+          // (database rebuilt, or token rotated, after they were written): retrying
+          // cannot fix it. Said once, then about once a minute.
+          if (attempt === 1 || attempt % 30 === 0) {
+            console.error(
+              "courtyard: the hub rejected this agent's token; rewrite the agent's files" +
+                " from the WebUI (Agents, edit, launch config, write both files) and restart",
+            );
+          }
+          status("token rejected");
+        } else if (attempt === 1) {
           console.error("courtyard: hub not reachable yet, retrying every 2s");
           status("hub unreachable");
         }

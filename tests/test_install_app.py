@@ -99,6 +99,7 @@ def test_tray_plist_runs_the_venv_app_with_the_root_in_its_environment(tmp_path)
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="install.sh refuses anything but macOS")
+@pytest.mark.skipif(not (ROOT / ".git").exists(), reason="needs the git checkout (not the zip)")
 def test_install_sh_unpacks_a_zip_package_into_an_empty_directory(tmp_path):
     """The one-command install, minus the download and the install itself: a zip from
     `make zip-package` lands flattened in the target directory, dotfiles included, the
@@ -149,6 +150,9 @@ def test_install_sh_unpacks_a_zip_package_into_an_empty_directory(tmp_path):
     assert again.returncode != 0 and "is not empty" in again.stderr
 
 
+@pytest.mark.skipif(
+    not (ROOT / ".github").exists(), reason=".github is export-ignored: absent from the zip"
+)
 def test_release_workflow_publishes_the_zip_package():
     text = (ROOT / ".github" / "workflows" / "release.yml").read_text()
     assert "make zip-package" in text and "courtyard.zip" in text and "gh release create" in text
@@ -269,3 +273,23 @@ def test_the_courtyard_admin_launcher_is_an_app_bundle_that_reloads_the_tray(tmp
     assert again == app and "CFBundleIconFile" not in plistlib.loads(
         (app / "Contents" / "Info.plist").read_bytes()
     )
+
+
+def test_install_refuses_a_hub_already_on_the_port_and_accepts_its_own(monkeypatch):
+    """A `make run` hub on the port would make the LaunchAgent's hub fail to bind and be
+    restarted forever, while the install reported the other hub as up. Only a hub that
+    says it is supervised (the previous install's) may be there."""
+    monkeypatch.setattr(install, "hub_url", lambda: "http://127.0.0.1:1")
+    monkeypatch.setattr(install, "health", lambda url, timeout=2.0: None)
+    install.refuse_a_hub_already_on_the_port()  # nothing there: fine
+    monkeypatch.setattr(install, "health", lambda url, timeout=2.0: {"status": "ok"})
+    monkeypatch.setattr(install, "hub_is_supervised", lambda url, timeout=2.0: True)
+    install.refuse_a_hub_already_on_the_port()  # the LaunchAgent's own: replaced in place
+    monkeypatch.setattr(install, "hub_is_supervised", lambda url, timeout=2.0: False)
+    with pytest.raises(SystemExit, match="not the LaunchAgent's"):
+        install.refuse_a_hub_already_on_the_port()
+
+
+def test_purge_means_exactly_purge_equals_1():
+    makefile = (ROOT / "Makefile").read_text()
+    assert "$(if $(filter 1,$(PURGE)),--purge)" in makefile  # PURGE=0 must not purge

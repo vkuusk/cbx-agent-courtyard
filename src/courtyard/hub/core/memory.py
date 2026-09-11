@@ -140,8 +140,14 @@ def _note_scope(record: MemoryRecord) -> str:
     return "team-wide" if record.scope == "team" else f"for {_who(record)}"
 
 
-def render_listing(question: str, records: list[MemoryRecord]) -> str:
+def render_listing(question: str, records: list[MemoryRecord], searchable: bool = True) -> str:
     """The recall tool's text: bounded, trimmed, each record with its handle."""
+    if not searchable:
+        # not "nothing settled": the question could not be searched at all
+        return (
+            f"The question {question!r} holds no searchable words (only stop words or"
+            " punctuation). Ask again with the words that matter: a tool, a module, a name."
+        )
     if not records:
         return (
             f"The team's memory holds nothing matching {question!r}. Nobody has settled this "
@@ -233,6 +239,9 @@ def render_note_result(record: MemoryRecord) -> str:
     )
 
 
+QUESTION_EMBED_SECONDS = 5.0
+
+
 def embedding_text(record: MemoryRecord) -> str:
     """What a record's vector is computed from: the trimmed view a future question would
     resemble (hub-memory.md section 7). Cases: ask, resolution, verdict comments, the
@@ -316,7 +325,9 @@ class Memory:
         if not self.similarity or not question.strip():
             return None
         try:
-            return self._encoder.embed([question.strip()])[0]
+            # a recall runs inside an agent's turn: a slow or wedged encoder gets seconds,
+            # not the sweep's minute, and the search falls back to full text
+            return self._encoder.embed([question.strip()], timeout=QUESTION_EMBED_SECONDS)[0]
         except EncoderError as exc:
             logger.warning("similarity search unavailable, falling back to full text: %s", exc)
             return None
@@ -416,6 +427,8 @@ class Memory:
     def recall(self, agent: Agent, question: str, limit: int | None = None) -> RecallView:
         """The agent-facing read (the `courtyard_recall` tool): trimmed, bounded,
         filtered, and rendered hub-side."""
+        if question.strip() and not self.searchable(question):
+            return RecallView(records=[], rendered=render_listing(question, [], searchable=False))
         records = self.search(question=question, limit=limit, as_agent=agent)
         return RecallView(records=records, rendered=render_listing(question, records))
 
@@ -426,6 +439,10 @@ class Memory:
     def count(self) -> int:
         with self._storage.transaction() as uow:
             return uow.memory.count()
+
+    def searchable(self, question: str) -> bool:
+        with self._storage.transaction() as uow:
+            return uow.memory.searchable(question)
 
     # -- notes (slice 2) -------------------------------------------------------------------
 

@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
 from courtyard.common.models import Agent, AttachSummary
-from courtyard.hub.api.deps import require_agent
+from courtyard.hub.api.deps import require_agent, require_agent_named
 from courtyard.hub.core.channels import ChannelService
 from courtyard.hub.core.errors import NotAllowed
 from courtyard.hub.core.registry import Registry
@@ -48,10 +48,11 @@ def attach(
     name_or_id: str,
     body: AttachRequest,
     request: Request,
-    caller: Annotated[Agent, Depends(require_agent)],
+    caller: Annotated[Agent, Depends(require_agent_named)],
     channels: Annotated[ChannelService, Depends(get_channels)],
 ) -> AttachSummary:
     agent = _own(request, name_or_id, caller)
+    request.app.state.registry.clear_token_rejected(agent)
     summary = channels.attach(agent, body.endpoint, body.channel_token, body.channel_flag)
     # Catch-up: push the queued backlog to the fresh channel, oldest first (design §6.4).
     channels.deliver_backlog(agent.id)

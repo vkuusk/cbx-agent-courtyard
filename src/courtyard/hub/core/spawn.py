@@ -174,7 +174,9 @@ class OsascriptTerminal:
        always, Terminal.app under a "close the window when the shell exits" profile)
        retire the window the moment its shell ends, so a count taken after the kill can
        read zero for a close that worked. The count is the protocol's answer — False
-       means the window was already gone before End shift got to it.
+       means the window was already gone before End shift got to it — and it GATES the
+       kill: a gone window has no claim on its tty name any more (the OS reuses freed
+       names, so the processes on it now may be the operator's own shell).
     2. end the processes on the window's tty and wait for them to go (`_kill_tty`): a
        window closing on a live process either orphans it or asks the operator first.
     3. close whatever the kill did not take with it.
@@ -190,13 +192,36 @@ class OsascriptTerminal:
         return json.dumps({"app": self.name, "window_id": window_id, "tty": tty})
 
     def alive(self, ref: str) -> bool:
-        return _ref_alive(ref)
+        """The session lives iff its tty has processes AND its window still exists. The
+        tty alone is not enough: macOS hands a freed tty name to the next window that
+        opens, so a busy `ttys003` may be the operator's own new shell, not the agent
+        whose window died an hour ago (found by review, 2026-09-10)."""
+        if not _ref_alive(ref):
+            return False
+        try:
+            return self._window_present(json.loads(ref)["window_id"])
+        except (SpawnFailed, subprocess.TimeoutExpired, KeyError):
+            return False
+
+    def _window_present(self, window_id: str) -> bool:
+        """Does the window this spawn opened still exist? Asked without launching the
+        app: `is running` is answered outside any tell block (touching the app inside
+        one starts it, and End shift on a quit Terminal.app would open its startup
+        window)."""
+        if _osascript(f"return {self.app} is running") != "true":
+            return False
+        windows = f"(every window whose id is {self._id_literal(window_id)})"
+        return _osascript(f"tell {self.app} to return (count of {windows}) as text") != "0"
 
     def close(self, ref: str) -> bool:
         info = json.loads(ref)
         windows = f"(every window whose id is {self._id_literal(info['window_id'])})"
         try:
-            found = _osascript(f"tell {self.app} to return (count of {windows}) as text") != "0"
+            found = self._window_present(info["window_id"])
+            if not found:
+                # the window is already gone, and so is any claim on its tty: whatever
+                # runs on that tty name now belongs to someone else (see `alive`)
+                return False
             if info.get("tty"):
                 _kill_tty(info["tty"])
             _osascript(

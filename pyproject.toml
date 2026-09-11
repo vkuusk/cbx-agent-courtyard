@@ -1,6 +1,6 @@
 [project]
 name = "courtyard"
-version = "0.1.3"
+version = "0.1.4"
 description = "Agent Courtyard - a local communication hub for your team of AI agents"
 license = "MIT"
 requires-python = ">=3.12"
@@ -11,6 +11,11 @@ dependencies = [
     "psycopg[binary,pool]>=3.2",
     "httpx>=0.27",
     "pyyaml>=6.0",
+    # the menu bar app (courtyard-tray). A normal dependency, not an extra, on purpose:
+    # the tray LaunchAgent execs .venv/bin/courtyard-tray, and a plain `uv sync` (the
+    # documented dev step) removes anything an extra brought in, which left the tray
+    # crash-looping under KeepAlive. macOS only, like the app itself.
+    "rumps>=0.4; sys_platform == 'darwin'",
 ]
 
 [project.urls]
@@ -22,11 +27,6 @@ courtyard-dummy = "courtyard.dummy.main:cli"
 courtyard-claude-mcp = "courtyard.adapters.claude_code.mcp_server:cli"
 courtyard-invite = "courtyard.adapters.claude_code.invite:cli"
 courtyard-tray = "courtyard.tray:main"
-
-[project.optional-dependencies]
-tray = [
-    "rumps>=0.4",
-]
 
 [dependency-groups]
 dev = [

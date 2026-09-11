@@ -97,6 +97,68 @@ def test_hub_restart_needs_a_supervisor(client, monkeypatch):
     assert exits == []
 
 
+def test_a_stopping_hub_does_not_wait_for_the_event_stream(config):
+    """The Admin page holds /api/events open for as long as it lives, and a stop (the
+    restart button's SIGTERM, launchd's kickstart -k) must not wait for it: found live,
+    a hub with one stream open never exited, so launchd never restarted it. The real
+    CLI, a real signal: the in-process server does not reproduce the wait."""
+    import os
+    import signal
+    import socket
+    import subprocess
+    import sys
+    import threading
+    import time
+
+    import httpx
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    env = dict(os.environ, DATABASE_URL=config.database_url, COURTYARD_PORT=str(port))
+    env["COURTYARD_LOG_LEVEL"] = "WARNING"
+    hub = subprocess.Popen(
+        [sys.executable, "-c", "from courtyard.hub.main import cli; cli()"],
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    url = f"http://127.0.0.1:{port}"
+    try:
+        deadline = time.monotonic() + 30
+        while True:
+            try:
+                if httpx.get(f"{url}/api/health", timeout=1).status_code == 200:
+                    break
+            except httpx.HTTPError:
+                pass
+            assert time.monotonic() < deadline and hub.poll() is None, "hub failed to start"
+            time.sleep(0.1)
+        connected = threading.Event()
+
+        def hold_the_stream():
+            try:
+                with httpx.stream("GET", f"{url}/api/events", timeout=None) as stream:
+                    for line in stream.iter_lines():
+                        if line == ": connected":
+                            connected.set()
+            except httpx.HTTPError:
+                pass  # the hub closed the stream on us: that is the point
+
+        listener = threading.Thread(target=hold_the_stream, daemon=True)
+        listener.start()
+        assert connected.wait(10), "no event stream"
+        hub.send_signal(signal.SIGTERM)
+        try:
+            hub.wait(timeout=15)  # well past GRACEFUL_SHUTDOWN_SECONDS, far short of forever
+        except subprocess.TimeoutExpired:
+            raise AssertionError("the hub kept running for the open event stream") from None
+    finally:
+        if hub.poll() is None:
+            hub.kill()
+            hub.wait()
+
+
 def test_the_dock_question_lives_in_the_page(client):
     """Browsers install a site as an app only from a click inside the page, so the WebUI
     carries the question: a banner with Chrome's install button or Safari's menu path,

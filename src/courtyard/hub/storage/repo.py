@@ -395,6 +395,12 @@ class MemoryRepo(Protocol):
 
     def count(self) -> int: ...
 
+    def searchable(self, question: str) -> bool:
+        """Does the question hold at least one lexeme for full-text search? Stop words
+        alone ("the"), punctuation or text outside the dictionary hold none, and a query
+        of none matches nothing."""
+        ...
+
     def set_embedding(self, record_id: UUID, model: str, vector: list[float]) -> None: ...
 
     def list_unembedded(self, model: str, limit: int) -> list[MemoryRecord]:

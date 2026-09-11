@@ -76,8 +76,8 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
     ):
         from urllib.parse import urlsplit
 
-        host = urlsplit(embeddings_url).hostname or ""
-        if host not in LOCAL_HOSTS:
+        encoder_host = urlsplit(embeddings_url).hostname or ""
+        if encoder_host not in LOCAL_HOSTS:
             raise RemoteEncoderError(
                 f"refusing to embed through {embeddings_url!r}: it is not on this machine, "
                 "and embedding sends message bodies there. Set "

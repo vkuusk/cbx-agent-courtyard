@@ -602,7 +602,8 @@ def uninstall(purge: bool) -> None:
     if workdirs:
         say("  each holds .mcp.json, .claude/settings.local.json and start-with-courtyard.sh;")
         say(
-            "  remove them with: .venv/bin/courtyard-invite --name <agent> --remove  (before step 3)"
+            "  remove them with: .venv/bin/courtyard-invite --name <agent> --remove"
+            " --keep-registration  (before step 2, while the hub answers)"
         )
     say("2. the LaunchAgents and the Courtyard Admin launcher")
     for label, plist in ((TRAY_LABEL, TRAY_PLIST), (LABEL, PLIST)):

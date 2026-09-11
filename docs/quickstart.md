@@ -293,7 +293,8 @@ To take courtyard back out of a project directory:
 uv run courtyard-invite --name main-admin --workdir ~/courtyard-quickstart/main-admin --remove
 ```
 
-That restores the `.mcp.json` that was there before (or removes ours if we created it),
+That removes the agent from the hub as well (add `--keep-registration` to leave it
+registered). It restores the `.mcp.json` that was there before (or removes ours if we created it),
 and takes the courtyard pieces back out of `.claude/settings.local.json` (the model
 entry stays, in case you tuned it). Removing an agent on the Agents page revokes its
 token; its history stays on the WebUI.

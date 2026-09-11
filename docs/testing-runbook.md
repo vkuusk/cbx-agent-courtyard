@@ -69,20 +69,28 @@ uv run python scripts/runbook/install_mcp_json.py
 
 **Expected:** three blocks, then `(cleaned up …)`, exit 0.
 
-1. **Install** — reports `wrote … .mcp.json` and `backed up … .courtyard-bak`, plus the "do
-   NOT commit it" warning. `servers now: ['my-linter', 'courtyard']` (the pre-existing server
-   is kept), the courtyard `env` shows `TOKEN=…` inline, `file mode : 0o600`, and the backup
-   holds the original.
+1. **Install** — reports `wrote … .mcp.json` and `backed up … .courtyard-bak`, plus the
+   files notice: `Written: .mcp.json holds the agent's token …; a replaced file is kept
+   beside it as *.courtyard-bak … Do NOT commit those: added them to .gitignore (…)`,
+   ending `start-with-courtyard.sh carries no secret and may be committed`. `servers now:
+   ['my-linter', 'courtyard']` (the pre-existing server is kept), the courtyard `env`
+   shows `TOKEN=…` inline, `file mode : 0o600`, and the backup holds the original. The
+   workdir is a git checkout for the check, so `.gitignore` gains the marker line and
+   `.mcp.json`, `.mcp.json.courtyard-bak`, `.claude/settings.local.json`,
+   `.claude/settings.local.json.courtyard-bak` under it (item 28).
 2. **Settings** — `allow : ['mcp__courtyard']`, `model : sonnet`, and a status line
    `echo '⏺ <name> · courtyard'` in `.claude/settings.local.json`.
 3. **Uninstall** — `restored from backup: True`, `servers now : ['my-linter']`, backup gone;
-   the settings hold only `{'model': 'sonnet'}` (the model stays on purpose).
+   the settings hold only `{'model': 'sonnet'}` (the model stays on purpose);
+   `gitignore cleaned: True` and `.gitignore` is back to its pre-install lines.
 
 **Also (real terminal path, optional):** `courtyard-invite --register --name coding
 --type claude-code --workdir <dir>` registers and installs in one command; for an agent
 that already exists, `courtyard-invite --name coding --workdir <dir>` is enough (the hub
-keeps the token, D19); add `--remove` to revert. Needs `uv sync` first so the
-`courtyard-invite` entry point exists.
+keeps the token, D19). `courtyard-invite --name coding --remove` is the full undo (item
+40): the files come out, then `removed coding from the hub`; with `--keep-registration`
+the last line reads `coding stays registered on the hub`. Needs `uv sync` first so the
+`courtyard-invite` entry point exists. Scripted: `uv run pytest tests/test_invite.py`.
 
 ---
 

@@ -810,7 +810,11 @@ backup holds the *previous* token. The only notice today is the CLI warning prin
 the settings file nor the backups and offers no action; the WebUI add-agent path shows
 nothing. AGENTS.md tells agents `.mcp.json` "must not be committed".
 
-**Status.** open.
+**Status.** decided and implemented (**D39**): the install result carries a files
+notice naming every file and what may be committed (shown by the launch config panel
+and `courtyard-invite`), and under a git checkout the hub maintains the token-carrying
+names in the workdir's `.gitignore`, in place, removed again on uninstall; a directory
+without `.git` is left alone.
 
 ### 29. Two opus agents keep going back and forth; make the envelope visible
 
@@ -861,7 +865,12 @@ events (item 11's failure mode) — the hub cannot tell such a session from a wo
 one, so this is guidance/visibility, not detection. Registration never touches a
 running session; configs are read at session start.
 
-**Status.** open.
+**Status.** covered by D29 and D31: the card warns "started without the channel" and its
+dialog names the remedy (close that session, run `./start-with-courtyard.sh` in the
+directory, or End shift and Start shift); `courtyard-invite` says the same after
+writing the script. The second question (close sessions after registering?) is answered
+by the same text: a session reads its config at start, so a session open at
+registration time must be restarted from the script.
 
 ### 31. Shift start trusted yesterday's green: set liveness to unknown, wait for a heartbeat
 
@@ -913,7 +922,8 @@ turn — nothing prompts an idle session. Queued backlog is pushed on attach. Re
 open question: the wake-at-turn-end check (open design questions); channels preview
 drift (item 11) is what makes a fallback worth discussing.
 
-**Status.** open.
+**Status.** moved to `../next-features-list.md` as a feature of its own (a delivery
+design, not a fix); the question is stated there.
 
 ### 33. Detect a channel-less session by its launch flag; tell the operator in their face
 
@@ -1147,8 +1157,10 @@ an extraction pass at end shift, and plain storage.
 **Touches.** End shift (consolidation moment); envelope / hub tools (the retrieval
 paths); storage (new tables); Admin/WebUI (whatever is surfaced to the operator).
 
-**Status.** open — ideas recorded, no decision; touches end shift, the envelope and
-possibly a new tool, so it wants a design discussion (and a D-number) before any code.
+**Status.** decided (**D37**, `../design/hub-memory.md`) and implemented through slice
+3: case files at thread close, `courtyard_recall`, notes with `courtyard_note` through
+the gate, similarity search; slice 4 (export, supersede, retention, the envelope hint)
+is in `../next-features-list.md`.
 
 ### 40. `courtyard-invite --remove` undoes the install but not the registration
 
@@ -1170,7 +1182,9 @@ does), behavior (`--remove` also deletes, perhaps behind a second flag), or both
 **Touches.** `courtyard-invite` (`invite.py`); `HubClient.uninstall`; AGENTS.md
 wording; parity with the WebUI remove flow (item 15).
 
-**Status.** open.
+**Status.** decided and implemented (**D39**): `--remove` is the full undo, files out
+then the agent off the hub, in the WebUI's order; `--keep-registration` detaches the
+directory only. The "burns the name" objection fell with D36.
 
 ### 41. Team charter: the team defined as files
 

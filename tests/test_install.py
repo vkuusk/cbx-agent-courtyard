@@ -332,3 +332,59 @@ class TestPiInstall:
         result = install.uninstall_pi(str(tmp_path))
         assert result.restored_from_backup is True
         assert theirs.read_text() == "// my own extension\n"
+
+
+class TestGitignore:
+    """Item 28: registration's footprint stays out of git. Under a checkout the
+    token-carrying names go into .gitignore (created if missing, appended in place,
+    never duplicated); a plain directory is left alone; uninstall takes exactly our
+    lines out again. The notice names what was written and what may be committed."""
+
+    def test_a_checkout_gets_the_entries_and_the_notice_says_so(self, tmp_path):
+        (tmp_path / ".git").mkdir()
+        result = install.install(str(tmp_path), CMD, HUB, "coding", "tok")
+        text = (tmp_path / ".gitignore").read_text()
+        assert result.gitignore == str(tmp_path / ".gitignore")
+        assert text.startswith(install.GITIGNORE_MARK + "\n")
+        for entry in install.GITIGNORE_ENTRIES["claude-code"]:
+            assert f"\n{entry}\n" in text
+        assert "start-with-courtyard.sh" not in text  # committable on purpose
+        assert "added them to .gitignore" in result.warning
+        assert "may be committed" in result.warning
+
+    def test_existing_lines_are_kept_and_ours_never_duplicated(self, tmp_path):
+        (tmp_path / ".git").mkdir()
+        (tmp_path / ".gitignore").write_text("node_modules/\n.mcp.json")  # no final newline
+        first = install.install(str(tmp_path), CMD, HUB, "coding", "tok")
+        again = install.install(str(tmp_path), CMD, HUB, "coding", "tok")
+        text = (tmp_path / ".gitignore").read_text()
+        assert text.startswith("node_modules/\n.mcp.json\n\n" + install.GITIGNORE_MARK)
+        assert text.splitlines().count(".mcp.json") == 1  # the user's own line, once
+        assert first.gitignore and again.gitignore is None
+        assert ".gitignore already lists them" in again.warning
+
+    def test_a_plain_directory_is_left_alone(self, tmp_path):
+        result = install.install(str(tmp_path), CMD, HUB, "coding", "tok")
+        assert not (tmp_path / ".gitignore").exists() and result.gitignore is None
+        assert "not a git checkout" in result.warning
+
+    def test_uninstall_takes_out_exactly_our_lines(self, tmp_path):
+        (tmp_path / ".git").mkdir()
+        (tmp_path / ".gitignore").write_text("dist/\n")
+        install.install(str(tmp_path), CMD, HUB, "coding", "tok")
+        undo = install.uninstall(str(tmp_path))
+        assert undo.gitignore_cleaned is True
+        assert (tmp_path / ".gitignore").read_text() == "dist/\n"
+        # a file that held only our lines goes with them
+        (tmp_path / ".gitignore").unlink()
+        install.install(str(tmp_path), CMD, HUB, "coding", "tok")
+        assert install.uninstall(str(tmp_path)).gitignore_cleaned is True
+        assert not (tmp_path / ".gitignore").exists()
+
+    def test_pi_lists_its_extension_and_keeps_the_skill_committable(self, tmp_path):
+        (tmp_path / ".git").mkdir()
+        result = install.install_pi(str(tmp_path), HUB, "pi-agent", "tok")
+        text = (tmp_path / ".gitignore").read_text()
+        assert ".pi/extensions/courtyard.ts\n" in text and "skills" not in text
+        assert "may be committed" in result.warning
+        assert install.uninstall_pi(str(tmp_path)).gitignore_cleaned is True

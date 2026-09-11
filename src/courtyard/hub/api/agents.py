@@ -176,7 +176,8 @@ class InstallResponse(BaseModel):
     settings_backed_up: str | None
     script_path: str  # start-with-courtyard.sh, the human launch wrapper (item 35)
     script_backed_up: str | None
-    warning: str
+    warning: str  # the files notice (item 28): what was written and what may be committed
+    gitignore: str | None = None  # .gitignore updated with the token-carrying names (item 28)
 
 
 @router.post("/{name_or_id}/install")
@@ -225,6 +226,7 @@ class UninstallResponse(BaseModel):
     settings_cleaned: bool
     script_restored: bool
     script_removed: bool
+    gitignore_cleaned: bool = False
 
 
 @router.post("/{name_or_id}/uninstall")

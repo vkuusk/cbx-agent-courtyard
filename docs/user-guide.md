@@ -169,7 +169,8 @@ make run                          # or make install; the hub applies the newer m
 
 Uninstall lists the agents' project directories first: they hold the files registration
 wrote (`.mcp.json`, the settings profile, the start script), and `courtyard-invite
---remove` takes them out per agent. `make zip-package` produces the zip from a checkout,
+--remove --keep-registration` takes them out per agent while the hub is still up (without
+the flag the agent is removed from the hub as well). `make zip-package` produces the zip from a checkout,
 in the checkout's root, named after the git version.
 
 ## Creating a Team
@@ -255,8 +256,17 @@ clean the courtyard pieces out of the project directory. Removal:
   ours), takes the courtyard entries out of `.claude/settings.local.json` and
   removes the start script.
 
-From a terminal, `courtyard-invite --name <agent-name> --remove` does the directory
-cleanup only; the registration stays until you remove it on the WebUI.
+From a terminal, `courtyard-invite --name <agent-name> --remove` does the same in the
+same order: the directory cleanup, then the agent is removed from the hub. Add
+`--keep-registration` to take the files out and leave the agent registered.
+
+**What registration writes, and git.** The launch config panel and `courtyard-invite`
+end with a notice naming the files: `.mcp.json` holds the token, the settings profile is
+this machine's, a replaced file is kept beside it as `*.courtyard-bak` and can hold a
+previous token; the start script carries no secret and may be committed. When the
+project directory is a git checkout, the hub adds the token-carrying names to its
+`.gitignore` (created if missing, in place, once) and the notice says so; removal takes
+those lines out again. A directory without `.git` is left alone.
 
 **Registering a removed name again.** A removed agent's name is free to use again.
 Registering it, on the WebUI, from the command line, or by a charter that names it,

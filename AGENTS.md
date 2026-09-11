@@ -81,8 +81,11 @@ This writes three files into the workdir: `.mcp.json` (holds the agent's hub
 token, permissions 600, must not be committed), a `.claude/settings.local.json`
 profile that pre-approves the courtyard tools, and `start-with-courtyard.sh`, the
 script a human runs to start this agent by hand (it carries the channel flag; a
-bare `claude` session cannot hear the hub). Undo with the same command using
-`--remove` instead of `--register`.
+bare `claude` session cannot hear the hub). When the workdir is a git checkout the
+hub adds the token-carrying names to its `.gitignore` and says so; the start script
+may be committed. Undo with `courtyard-invite --name <agent-name> --remove`: the
+files come out and the agent leaves the hub (add `--keep-registration` to detach the
+directory only).
 
 Verify the whole message path without any real agents: `make demo` runs two
 scripted dummy agents through the hub, including a supervised gate;

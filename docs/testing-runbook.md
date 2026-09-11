@@ -1119,6 +1119,36 @@ uv run python scripts/runbook/memory_export.py
 
 ---
 
+## The database's identity: a swapped postgres is refused (D38, item 44)
+
+**Feature under test:** at startup the hub stamps the database with an identity
+(`settings.hub_identity`) or adopts the one there; every pooled connection and every
+health ping compares it. When another database answers on the hub's postgres port, the
+hub logs it once, `/api/health` says `error: the database ... is not the one this hub
+started with ...`, every request answers `503 foreign_database`, and only a restart
+adopts the new database.
+
+**Scripted part:**
+
+```
+uv run pytest tests/test_identity.py -q
+```
+
+**Manual part** (two instances on one machine, the way it went wrong on 2026-09-11):
+
+1. A hub is running from install A (`make run` or the LaunchAgent). In another checkout
+   B with a `.env` that sets only `COURTYARD_COMPOSE_PROJECT=other`, stop A's postgres
+   (`docker compose stop postgres` in A), then `make run` in B: B's postgres takes port
+   26432, B's hub fails on port 2626 (A's hub holds it).
+2. A's hub log shows one `ERROR ... not the one this hub started with (expected identity
+   ..., found none)`; `curl -s localhost:2626/api/health` reports the same under `db`;
+   the WebUI's calls fail with 503 `foreign_database`; the menu bar reads `hub: up (db
+   error: ...)`.
+3. Give B its own `COURTYARD_PG_PORT` and `COURTYARD_PORT` in its `.env` (user guide,
+   Installation), restart A's postgres and hub: A serves its own database again.
+
+---
+
 ## The hub as a macOS app: make install, the LaunchAgent, the Dock app
 
 **Feature under test:** `make install` builds `.venv` with the `tray` extra (uv if

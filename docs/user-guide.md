@@ -29,7 +29,12 @@ read it, run it. Or skip the script: download the release zip from GitHub, unzip
 
 Settings can ride on the command: the install writes them into the `.env` it creates
 (an existing `.env` is kept, and the Summary then warns that they were not applied).
-A second, isolated instance beside the machine's usual one is therefore one line:
+A second instance needs all three of its own: the compose project, the postgres port
+and the hub port. With only the project set, two postgres containers fight for one host
+port and a hub can end up serving the other instance's database; the hub notices that
+(its health reads `error: the database ... is not the one this hub started with` and
+every request answers 503 until it is restarted), but the fix is the `.env`. A second,
+isolated instance beside the machine's usual one is therefore one line:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/vkuusk/cbx-agent-courtyard/main/install.sh \

@@ -1340,6 +1340,19 @@ a remote hub one day). 6 tests; runbook teams entry updated.
 
 ---
 
+### 44. The hub followed a foreign postgres on its port (2026-09-11)
+
+Seen on the Mac mini: the installed hub's postgres (compose project `vvk-courtyard`,
+default ports) was stopped; `make run` in the dev checkout brought project `courtyard`
+up on the same host port 26432; the installed hub's connection pool reconnected and
+served the fresh dev database as its own for an hour, migrated by the dev hub to a
+newer schema, while `make run` itself kept failing on port 2626. Two faults: a
+half-isolated second instance (project set, ports not), and a hub with no way to
+notice that the database under it changed. Resolved the same day: the database's
+identity, stamped at startup and checked on every pooled connection and health ping,
+refused with `503 foreign_database` until restart (D38); the user guide says a second
+instance needs its own project AND both ports.
+
 ## Work packages (discussion outcome, 2026-08-24)
 
 Cycle 1 was reviewed with the senior engineer; duplicates were merged (6c = 3.1; 7.1
@@ -1410,3 +1423,4 @@ that review.
 | 41 | Team charter: the team defined as files (cards + rules of engagement + topology, files as source of truth) | registration / install / links / envelope / WebUI | open — design in `docs/design/team-charter.md` |
 | 42 | Threads: a bounded exchange about one ask inside a line (serial in v1; lifecycle open/closed/expired/locked) | domain model / storage / envelope / shift / WebUI | open — design in `docs/design/threads.md` |
 | 43 | The directory picker should look standard → native macOS folder dialog via the hub, in-page dialog as fallback | WebUI / api/fs | implemented, awaiting his check |
+| 44 | The hub followed a foreign postgres on its port and served another instance's database | storage / health / docs | implemented (D38 identity), awaiting his check |

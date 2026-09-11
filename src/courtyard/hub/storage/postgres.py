@@ -6,10 +6,11 @@ One Storage.transaction() = one pooled connection = one database transaction
 
 from __future__ import annotations
 
+import logging
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from psycopg import Connection
 from psycopg.rows import dict_row
@@ -26,6 +27,9 @@ from courtyard.common.models import (
     Team,
     Thread,
 )
+from courtyard.hub.core.errors import ForeignDatabase
+
+logger = logging.getLogger("courtyard.hub")
 
 _MESSAGE_SELECT = """
 SELECT m.*, sa.name AS sender_name, ra.name AS recipient_name,
@@ -1025,14 +1029,28 @@ class PgUnitOfWork:
         self.memory = PgMemoryRepo(conn)
 
 
+IDENTITY_KEY = "hub_identity"  # settings row: which database this is (D38)
+
+
 class PostgresStorage:
+    """The pool, plus the database's identity (D38). At startup the hub stamps the
+    database with a random id (or adopts the one already there: one database per
+    machine, shared by every checkout). Every connection the pool hands out is checked
+    against it first: a postgres that answers on the same port but holds another
+    database (a second compose project that took the port, seen live 2026-09-11: the
+    installed hub served a fresh dev database as its own for an hour) is refused, and
+    stays refused until the hub is restarted."""
+
     def __init__(self, conninfo: str, max_size: int = 10):
+        self.identity: str | None = None
+        self.foreign: str | None = None  # why the database is refused, once it is
         self._pool = ConnectionPool(
             conninfo,
             min_size=1,
             max_size=max_size,
             open=False,
             kwargs={"row_factory": dict_row},
+            check=self._check_identity,
         )
 
     def open(self) -> None:
@@ -1041,7 +1059,44 @@ class PostgresStorage:
     def close(self) -> None:
         self._pool.close()
 
+    def stamp_identity(self) -> str:
+        """Read the database's identity, writing one if it has none; remember it."""
+        with self._pool.connection() as conn:
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO NOTHING",
+                (IDENTITY_KEY, Json(str(uuid4()))),
+            )
+            row = conn.execute(
+                "SELECT value FROM settings WHERE key = %s", (IDENTITY_KEY,)
+            ).fetchone()
+        self.identity = str(row["value"])
+        return self.identity
+
+    def observe_identity(self, found: str | None) -> None:
+        """What a connection reports as the database's identity. A mismatch marks the
+        storage foreign for good; every later transaction is refused."""
+        if self.identity is None or found == self.identity or self.foreign is not None:
+            return
+        self.foreign = (
+            f"the database on the hub's postgres port is not the one this hub started with "
+            f"(expected identity {self.identity}, found {found or 'none'}): another compose "
+            "project or volume answers there now. Refusing every request until the hub is "
+            "restarted; check COURTYARD_COMPOSE_PROJECT / COURTYARD_PG_PORT in each "
+            "instance's .env, then restart the hub"
+        )
+        logger.error("%s", self.foreign)
+
+    def _check_identity(self, conn: Connection) -> None:
+        if self.identity is None:
+            return
+        row = conn.execute("SELECT value FROM settings WHERE key = %s", (IDENTITY_KEY,)).fetchone()
+        self.observe_identity(str(row["value"]) if row else None)
+
     @contextmanager
     def transaction(self) -> Any:
+        if self.foreign is not None:
+            raise ForeignDatabase(self.foreign)
         with self._pool.connection() as conn:
+            if self.foreign is not None:  # the check on this very connection found it
+                raise ForeignDatabase(self.foreign)
             yield PgUnitOfWork(conn)

@@ -27,6 +27,21 @@ empty, and runs `make install`. If you would rather look first: download `instal
 read it, run it. Or skip the script: download the release zip from GitHub, unzip it,
 `cd` in, `make install`. The three are the same install.
 
+Settings can ride on the command: the install writes them into the `.env` it creates
+(an existing `.env` is kept, and the Summary then warns that they were not applied).
+A second, isolated instance beside the machine's usual one is therefore one line:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/vkuusk/cbx-agent-courtyard/main/install.sh \
+    | COURTYARD_COMPOSE_PROJECT=courtyard-2 COURTYARD_PG_PORT=26433 COURTYARD_PORT=2627 sh
+```
+
+The other way to give settings ahead of the install is a `.env` written into the
+otherwise empty directory first: the script accepts that directory and the install
+keeps the file. The same works for `make install` in an unpacked zip or a clone. Accepted on the command:
+the three above, `COURTYARD_ADMINER_PORT`, `COURTYARD_LOG_LEVEL` and the
+`COURTYARD_EMBEDDINGS_*` settings (the table under Development setup).
+
 The long way, for working on the code:
 
 Requirements: macOS, [uv](https://docs.astral.sh/uv/), Docker with compose, and the

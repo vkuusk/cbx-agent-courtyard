@@ -1085,8 +1085,17 @@ uv run pytest tests/test_install_app.py tests/test_tray.py tests/test_health.py 
 0. The one-command path, once a release exists: in an empty directory,
    `curl -fsSL https://raw.githubusercontent.com/vkuusk/cbx-agent-courtyard/main/install.sh | sh`
    prints `downloading Agent Courtyard v...`, `unpacked into ...`, then the six install
-   steps below. In a non-empty directory it stops with `is not empty`. Without Docker
-   running it stops naming the fix.
+   steps below. In a non-empty directory it stops with `is not empty`; a directory
+   holding only a `.env` is taken (`keeping the .env already in ...`, and step 2 keeps
+   it). Without Docker
+   running it stops naming the fix. With settings on the command,
+   `... | COURTYARD_COMPOSE_PROJECT=courtyard-2 COURTYARD_PG_PORT=26433 COURTYARD_PORT=2627 sh`,
+   step 2 prints `.env created from .env.default with COURTYARD_COMPOSE_PROJECT=courtyard-2, ...`,
+   the `.env` has those three lines set in place of the commented ones, step 3 starts
+   `courtyard-2-postgres` on 26433, step 5 says `hub up at http://127.0.0.1:2627`, and
+   the machine's usual instance is untouched. A re-run with a setting on the command and
+   the `.env` present: step 2 `- WARNING:` names it as not applied.
+   Scripted: `uv run pytest tests/test_install_app.py -k knobs`.
 1. End any `make run` hub first (Ctrl+C; `make run-stop` for a `make run-chrome` one):
    the install refuses to load the LaunchAgent while a hub that is not its own answers
    on the port. `make install`:

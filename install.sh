@@ -15,6 +15,16 @@
 #   COURTYARD_ZIP=<path|url>  a zip to use instead of downloading (offline, or a checkout's
 #                             `make zip-package` output)
 #   COURTYARD_UNPACK_ONLY=1   stop after unpacking; run `make install` yourself
+#
+# Settings for the new .env, so a second, isolated instance is one command (the install
+# writes them into the .env it creates; a .env already in the directory is kept as is,
+# and is the other way to give settings ahead of the install):
+#   COURTYARD_COMPOSE_PROJECT=<name>   compose project: its own volume and containers
+#   COURTYARD_PG_PORT=<port>           the postgres host port (default 26432)
+#   COURTYARD_PORT=<port>              the hub's port (default 2626)
+#   also COURTYARD_ADMINER_PORT, COURTYARD_LOG_LEVEL and the COURTYARD_EMBEDDINGS_* knobs
+#
+#   curl -fsSL .../install.sh | COURTYARD_COMPOSE_PROJECT=courtyard-2 COURTYARD_PG_PORT=26433 COURTYARD_PORT=2627 sh
 set -eu
 
 REPO="vkuusk/cbx-agent-courtyard"
@@ -41,9 +51,12 @@ done
 # -- where -----------------------------------------------------------------------------------
 dir="${COURTYARD_DIR:-$PWD}"
 mkdir -p "$dir"
-if [ -n "$(ls -A "$dir" 2>/dev/null)" ]; then
-  die "$dir is not empty; run this from an empty directory, or set COURTYARD_DIR=<empty dir>"
+# "empty" allows a .env written ahead of the install (make install keeps an existing one,
+# so the settings in it hold) and Finder's .DS_Store; anything else is somebody's files
+if [ -n "$(ls -A "$dir" 2>/dev/null | grep -v -x -e .env -e .DS_Store)" ]; then
+  die "$dir is not empty (a .env alone is fine); run this from an empty directory, or set COURTYARD_DIR=<empty dir>"
 fi
+[ -f "$dir/.env" ] && say "keeping the .env already in $dir"
 
 # -- which version ---------------------------------------------------------------------------
 tmp="$(mktemp -d)"

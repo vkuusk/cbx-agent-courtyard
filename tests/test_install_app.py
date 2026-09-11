@@ -18,6 +18,21 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import install
 
 
+def test_plist_survives_a_checkout_path_with_xml_characters(tmp_path):
+    """The paths land inside <string> elements: a directory named "R&D <new>" left
+    launchd an unparseable plist (found by review, 2026-09-10)."""
+    root = tmp_path / "R&D <new>"
+    text = install.render_plist(root=root, log=root / "sandbox" / "hub.log")
+    plist = plistlib.loads(text.encode())
+    assert plist["WorkingDirectory"] == str(root)
+    assert plist["ProgramArguments"][1] == str(root / "scripts" / "hub-launch.sh")
+    assert plist["StandardOutPath"] == str(root / "sandbox" / "hub.log")
+    tray = plistlib.loads(
+        install.render_plist(root=root, log=root / "t.log", template=install.TRAY_TEMPLATE).encode()
+    )
+    assert tray["EnvironmentVariables"]["COURTYARD_ROOT"] == str(root)
+
+
 def test_plist_renders_absolute_paths_and_keepalive(tmp_path):
     text = install.render_plist(root=tmp_path, log=tmp_path / "sandbox" / "hub.log")
     plist = plistlib.loads(text.encode())

@@ -35,6 +35,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Mapping
 from pathlib import Path
+from xml.sax.saxutils import escape as xml_escape
 
 ROOT = Path(__file__).resolve().parents[1]
 LABEL = "com.courtyard.hub"
@@ -158,11 +159,13 @@ def health(url: str, timeout: float = 2.0) -> dict | None:
 def render_plist(root: Path = ROOT, log: Path = LOG, template: Path = TEMPLATE) -> str:
     """A LaunchAgent: launchd runs the program in this directory, at login and whenever it
     exits; launchd's environment is nearly empty, so PATH is set explicitly."""
+    # the paths land inside <string> elements: an `&` or `<` in a checkout path (a
+    # directory named "R&D") would leave launchd an unparseable plist
     return (
         template.read_text()
-        .replace("{{ROOT}}", str(root))
-        .replace("{{LAUNCHER}}", str(root / "scripts" / "hub-launch.sh"))
-        .replace("{{LOG}}", str(log))
+        .replace("{{ROOT}}", xml_escape(str(root)))
+        .replace("{{LAUNCHER}}", xml_escape(str(root / "scripts" / "hub-launch.sh")))
+        .replace("{{LOG}}", xml_escape(str(log)))
     )
 
 

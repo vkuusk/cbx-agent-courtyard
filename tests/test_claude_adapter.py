@@ -381,3 +381,49 @@ def test_attach_failures_name_a_rejected_token_and_report_about_once_a_minute():
     assert attach_failure(rejected, 7) is None
     other = HubError(403, "not_allowed", "token does not belong to this agent")
     assert attach_failure(other, 1)[0] == logging.WARNING
+
+
+class TestSessionContextHook:
+    """D40: `courtyard-claude-context`, the SessionStart hook command."""
+
+    def test_the_hook_prints_the_hubs_text_as_additional_context(self, live_hub, tmp_path):
+        from courtyard.adapters.claude_code import session_context as hook
+        from courtyard.common.client import HubClient
+
+        url = live_hub()
+        admin = HubClient(url)
+        admin.register_agent("hooked", "dummy", "d", "x")
+        out = json.loads(hook.hook_output(hook.context(url, "hooked")))
+        block = out["hookSpecificOutput"]
+        assert block["hookEventName"] == "SessionStart"
+        assert (
+            '"hooked"' in block["additionalContext"] and "of the team" in block["additionalContext"]
+        )
+        admin.close()
+
+    def test_a_dead_hub_still_yields_the_context_without_the_team(self):
+        from courtyard.adapters.claude_code import session_context as hook
+
+        text = hook.context("http://127.0.0.1:9", "alone")
+        assert text.startswith("You are configured as part of a team")
+        assert '"alone"' in text and "of the team" not in text
+
+    def test_the_entry_point_runs_and_exits_zero_against_a_dead_hub(self):
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "courtyard.adapters.claude_code.session_context",
+                "--hub",
+                "http://127.0.0.1:9",
+                "--name",
+                "alone",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        assert proc.returncode == 0, proc.stderr
+        out = json.loads(proc.stdout)
+        assert out["hookSpecificOutput"]["hookEventName"] == "SessionStart"

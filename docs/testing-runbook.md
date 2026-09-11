@@ -78,11 +78,25 @@ uv run python scripts/runbook/install_mcp_json.py
    workdir is a git checkout for the check, so `.gitignore` gains the marker line and
    `.mcp.json`, `.mcp.json.courtyard-bak`, `.claude/settings.local.json`,
    `.claude/settings.local.json.courtyard-bak` under it (item 28).
-2. **Settings** — `allow : ['mcp__courtyard']`, `model : sonnet`, and a status line
-   `echo '⏺ <name> · courtyard'` in `.claude/settings.local.json`.
+2. **Settings** — `allow : ['mcp__courtyard']`, `model : sonnet`, a status line
+   `echo '⏺ <name> · courtyard'`, and the session-start hook (D40): `hook :
+   SessionStart startup|resume|clear|compact|fork -> .../courtyard-claude-context --hub
+   <url> --name <name>`. The block then prints what the hook injects, run for real:
+   `hookSpecificOutput.additionalContext` starting `You are configured as part of a
+   team of agents ...`, naming the agent, the current team and the channel `courtyard`;
+   against a dead hub URL the same command still answers (`fallback (hub down) :
+   True`), without the team's name.
 3. **Uninstall** — `restored from backup: True`, `servers now : ['my-linter']`, backup gone;
-   the settings hold only `{'model': 'sonnet'}` (the model stays on purpose);
-   `gitignore cleaned: True` and `.gitignore` is back to its pre-install lines.
+   the settings hold only `{'model': 'sonnet'}` (the model stays on purpose; the hook
+   is gone with the rest); `gitignore cleaned: True` and `.gitignore` is back to its
+   pre-install lines.
+
+**Manual part (the acceptance that started D40):** register an agent in a brand-new
+directory, `claude --model sonnet` through `start-with-courtyard.sh`, Start shift. The
+session's first lines show the injected context (or `/hooks` lists the SessionStart
+entry); the delivery check is answered with `courtyard_ack` without a question to you,
+the card turns delivery-verified, and a peer's question is answered through
+`courtyard_send`, not refused as injection.
 
 **Also (real terminal path, optional):** `courtyard-invite --register --name coding
 --type claude-code --workdir <dir>` registers and installs in one command; for an agent
@@ -872,6 +886,10 @@ uv run python scripts/runbook/terminal_spawners.py iTerm2
 `alive() : False` and `orphans : none`. An `orphans` line with pids means End
 shift would leave agents running; the script prints the `pkill` to clean up.
 
+A `tty : NOT REPORTED` line (a Ghostty login shell slower than 5 s) is a degraded
+ref, not a dead one: `alive()` then follows the window alone, so Resume does not open
+a second window beside a running agent; close still closes the window.
+
 **Manual part:** Admin, Terminal application: the pulldown lists the three
 built-ins plus your custom apps (the names come from `GET /api/settings/terminals`).
 Select Ghostty, Start shift: one Ghostty window per agent; End shift closes exactly
@@ -1051,6 +1069,53 @@ uv run python scripts/runbook/memory_vectors.py
    `recall is full-text only`.
 3. Set `COURTYARD_EMBEDDINGS_URL` to a non-local address: the hub refuses to start with
    `refusing to embed through ...` unless `COURTYARD_EMBEDDINGS_ALLOW_REMOTE=1`.
+4. A vector of another width under the current model name (the endpoint swapped its
+   model, the name stayed): in psql or Adminer,
+   `UPDATE memory SET embedding = '[1,0,0]'::vector WHERE id = '<one case file>'`.
+   Recall and the Memory page still answer (no 500), that record is not among the
+   similarity hits, the footer counts it as waiting, and the next sweep (or
+   `POST /api/memory/embed`) gives it a vector of the right width.
+
+---
+
+## Hub memory: export and retention (design hub-memory.md sections 6 and 8, slice 4)
+
+**Feature under test:** the raw memory for other parties. `GET /api/memory/export`
+(the **export JSON Lines** button on the Memory page) streams every record in full,
+one JSON document per line, oldest first: superseded records and notes in every gate
+state included, with their status; `participant`, `line` and `since` narrow it, so an
+external system pulls incrementally. Retention: a case file goes with the archive it
+was distilled from (the archive's transcript names the threads); the archive listing
+and the Archive page's delete confirmation count them. Notes are never touched. A
+deleted case file that had superseded another leaves that record unsuperseded.
+
+**Run** (hub started with `make run`; nothing courtyard-wide is changed; one
+team-wide note stays behind, marked as the script's):
+
+```
+uv run python scripts/runbook/memory_export.py
+```
+
+**Expected:** four blocks, then `(cleaned up ...)`, exit 0.
+
+1. **Three exchanges**: `case files of this run: 3`.
+2. **The export**: `oldest first? : True`, `full documents? : True`, `the note is in :
+   True (status accepted)`, the participant filter lists only the postgres resolution,
+   `since=...: 2 record(s)`.
+3. **The archive counts**: `case_files : 2`, `in the listing : 2`.
+4. **The delete**: `case files of this run left: 1`, the postgres one, `the note
+   stayed : True`.
+
+**Manual part:**
+
+1. Memory page: **export JSON Lines** (top right) downloads `courtyard-memory-<stamp>.jsonl`;
+   with a participant selected the button says so and the file holds only that
+   agent's records. Open the file: one JSON document per line, `document.messages`
+   present on case files.
+2. Archive page: a row of a line with closed threads reads `· N case files`. Delete
+   it: the confirmation names the N case files that go with it; after OK the Memory
+   page (open in another tab) has refetched and they are gone.
+3. Curl, an incremental pull: `curl -s 'http://127.0.0.1:2626/api/memory/export?since=2026-01-01T00:00:00Z' | wc -l`.
 
 ---
 
@@ -1075,8 +1140,9 @@ newest release zip (or `COURTYARD_ZIP`), unpacks it into the current empty direc
 (or `COURTYARD_DIR`) and runs `make install`; `COURTYARD_UNPACK_ONLY=1` stops before
 the install. The release workflow attaches `courtyard.zip` to every `v*` tag.
 
-**Scripted part** (renders and lints both plists, checks the wrapper, the tray's logic
-against a live hub, the installer's unpack path from a fresh zip; no install):
+**Scripted part** (renders and lints both plists, a checkout path with `&` or `<`
+included, checks the wrapper, the tray's logic against a live hub, the installer's
+unpack path from a fresh zip; no install):
 
 ```
 uv run pytest tests/test_install_app.py tests/test_tray.py tests/test_health.py -q

@@ -32,8 +32,11 @@ export function ArchivePage() {
     }
   };
   const remove = async (a) => {
+    const cases = a.case_files
+      ? `\n\nThe ${a.case_files} case file${a.case_files === 1 ? "" : "s"} distilled from it go${a.case_files === 1 ? "es" : ""} with it: memory is derived from the archive.`
+      : "";
     const sure = confirm(
-      `Delete this archive (${a.agent_a_name} ↔ ${a.agent_b_name}, ${a.message_count} messages)?\n\nThis cannot be undone; export it first if you want to keep it.`,
+      `Delete this archive (${a.agent_a_name} ↔ ${a.agent_b_name}, ${a.message_count} messages)?${cases}\n\nThis cannot be undone; export it first if you want to keep it.`,
     );
     if (!sure) return;
     try {
@@ -56,7 +59,7 @@ export function ArchivePage() {
       <div class="eyebrow">Archived conversations</div>
       <div class="archive-list">${list.map((a) => html`<button key=${a.id} class="arch ${open?.id === a.id ? "selected" : ""}" onClick=${() => show(a)}>
         <span class="mono names">${a.agent_a_name} ↔ ${a.agent_b_name}</span>
-        <span class="muted small">${REASON[a.reason]} · ${fmtWhen(a.archived_at)} · ${a.message_count} message${a.message_count === 1 ? "" : "s"}${a.first_at ? ` · ${span(a)}` : ""}</span>
+        <span class="muted small">${REASON[a.reason]} · ${fmtWhen(a.archived_at)} · ${a.message_count} message${a.message_count === 1 ? "" : "s"}${a.case_files ? ` · ${a.case_files} case file${a.case_files === 1 ? "" : "s"}` : ""}${a.first_at ? ` · ${span(a)}` : ""}</span>
       </button>`)}</div>
     </div>
     ${open

@@ -179,10 +179,17 @@ in JSON Lines. Admin surface, unauthenticated on localhost like the rest (D3).
 
 The operator reads memory on a dedicated **Memory** page: search in each of the
 modes of section 7, filters by participant, line and date, the trimmed and full
-views of a record, and the memory-specific controls (write a note; in slice 4:
-widen or narrow a note's scope, mark a record superseded, delete a note). It is its own
-page rather than a section of the Archive page because its searches and controls
-are its own; the two pages link to each other by record and archive.
+views of a record, the note form, and the export. It is its own page rather than a
+section of the Archive page because its searches and controls are its own; the two
+pages link to each other by record and archive.
+
+The export is the interface for other parties: `GET /api/memory/export` streams
+every record as JSON Lines, one full record per line, with the same filters as the
+search (participant, line, since) so an external system can pull incrementally by
+date. Superseded records and returned or dropped notes are included with their
+status: the export is the labeled set, and those labels are part of it. What is done
+with the raw memory outside the hub is where its use cases are expected to show
+first; the hub curates nothing until they do (section 11).
 
 ## 7. Similarity: full text first, vectors behind the same door
 
@@ -244,10 +251,12 @@ agent. Each rule below answers one of those.
   verdicts with who decided. Nothing enters memory without an event behind it.
   Notes carry their author.
 - **Supersession, not deletion.** A later decision that reverses an earlier one
-  marks the earlier record `superseded_by`. Only the operator supersedes, from the
-  Memory page; an agent's new note never supersedes anything on its own. Recall
-  returns the current answer first and shows the history; nothing is silently
-  rewritten.
+  marks the earlier record `superseded_by`. Only the operator supersedes; an agent's
+  new note never supersedes anything on its own. Every read honours the column (a
+  superseded record is not recalled); nothing is silently rewritten. The column and
+  the reads exist; the operator's control does not, until real use asks for it
+  (section 11). Until then the close date carried by every recalled record is what
+  lets an agent weigh an older answer against a newer one.
 - **The gate applies to writes.** An agent's note is visible on the WebUI the
   moment it is written and, under supervision, waits for the operator like a
   message: approve, return with a comment, or drop. Unsupervised notes flow like
@@ -263,11 +272,16 @@ agent. Each rule below answers one of those.
   agent inherits the case files and line notes of its previous life. Accepted: the
   name is the identity the team knows, and the record of what that name was told and
   ruled on is exactly what a re-registered specialist should find again.
-- **Retention is explicit** (slice 4, not yet enforced: today a deleted archive
-  leaves its case file in place). A record lives until superseded or until the
-  archive it was built from is deleted, whichever the operator does. Deleting an
-  archive deletes what was distilled from it: the archive is the single source,
-  memory is derived. Notes live until the operator deletes them.
+- **Retention is explicit.** A case file lives until the archive it was built from
+  is deleted. Deleting an archive deletes what was distilled from it: the archive is
+  the single source, memory is derived. An archive is one stretch of one line's
+  history (an operator archive keeps the line, so a later archive of the same line
+  follows), and the case files that go with it are those of that line whose thread
+  closed inside the archive's stretch, from its first message to its last. The
+  Archive page's delete confirmation names how many case files go with it. A
+  deleted case file that had superseded another leaves that record in place,
+  unsuperseded. Notes are not tied to an archive and are kept; there is no delete
+  for them until a use for notes is known (section 11).
 - **Recall is bounded and visible.** A recall result enters an agent's context.
   The tool returns at most five trimmed records (an Admin setting), each capped in
   length (a second setting), and the Admin page's envelope preview shows a recall
@@ -300,10 +314,13 @@ makes no model calls today. In the votes column, 0 means parked.
 3. **Vectors.** pgvector image and migration, the `Encoder` interface with the
    local HTTP implementation, the backfill sweep, `hybrid` mode. Runbook: a
    paraphrased question finds the case file that exact search misses.
-4. **Export and curation.** JSON Lines export, the operator's supersede control
-   (the `superseded_by` column exists and is honoured by every read), a note's scope
-   controls and deletion, retention rules (a case file goes with its archive). The
-   `manual` discovery filtering listed here at first shipped in slice 1.
+4. **Export and retention.** The JSON Lines export (section 6) with its button on
+   the Memory page, and the retention rule (section 8): a case file goes with its
+   archive, the delete confirmation counts them. Runbook: two case files on one
+   line, an archive, its export, its deletion taking the right case files with it.
+   The `manual` discovery filtering listed here at first shipped in slice 1.
+   Curation (the supersede control, a note's scope controls and deletion) is not
+   built: see section 11.
 
 Each slice ships with tests, a runbook entry and a script, per
 `developer-notes.md`.
@@ -320,10 +337,18 @@ recall; a dedicated Memory page; the tool names `courtyard_recall` and
 
 Still open:
 
-1. **The envelope hint** (section 5): whether, and at what similarity threshold,
-   a delivery carries the handles of matching records. Waits for slice 3.
-2. **The judge.** Its own design, once memory exists to rule from.
-3. **Encoder choice for slice 3.** Resolved: an OpenAI-compatible embeddings
+1. **What notes are for.** In the first weeks of live use no agent wrote a note,
+   and the operator addressed agents through the charter, not through notes. The
+   tool and the form stay so that notes are collected; nothing about them is
+   improved (no supersede control, no scope change, no deletion) until collected
+   notes show a use. The memory subsystem's job for now is to memorize and to hand
+   the raw memory to the WebUI and to external systems through the API; how memory
+   is used is learned from them. Reviewed again when there is production-grade
+   memory to look at.
+2. **The envelope hint** (section 5), and any other automatic use of memory by
+   the hub: listed in `../next-features-list.md`, waiting on the same evidence.
+3. **The judge.** Its own design, once memory exists to rule from.
+4. **Encoder choice for slice 3.** Resolved: an OpenAI-compatible embeddings
    endpoint on localhost (Ollama, `nomic-embed-text` documented), the fake encoder
    for tests; an in-process ONNX encoder stays an option if the extra service proves
    a burden.

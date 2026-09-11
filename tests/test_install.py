@@ -215,6 +215,60 @@ def test_uninstall_removes_a_settings_file_that_held_only_ours(tmp_path):
     assert not settings_path(tmp_path).exists()  # don't leave an empty {}
 
 
+class TestSessionStartHook:
+    """D40: the one hook. Written into the profile, ours by its command's name, kept
+    beside foreign hooks, replaced in place, removed on uninstall."""
+
+    def hooks(self, tmp_path):
+        return read(settings_path(tmp_path)).get("hooks", {})
+
+    def test_install_writes_the_hook_with_hub_and_name(self, tmp_path):
+        install.install(str(tmp_path), CMD, HUB, "coding", "tok")
+        (entry,) = self.hooks(tmp_path)["SessionStart"]
+        assert entry["matcher"] == "startup|resume|clear|compact|fork"
+        (hook,) = entry["hooks"]
+        assert hook["type"] == "command" and hook["timeout"] == 5
+        assert hook["command"].endswith(f"courtyard-claude-context --hub {HUB} --name coding")
+        assert hook["command"].startswith("/")  # absolute: Claude Code's cwd is the project
+
+    def test_foreign_hooks_are_kept_and_ours_is_replaced_in_place(self, tmp_path):
+        (tmp_path / ".claude").mkdir()
+        theirs = {"matcher": "startup", "hooks": [{"type": "command", "command": "my-hook.sh"}]}
+        stop = {"hooks": [{"type": "command", "command": "notify.sh"}]}
+        settings_path(tmp_path).write_text(
+            json.dumps({"hooks": {"SessionStart": [theirs], "Stop": [stop]}})
+        )
+        install.install(str(tmp_path), CMD, HUB, "old-name", "tok-1")
+        install.install(str(tmp_path), CMD, HUB, "new-name", "tok-2")
+        hooks = self.hooks(tmp_path)
+        assert hooks["Stop"] == [stop]
+        assert hooks["SessionStart"][0] == theirs
+        assert len(hooks["SessionStart"]) == 2  # ours once, not once per install
+        assert hooks["SessionStart"][1]["hooks"][0]["command"].endswith("--name new-name")
+
+    def test_uninstall_removes_only_our_hook(self, tmp_path):
+        (tmp_path / ".claude").mkdir()
+        theirs = {"matcher": "startup", "hooks": [{"type": "command", "command": "my-hook.sh"}]}
+        settings_path(tmp_path).write_text(json.dumps({"hooks": {"SessionStart": [theirs]}}))
+        install.install(str(tmp_path), CMD, HUB, "coding", "tok")
+        (settings_path(tmp_path).parent / "settings.local.json.courtyard-bak").unlink()
+        (tmp_path / ".mcp.json").write_text(json.dumps({"mcpServers": {"courtyard": {}}}))
+        result = install.uninstall(str(tmp_path))
+        assert result.settings_cleaned is True
+        doc = read(settings_path(tmp_path))
+        assert doc["hooks"] == {"SessionStart": [theirs]}
+        assert "statusLine" not in doc and "permissions" not in doc
+
+    def test_uninstall_drops_the_hooks_key_when_only_ours_was_there(self, tmp_path):
+        (tmp_path / ".claude").mkdir()
+        settings_path(tmp_path).write_text(json.dumps({"model": "opus"}))
+        install.install(str(tmp_path), CMD, HUB, "coding", "tok")
+        (settings_path(tmp_path).parent / "settings.local.json.courtyard-bak").unlink()
+        (tmp_path / ".mcp.json").write_text(json.dumps({"mcpServers": {"courtyard": {}}}))
+        install.uninstall(str(tmp_path))
+        assert read(settings_path(tmp_path)) == {"model": "opus"}
+
+
 def test_reinstall_under_a_new_name_updates_our_status_line(tmp_path):
     """Item 19 (bug, 2026-08-26): a workdir re-registered under a new name kept
     announcing the old one — the non-clobber rule protected OUR stale line. A line

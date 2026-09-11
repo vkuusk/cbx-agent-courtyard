@@ -233,7 +233,8 @@ Then, on the WebUI:
    **write the files into ‹dir›**. The hub drops three small files into that
    directory: `.mcp.json` (the connection, holds the agent's token, keep it out
    of git), a `.claude/settings.local.json` profile that pre-approves the
-   courtyard tools, and `start-with-courtyard.sh` for starting the agent by hand.
+   courtyard tools and tells each new session that it is a member of the team,
+   and `start-with-courtyard.sh` for starting the agent by hand.
 
 Or do it all in one command per agent (the `--team` flags are only needed once,
 on a hub that has no team yet):

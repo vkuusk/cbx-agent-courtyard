@@ -149,6 +149,7 @@ class Archive(BaseModel):
     first_at: datetime | None = None
     last_at: datetime | None = None
     message_count: int
+    case_files: int = 0  # the memory records a delete takes with it (hub-memory.md §8)
     transcript: list[Message] | None = None  # omitted in listings and events
 
 

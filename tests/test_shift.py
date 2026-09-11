@@ -470,11 +470,27 @@ class TestBuiltinSpawners:
         monkeypatch.setattr(spawn, "_osascript", refuse)
         assert make_spawner(app).close(self.ref(app, tty="")) is False
 
-    def test_a_ref_without_a_tty_reads_dead(self):
-        # honest degradation: liveness cannot verify a window whose tty is unknown
-        for app in BUILTIN_TERMINALS:
-            assert make_spawner(app).alive(self.ref(app, tty="")) is False
+    @pytest.mark.parametrize("app", BUILTIN_TERMINALS)
+    def test_a_ref_without_a_tty_is_judged_on_its_window(self, app, monkeypatch):
+        """Ghostty's shell can be slow to report its tty (a 5 s wait, `_read_tty`); the
+        ref then has a window but no tty. Reading that as dead made Resume open a second
+        window beside the running agent (found by review, 2026-09-10): the window's
+        existence is the answer, and the tty is never asked about."""
+        monkeypatch.setattr(spawn, "_tty_busy", lambda name: pytest.fail("no tty to ask"))
+        answers = {"is running": "true", "count of": "1"}
+        monkeypatch.setattr(
+            spawn, "_osascript", lambda script: next(v for k, v in answers.items() if k in script)
+        )
+        spawner = make_spawner(app)
+        assert spawner.alive(self.ref(app, tty="")) is True
+        answers["count of"] = "0"
+        assert spawner.alive(self.ref(app, tty="")) is False
+        answers["is running"] = "false"
+        assert spawner.alive(self.ref(app, tty="")) is False
+
+    def test_a_ref_that_is_not_a_window_reads_dead(self):
         assert make_spawner("Terminal").alive("not json") is False
+        assert make_spawner("Terminal").alive(json.dumps({"app": "Terminal"})) is False
 
     def test_iterm2_is_addressed_by_bundle_id(self):
         # `application "iTerm2"` does not resolve (the app file is iTerm.app)

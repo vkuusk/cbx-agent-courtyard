@@ -117,6 +117,29 @@ def test_duplicate_name_refused(client, make_agent):
     assert resp.json()["error"]["code"] == "name_taken"
 
 
+def test_two_registrations_of_a_removed_name_at_once_leave_one_winner(
+    client, make_agent, monkeypatch
+):
+    """Both read the row as removed; the second UPDATE ... WHERE removed_at IS NOT NULL
+    then hits nothing. That was a 500 (found by review, 2026-09-10); it is the same
+    `name_taken` the loser would have got a moment later."""
+    from courtyard.hub.storage import postgres
+
+    old, _ = make_agent("alice", type="dummy")
+    client.delete("/api/agents/alice")
+    registry = client.app.state.registry
+    with registry._storage.transaction() as uow:
+        removed = uow.agents.get_by_name("alice")
+    assert removed.removed_at is not None
+    # the loser's read is the stale snapshot; the winner lands before its UPDATE
+    monkeypatch.setattr(postgres.PgAgentRepo, "get_by_name", lambda self, name: removed)
+    winner, _ = registry.create("alice", type="dummy")
+    assert str(winner.id) == old["id"]
+    resp = client.post("/api/agents", json={"name": "alice", "type": "dummy"})
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["error"]["code"] == "name_taken"
+
+
 def test_a_removed_name_is_registered_again_on_its_own_row(client, make_agent):
     """His ask (2026-09-08): a member removed by mistake gets its name back. The row and
     so the id survive, which is what keeps the archives and old messages pointing at a
@@ -407,3 +430,19 @@ def test_default_line_mode_applies_to_new_lines_only(client, make_agent):
     }
     assert lines[frozenset(("alice", "bob"))] == "supervised"  # existing line untouched
     assert lines[frozenset(("alice", "carol"))] == "auto_pass"
+
+
+def test_session_context_names_the_agent_the_team_and_the_channel(client, make_agent):
+    """D40: what the SessionStart hook injects. Admin read: the hook runs before any
+    token is in play, and the text carries no secret."""
+    make_agent("tf-dev")
+    resp = client.get("/api/agents/tf-dev/session-context")
+    assert resp.status_code == 200, resp.text
+    text = resp.json()["text"]
+    team = client.get("/api/teams").json()
+    current = next(t for t in team if t["is_current"])["name"]
+    assert text.startswith("You are configured as part of a team of agents")
+    assert '"tf-dev"' in text and f'"{current}"' in text
+    assert '<channel source="courtyard">' in text and "courtyard_ack" in text
+    assert "http://testserver" in text  # the hub as the session reaches it
+    assert client.get("/api/agents/nobody/session-context").status_code == 404

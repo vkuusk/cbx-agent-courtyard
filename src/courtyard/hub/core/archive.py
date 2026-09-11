@@ -127,8 +127,17 @@ class Archiver:
             raise ArchiveNotFound("no such archive")
         return archive
 
-    def delete(self, archive_id: UUID) -> None:
+    def delete(self, archive_id: UUID) -> int:
+        """Delete an archive and, with it, the case files distilled from its threads
+        (hub-memory.md section 8: the archive is the single source, memory is derived).
+        Returns how many case files went; notes are never touched."""
         with self._storage.transaction() as uow:
-            if uow.archives.get(archive_id) is None:
+            archive = uow.archives.get(archive_id)
+            if archive is None:
                 raise ArchiveNotFound("no such archive")
+            gone = uow.memory.delete_cases(uow.archives.threads_of(archive_id))
             uow.archives.delete(archive_id)
+        if gone:
+            logger.info("archive %s deleted with %d case file(s)", archive_id, gone)
+            self._events.publish("memory", archive)  # the Memory page refetches
+        return gone

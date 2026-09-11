@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import sys
 from dataclasses import dataclass
@@ -55,6 +56,12 @@ PI_SKILL_FILENAME = "SKILL.md"
 
 ALLOW_RULE = f"mcp__{SERVER_KEY}"  # pre-approves every courtyard tool (docs-verified form)
 STATUS_MARK = "· courtyard'"  # a status-line command ending like this is ours (uninstall)
+# D40: the one hook. SessionStart, on every way a session (re)starts its context, runs
+# the adapter's context command; a hook whose command names it is ours (uninstall).
+HOOK_EVENT = "SessionStart"
+HOOK_MATCHER = "startup|resume|clear|compact|fork"
+HOOK_MARK = "courtyard-claude-context"
+HOOK_TIMEOUT = 5  # seconds; the command itself gives the hub 2 s and then falls back
 
 # Item 28: registration's footprint in the workdir, told in full, and kept out of git.
 # The names that hold (or, as backups, held) the agent's token, plus this machine's
@@ -152,6 +159,33 @@ def adapter_command() -> str:
     return found or f"{sys.executable} -m courtyard.adapters.claude_code.mcp_server"
 
 
+def context_command() -> str:
+    """Absolute path to the SessionStart hook command (D40), beside the adapter."""
+    beside_hub = Path(sys.executable).parent / HOOK_MARK
+    if beside_hub.exists():
+        return str(beside_hub)
+    found = shutil.which(HOOK_MARK)
+    return found or f"{sys.executable} -m courtyard.adapters.claude_code.session_context"
+
+
+def hook_entry(hub_url: str, agent_name: str) -> dict:
+    """The `hooks.SessionStart` entry: one command, ours by its name (`HOOK_MARK`)."""
+    command = f"{context_command()} --hub {shlex.quote(hub_url)} --name {shlex.quote(agent_name)}"
+    return {
+        "matcher": HOOK_MATCHER,
+        "hooks": [{"type": "command", "command": command, "timeout": HOOK_TIMEOUT}],
+    }
+
+
+def _is_our_hook(entry: object) -> bool:
+    if not isinstance(entry, dict):
+        return False
+    return any(
+        isinstance(h, dict) and HOOK_MARK in str(h.get("command", ""))
+        for h in (entry.get("hooks") or [])
+    )
+
+
 def server_block(command: str, hub_url: str, agent_name: str, token: str) -> dict:
     """The `mcpServers.courtyard` entry — identical to the WebUI's copy-paste panel."""
     return {
@@ -193,16 +227,24 @@ def status_line(agent_name: str) -> dict:
     return {"type": "command", "command": f"echo '⏺ {agent_name} · courtyard'", "padding": 0}
 
 
-def merge_settings(existing: dict | None, agent_name: str, model: str | None) -> dict:
+def merge_settings(
+    existing: dict | None, agent_name: str, model: str | None, hub_url: str | None = None
+) -> dict:
     """The agent-side profile merged over `.claude/settings.local.json` (WP-A, D21).
 
     The allow rule is appended if missing; the model is the operator's declared intent and
     wins when set (untouched when the agent has none); the status line is set when the
     file has none — or when the existing one is recognisably OURS (`STATUS_MARK`), so a
     workdir re-registered under a new name stops announcing the old one (feedback item
-    19). A status line somebody wrote themselves is never clobbered.
+    19). A status line somebody wrote themselves is never clobbered. The SessionStart
+    hook (D40) is ours by its command name: replaced in place, other hooks untouched.
     """
     doc = dict(existing) if existing else {}
+    if hub_url is not None:
+        hooks = dict(doc.get("hooks") or {})
+        entries = [e for e in (hooks.get(HOOK_EVENT) or []) if not _is_our_hook(e)]
+        hooks[HOOK_EVENT] = [*entries, hook_entry(hub_url, agent_name)]
+        doc["hooks"] = hooks
     permissions = dict(doc.get("permissions") or {})
     allow = list(permissions.get("allow") or [])
     if ALLOW_RULE not in allow:
@@ -289,7 +331,7 @@ def install(
         s_backup.write_text(s_raw)
         settings_backed_up = str(s_backup)
     settings_dir.mkdir(exist_ok=True)
-    settings_doc = merge_settings(s_existing, agent_name, model)
+    settings_doc = merge_settings(s_existing, agent_name, model, hub_url)
     settings_target.write_text(json.dumps(settings_doc, indent=2) + "\n")
 
     # Item 35: the launch wrapper. Ours is regenerated in place; a file of this name
@@ -552,6 +594,19 @@ def _uninstall_settings(directory: Path) -> tuple[bool, bool]:
     if isinstance(sl, dict) and str(sl.get("command", "")).endswith(STATUS_MARK):
         existing.pop("statusLine")
         cleaned = True
+    hooks = existing.get("hooks") or {}
+    entries = hooks.get(HOOK_EVENT) or []
+    kept = [e for e in entries if not _is_our_hook(e)]
+    if len(kept) != len(entries):
+        cleaned = True
+        if kept:
+            hooks[HOOK_EVENT] = kept
+        else:
+            hooks.pop(HOOK_EVENT, None)
+        if hooks:
+            existing["hooks"] = hooks
+        else:
+            existing.pop("hooks", None)
     if cleaned:
         if existing:
             target.write_text(json.dumps(existing, indent=2) + "\n")

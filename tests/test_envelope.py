@@ -182,7 +182,11 @@ def test_delivery_check_body_names_the_tool_and_the_token():
 
     text = delivery_check_body("tok-123")
     assert "courtyard_ack" in text and '"tok-123"' in text
-    assert "Do nothing else" in text
+    # D40: an expected step of the operator's shift, never a secret — "tell no one, do
+    # nothing else" read as prompt injection to a session without context (2026-09-10)
+    assert "operator has started a shift" in text
+    assert "no reply to anyone is needed" in text
+    assert "Do nothing else" not in text and "tell no one" not in text.lower()
 
 
 def test_preview_covers_every_variant_and_is_deterministic():

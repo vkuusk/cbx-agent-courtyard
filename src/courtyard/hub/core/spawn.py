@@ -108,7 +108,8 @@ def _tty_busy(name: str) -> bool:
 
 def _ref_alive(ref: str) -> bool:
     """Shared by every built-in spawner: the session lives iff its tty has processes.
-    A ref without a tty cannot be verified and reads as dead (resume will respawn)."""
+    A ref without a tty cannot be verified here and reads as dead; the built-in
+    spawners' `alive` then falls back to the window's existence."""
     try:
         info = json.loads(ref)
     except (TypeError, ValueError):
@@ -195,12 +196,24 @@ class OsascriptTerminal:
         """The session lives iff its tty has processes AND its window still exists. The
         tty alone is not enough: macOS hands a freed tty name to the next window that
         opens, so a busy `ttys003` may be the operator's own new shell, not the agent
-        whose window died an hour ago (found by review, 2026-09-10)."""
-        if not _ref_alive(ref):
+        whose window died an hour ago (found by review, 2026-09-10).
+
+        A ref without a tty (Ghostty's shell was slow to report it, see `_read_tty`) is
+        judged on the window alone: while the window is there the session counts as
+        living. Reading it as dead made Resume open a second window beside a running
+        agent (found by review, 2026-09-10); the price of the fallback is that an agent
+        that died inside a window left open is not respawned until the operator closes
+        that window."""
+        try:
+            info = json.loads(ref)
+            window_id = info["window_id"]
+        except (TypeError, ValueError, KeyError):
+            return False
+        if info.get("tty") and not _ref_alive(ref):
             return False
         try:
-            return self._window_present(json.loads(ref)["window_id"])
-        except (SpawnFailed, subprocess.TimeoutExpired, KeyError):
+            return self._window_present(window_id)
+        except (SpawnFailed, subprocess.TimeoutExpired):
             return False
 
     def _window_present(self, window_id: str) -> bool:

@@ -19,7 +19,7 @@ The hub renders the model-facing text (D14), so both adapters forward it as-is.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -309,6 +309,10 @@ class Memory:
         self._deliverer = deliverer
         self._discovery = discovery or (lambda: "auto")
         self._encoder = encoder or NoEncoder()
+        # the encoder's vector width, learned from the first vector it returns: an
+        # endpoint that changed models but kept the name (or the same model name at
+        # another width) must not leave rows the search cannot compare against
+        self._dims: int | None = None
 
     # -- similarity (hub-memory.md section 7) --------------------------------------------
 
@@ -327,7 +331,9 @@ class Memory:
         try:
             # a recall runs inside an agent's turn: a slow or wedged encoder gets seconds,
             # not the sweep's minute, and the search falls back to full text
-            return self._encoder.embed([question.strip()], timeout=QUESTION_EMBED_SECONDS)[0]
+            return self._learn_dims(
+                self._encoder.embed([question.strip()], timeout=QUESTION_EMBED_SECONDS)
+            )[0]
         except EncoderError as exc:
             logger.warning("similarity search unavailable, falling back to full text: %s", exc)
             return None
@@ -338,12 +344,20 @@ class Memory:
         tolerant of the encoder being down: nothing changes, the next pass retries."""
         if not self.similarity:
             return 0
+        if self._dims is None:
+            # one probe per hub start: without the width, rows embedded at another
+            # width under this model name would pass as current and never be redone
+            try:
+                self._learn_dims(self._encoder.embed(["courtyard"]))
+            except EncoderError as exc:
+                logger.warning("embedding probe failed: %s", exc)
+                return 0
         with self._storage.transaction() as uow:
-            records = uow.memory.list_unembedded(self._encoder.model, batch)
+            records = uow.memory.list_unembedded(self._encoder.model, batch, self._dims)
         if not records:
             return 0
         try:
-            vectors = self._encoder.embed([embedding_text(r) for r in records])
+            vectors = self._learn_dims(self._encoder.embed([embedding_text(r) for r in records]))
         except EncoderError as exc:
             logger.warning("embedding %d memory record(s) failed: %s", len(records), exc)
             return 0
@@ -352,9 +366,14 @@ class Memory:
                 uow.memory.set_embedding(record.id, self._encoder.model, vector)
         return len(records)
 
+    def _learn_dims(self, vectors: list[list[float]]) -> list[list[float]]:
+        if vectors and vectors[0]:
+            self._dims = len(vectors[0])
+        return vectors
+
     def encoder_status(self) -> dict:
         with self._storage.transaction() as uow:
-            stats = uow.memory.embedding_stats(self._encoder.model)
+            stats = uow.memory.embedding_stats(self._encoder.model, self._dims)
         return {
             "encoder": self._encoder.name,
             "model": self._encoder.model,
@@ -406,6 +425,22 @@ class Memory:
                 model=self._encoder.model if vector is not None else None,
             )
         return [trim(r, settings.recall_trim_chars) for r in records]
+
+    def export(
+        self,
+        *,
+        participant: str | None = None,
+        line_id: UUID | None = None,
+        since: datetime | None = None,
+    ) -> Iterator[str]:
+        """JSON Lines (hub-memory.md section 6): every record in full, one per line,
+        oldest first; superseded records and notes in every gate state included, with
+        their status. Nothing trimmed, nothing rendered: the raw memory."""
+        with self._storage.transaction() as uow:
+            who = self._registry.resolve(uow, participant).id if participant else None
+            records = uow.memory.export(participant=who, line_id=line_id, since=since)
+        for record in records:
+            yield record.model_dump_json(exclude={"trimmed", "rendered"}) + "\n"
 
     def get(self, record_id: UUID, as_agent: Agent | None = None) -> MemoryRecord:
         with self._storage.transaction() as uow:

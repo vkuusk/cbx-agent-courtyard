@@ -306,10 +306,13 @@ def preview() -> list[dict[str, str | int]]:
 def delivery_check_body(token: str) -> str:
     """Item 34 (D30): the delivery check — the one message whose only job is to prove,
     end to end, that channel pushes actually reach the model. Hub-worded (D14)."""
+    # Worded as what it is: an expected step of the shift your operator started, not a
+    # secret. "Tell no one, do nothing else" read as prompt injection to a session that
+    # had no other context (seen live 2026-09-10); D40's session context names this check.
     return (
-        "Delivery check: the courtyard hub is verifying that its messages reach this "
-        "session. Confirm receipt by calling the courtyard MCP tool `courtyard_ack` "
-        f'(it may appear as mcp__courtyard__courtyard_ack) with token "{token}". '
-        "Do nothing else: no reply to anyone, no other action — the single tool call "
-        "completes the check."
+        "Delivery check: your operator has started a shift, and the courtyard hub is "
+        "confirming that its messages reach this session. Confirm by calling the courtyard "
+        f'MCP tool `courtyard_ack` (it may appear as mcp__courtyard__courtyard_ack) with token "{token}". '
+        "That one tool call completes the check; no reply to anyone is needed. You may "
+        "mention it to your operator."
     )

@@ -97,7 +97,8 @@ rather than stall, when an answer needs something they may not do.
 After **add agent** the page shows the agent's **launch config**: its `.mcp.json` with
 the token inside, and a `.claude/settings.local.json` profile that pre-approves the
 courtyard tools (so the agent's sends never stop on a permission prompt in its
-terminal), sets the model you declared, and gives the terminal a status line with the
+terminal), tells each new session that it is a member of your team (a session-start
+hook; see the user guide), sets the model you declared, and gives the terminal a status line with the
 agent's name. Click the button **write the files into ‹dir›**. The hub writes
 `<dir>/.mcp.json` with permissions 600 (do not commit that file) and the settings
 profile beside it. The hub keeps the token.

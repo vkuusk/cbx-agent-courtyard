@@ -9,11 +9,12 @@ the hub (D14) so the `courtyard_recall` tool in either adapter only forwards it.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from courtyard.common.models import Agent, GateVerdict, MemoryRecord, MemoryScope, RecallView
@@ -40,6 +41,25 @@ def search_memory(
     recall tool never exposes it."""
     return memory.search(
         question=q, participant=participant, line_id=line, since=since, limit=limit, mode=mode
+    )
+
+
+@router.get("/memory/export")
+def export_memory(
+    memory: Annotated[Memory, Depends(get_memory)],
+    participant: str | None = None,
+    line: UUID | None = None,
+    since: datetime | None = None,
+) -> StreamingResponse:
+    """The raw memory for other parties (hub-memory.md section 6): JSON Lines, one full
+    record per line, oldest first. Everything is in, superseded records and notes in
+    every gate state with their status; `since` is the handle for an incremental pull."""
+    lines = memory.export(participant=participant, line_id=line, since=since)
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    return StreamingResponse(
+        lines,
+        media_type="application/x-ndjson",
+        headers={"Content-Disposition": f'attachment; filename="courtyard-memory-{stamp}.jsonl"'},
     )
 
 

@@ -5,7 +5,8 @@ Proves the install path without a Claude Code session:
   1. a project that already has another MCP server keeps it, and the original is backed up
   2. the courtyard block is written with the token inline, and the file is chmod 600
   3. settings.local.json gets the allow rule (no per-send permission prompt), the agent's
-     declared model, and a status line naming the agent
+     declared model, a status line naming the agent, and the SessionStart hook (D40),
+     which is run for real: what it injects, and that it still answers with the hub down
   4. uninstall restores the project's original .mcp.json exactly and removes only what
      install added to the settings
 
@@ -20,6 +21,7 @@ import json
 import os
 import shutil
 import stat
+import subprocess
 import tempfile
 import time
 from pathlib import Path
@@ -79,6 +81,28 @@ print(f"model      : {sdoc['model']}   <- as declared at registration (item 1)")
 print(f"status line: {sdoc['statusLine']['command']}   <- names the agent's terminal (item 2)")
 assert sdoc["permissions"]["allow"] == ["mcp__courtyard"]
 assert sdoc["model"] == "sonnet"
+(hook_entry,) = sdoc["hooks"]["SessionStart"]
+hook_cmd = hook_entry["hooks"][0]["command"]
+print(f"hook       : SessionStart {hook_entry['matcher']} -> {hook_cmd}   <- D40")
+print("\nwhat the hook injects (run for real):")
+ran = subprocess.run(hook_cmd, shell=True, capture_output=True, text=True, timeout=30, check=False)
+injected = json.loads(ran.stdout)["hookSpecificOutput"]
+print(f"  hookEventName    : {injected['hookEventName']}")
+print(
+    "  additionalContext: " + injected["additionalContext"].replace("\n", "\n                     ")
+)
+dead = subprocess.run(
+    hook_cmd.replace(HUB, "http://127.0.0.1:9"),
+    shell=True,
+    capture_output=True,
+    text=True,
+    timeout=30,
+    check=False,
+)
+print(
+    f"fallback (hub down) : {dead.returncode == 0 and 'You are configured' in dead.stdout}"
+    "   <- the same text without the team's name; a session start never waits on the hub"
+)
 
 hr("3. UNINSTALL  (restore the original .mcp.json; remove only ours from the settings)")
 undo = admin.uninstall(name, str(workdir))

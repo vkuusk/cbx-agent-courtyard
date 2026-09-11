@@ -25,6 +25,7 @@ import threading
 try:
     import rumps
     from AppKit import NSApplication, NSImage
+    from PyObjCTools import AppHelper
 except ImportError:  # pragma: no cover - the tray extra is optional
     rumps = None
 
@@ -105,13 +106,16 @@ def main() -> None:
 
             def work() -> None:
                 result = control.run(action)
+                # AppKit is main-thread only: the menu titles and the notification are
+                # posted back to it, never touched from this worker thread
                 if result.returncode != 0:
-                    rumps.notification(
+                    AppHelper.callAfter(
+                        rumps.notification,
                         "Courtyard",
                         f"{action} failed",
                         (result.stderr or result.stdout).strip()[-200:],
                     )
-                refresh()
+                AppHelper.callAfter(refresh)
 
             threading.Thread(target=work, daemon=True).start()
 

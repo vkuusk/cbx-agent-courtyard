@@ -1,6 +1,6 @@
 [project]
 name = "courtyard"
-version = "0.1.4"
+version = "0.1.5"
 description = "Agent Courtyard - a local communication hub for your team of AI agents"
 license = "MIT"
 requires-python = ">=3.12"

@@ -8,6 +8,8 @@ filtered by what the asking agent may see, rendered by the hub.
 
 from __future__ import annotations
 
+import json
+
 from conftest import auth
 from courtyard.hub.core import memory as memory_core
 
@@ -497,6 +499,127 @@ class TestNotes:
         assert "note by tf-agent" in block["text"] and block["overhead_tokens"] > 0
 
 
+class TestExportAndRetention:
+    """Slice 4 (hub-memory.md sections 6 and 8): the raw memory for other parties, and a
+    case file that goes with the archive it was distilled from."""
+
+    def seed(self, client):
+        infra = register(client, "infra", sme_domain="the AWS estate")
+        tf = register(client, "tf", sme_domain="terraform modules")
+        db = register(client, "db", sme_domain="postgres databases")
+        t1 = settle(
+            client,
+            asker=("infra", infra[1]),
+            answerer=("tf", tf[1]),
+            ask="which module pins provider 5?",
+            answer="the vpc module 3.2 pins aws provider 5",
+        )
+        t2 = settle(
+            client,
+            asker=("infra", infra[1]),
+            answerer=("tf", tf[1]),
+            ask="and ipv6?",
+            answer="enable_ipv6 = true since v3",
+        )
+        t3 = settle(
+            client,
+            asker=("infra", infra[1]),
+            answerer=("db", db[1]),
+            ask="which postgres do we run?",
+            answer="postgres 17 everywhere since the migration",
+        )
+        return (infra, tf, db), (t1, t2, t3)
+
+    def test_the_export_is_every_record_in_full_as_json_lines(self, client, config):
+        import psycopg
+
+        (_infra, tf, _db), _ = self.seed(client)
+        note = client.post(
+            "/api/agents/tf/notes",
+            json={"body": "always run tflint first", "peer": "infra"},
+            headers=auth(tf[1]),
+        ).json()
+        client.post(f"/api/memory/{note['id']}/decide", json={"verdict": "drop"})
+        cases = client.get("/api/memory").json()
+        with psycopg.connect(config.database_url, autocommit=True) as conn:
+            conn.execute(
+                "UPDATE memory SET superseded_by = %s WHERE id = %s",
+                (cases[0]["id"], cases[1]["id"]),
+            )
+        resp = client.get("/api/memory/export")
+        assert resp.status_code == 200, resp.text
+        assert resp.headers["content-type"].startswith("application/x-ndjson")
+        assert 'filename="courtyard-memory-' in resp.headers["content-disposition"]
+        records = [json.loads(line) for line in resp.text.splitlines()]
+        assert len(records) == 4  # three case files + the dropped note: nothing is hidden
+        assert [r["created_at"] for r in records] == sorted(r["created_at"] for r in records)
+        by_id = {r["id"]: r for r in records}
+        assert by_id[cases[1]["id"]]["superseded_by"] == cases[0]["id"]
+        assert by_id[note["id"]]["status"] == "dropped"
+        for r in records:
+            if r["kind"] == "case":
+                assert r["document"]["messages"], "full documents, not the trimmed view"
+                assert "rendered" not in r and "trimmed" not in r
+        # the search's filters, for an incremental pull
+        for_db = client.get("/api/memory/export", params={"participant": "db"}).text.splitlines()
+        assert len(for_db) == 1 and "postgres 17" in for_db[0]
+        since = records[2]["created_at"]
+        later = client.get("/api/memory/export", params={"since": since}).text.splitlines()
+        assert len(later) == 2  # the third case file and the note
+        assert client.get("/api/memory/export", params={"line": cases[0]["line_id"]}).text
+
+    def test_the_client_parses_the_export(self, live_hub):
+        from courtyard.common.client import HubClient
+
+        admin = HubClient(live_hub())
+        assert admin.memory_export() == []
+        admin.memory_note("standing guidance: tag every resource")
+        (record,) = admin.memory_export()
+        assert record.kind == "note" and record.body.startswith("standing guidance")
+        assert admin.memory_export(since="2999-01-01T00:00:00Z") == []
+
+    def test_deleting_an_archive_takes_its_case_files_and_no_others(self, client, config):
+        import psycopg
+
+        (_infra, tf, _db), (t1, t2, t3) = self.seed(client)
+        cases = {r["thread_id"]: r for r in client.get("/api/memory").json()}
+        assert set(cases) == {t1["id"], t2["id"], t3["id"]}
+        with psycopg.connect(config.database_url, autocommit=True) as conn:
+            # a surviving record that the deleted one had superseded comes back unsuperseded
+            conn.execute(
+                "UPDATE memory SET superseded_by = %s WHERE thread_id = %s",
+                (cases[t1["id"]]["id"], t3["id"]),
+            )
+        note = client.post(
+            "/api/agents/tf/notes",
+            json={"body": "always run tflint first", "peer": "infra"},
+            headers=auth(tf[1]),
+        ).json()
+        client.post(f"/api/memory/{note['id']}/decide", json={"verdict": "approve"})
+
+        infra_tf = cases[t1["id"]]["line_id"]
+        archive = client.post(f"/api/lines/{infra_tf}/archive").json()
+        assert archive["case_files"] == 2  # both threads of that line
+        listing = client.get("/api/archive").json()
+        assert listing[0]["id"] == archive["id"] and listing[0]["case_files"] == 2
+        assert client.get(f"/api/archive/{archive['id']}").json()["case_files"] == 2
+
+        assert client.delete(f"/api/archive/{archive['id']}").status_code == 204
+        left = client.get("/api/memory/export").text.splitlines()
+        left_ids = {json.loads(line)["id"] for line in left}
+        assert left_ids == {cases[t3["id"]]["id"], note["id"]}  # the other line's case, the note
+        survivor = client.get(f"/api/memory/{cases[t3['id']]['id']}").json()
+        assert survivor["superseded_by"] is None
+
+    def test_an_archive_from_a_removal_takes_its_case_files_too(self, client):
+        (_infra, _tf, _db), (_t1, _t2, t3) = self.seed(client)
+        client.delete("/api/agents/tf")  # archives infra-tf, with two case files on it
+        archives = client.get("/api/archive").json()
+        assert [a["case_files"] for a in archives] == [2]
+        client.delete(f"/api/archive/{archives[0]['id']}")
+        assert [r["thread_id"] for r in client.get("/api/memory").json()] == [t3["id"]]
+
+
 class TestVectors:
     """Slice 3: vectors behind the same door. The test app runs the fake encoder (a
     deterministic bag of words with a small synonym table), which proves every code path
@@ -590,6 +713,34 @@ class TestVectors:
             listing = client.get("/api/memory", params={"mode": mode}).json()
             assert [r["resolution"][:8] for r in listing] == ["postgres", "the vpc "]
         assert client.get("/api/memory", params={"mode": "cosine"}).status_code == 422
+
+    def test_a_vector_of_another_width_under_the_same_model_name_is_redone(self, client, config):
+        """An endpoint that swapped its model but kept the name (or a rebuilt fake
+        encoder) leaves rows the search cannot compare: pgvector refuses `<=>` across
+        widths, and hybrid recall answered 500 (found by review, 2026-09-10). Such rows
+        are invisible to the search and pending for the sweep."""
+        import psycopg
+
+        self.seed(client)
+        client.post("/api/memory/embed")
+        with psycopg.connect(config.database_url, autocommit=True) as conn:
+            conn.execute(
+                "UPDATE memory SET embedding = '[1,0,0]'::vector WHERE ask LIKE '%%postgres%%'"
+            )
+        near = client.get("/api/memory", params={"q": "pg"})  # was a 500
+        assert near.status_code == 200, near.text
+        # the 3-wide row is not comparable, so it is not among the nearest
+        assert not any(r["resolution"].startswith("postgres") for r in near.json())
+        recall = client.get("/api/memory", params={"q": "provider"})
+        assert recall.status_code == 200 and recall.json()[0]["resolution"].startswith("the vpc")
+        status = client.get("/api/memory/encoder").json()
+        assert status["embedded"] == 1 and status["pending"] == 1
+        assert client.post("/api/memory/embed").json() == {"embedded": 1}
+        assert (
+            client.get("/api/memory", params={"q": "pg"})
+            .json()[0]["resolution"]
+            .startswith("postgres 17")
+        )
 
     def test_a_model_change_means_a_re_embed_not_a_new_column(self, client, config):
         import psycopg

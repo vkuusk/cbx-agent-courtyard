@@ -240,3 +240,13 @@ class CharterNameRequired(DomainError):
 
     code = "charter_name_required"
     http_status = 422
+
+
+class ForeignDatabase(DomainError):
+    """The postgres answering on the hub's port is no longer the database this hub
+    started with (D38): another compose project took the port, or the volume was
+    swapped underneath. The hub refuses every request until it is restarted; a restart
+    adopts whatever database is there, as startup always did."""
+
+    code = "foreign_database"
+    http_status = 503

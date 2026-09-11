@@ -6,9 +6,11 @@ One Storage.transaction() = one pooled connection = one database transaction
 
 from __future__ import annotations
 
+import logging
 from contextlib import contextmanager
+from datetime import datetime
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from psycopg import Connection
 from psycopg.rows import dict_row
@@ -25,6 +27,9 @@ from courtyard.common.models import (
     Team,
     Thread,
 )
+from courtyard.hub.core.errors import ForeignDatabase
+
+logger = logging.getLogger("courtyard.hub")
 
 _MESSAGE_SELECT = """
 SELECT m.*, sa.name AS sender_name, ra.name AS recipient_name,
@@ -166,7 +171,7 @@ class PgAgentRepo:
         color,
         model,
         anti_scope=None,
-    ) -> Agent:
+    ) -> Agent | None:
         row = self._conn.execute(
             "UPDATE agents SET removed_at = NULL, status = 'invited', last_seen_at = NULL,"
             "  created_at = now(), type = %s, description = %s, sme_domain = %s,"
@@ -187,6 +192,10 @@ class PgAgentRepo:
                 agent_id,
             ),
         ).fetchone()
+        if row is None:
+            # a concurrent registration of the same name got there first (found by
+            # review, 2026-09-10): the caller reports the name as taken, not a 500
+            return None
         # the channel-derived columns (channel_flag, delivery_check) come from a join the
         # RETURNING row lacks; the channel row went at removal, so they are null anyway
         return Agent.model_validate(dict(row))
@@ -451,10 +460,19 @@ class PgThreadRepo:
         return cur.rowcount
 
 
-_ARCHIVE_SUMMARY = (
-    "SELECT id, line_id, agent_a, agent_b, agent_a_name, agent_b_name, mode, reason,"
-    " archived_at, first_at, last_at, message_count FROM lines_archive"
+# the threads an archive holds: the transcript's messages carry their thread id (D34)
+_ARCHIVE_THREADS = (
+    "SELECT DISTINCT (t ->> 'thread_id')::uuid FROM jsonb_array_elements(lines_archive.transcript) t"
+    " WHERE t ->> 'thread_id' IS NOT NULL"
 )
+# `case_files` counts what a delete takes with it (hub-memory.md section 8)
+_ARCHIVE_COLUMNS = (
+    "id, line_id, agent_a, agent_b, agent_a_name, agent_b_name, mode, reason,"
+    " archived_at, first_at, last_at, message_count,"
+    " (SELECT count(*) FROM memory WHERE memory.kind = 'case'"
+    f"   AND memory.thread_id IN ({_ARCHIVE_THREADS})) AS case_files"
+)
+_ARCHIVE_SUMMARY = f"SELECT {_ARCHIVE_COLUMNS} FROM lines_archive"
 
 
 class PgArchiveRepo:
@@ -476,12 +494,10 @@ class PgArchiveRepo:
         last_at,
         transcript,
     ) -> Archive:
-        row = self._conn.execute(
+        self._conn.execute(
             "INSERT INTO lines_archive (id, line_id, agent_a, agent_b, agent_a_name, agent_b_name,"
             " mode, reason, first_at, last_at, message_count, transcript)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
-            " RETURNING id, line_id, agent_a, agent_b, agent_a_name, agent_b_name, mode, reason,"
-            " archived_at, first_at, last_at, message_count",
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (
                 archive_id,
                 line_id,
@@ -496,7 +512,9 @@ class PgArchiveRepo:
                 len(transcript),
                 Json(transcript),
             ),
-        ).fetchone()
+        )
+        # read back through the summary: `case_files` is computed, not a column
+        row = self._conn.execute(_ARCHIVE_SUMMARY + " WHERE id = %s", (archive_id,)).fetchone()
         return Archive.model_validate(row)
 
     def list(self) -> list[Archive]:
@@ -505,9 +523,19 @@ class PgArchiveRepo:
 
     def get(self, archive_id: UUID) -> Archive | None:
         row = self._conn.execute(
-            "SELECT * FROM lines_archive WHERE id = %s", (archive_id,)
+            f"SELECT {_ARCHIVE_COLUMNS}, transcript FROM lines_archive WHERE id = %s",
+            (archive_id,),
         ).fetchone()
         return Archive.model_validate(row) if row else None
+
+    def threads_of(self, archive_id: UUID) -> list[UUID]:
+        """The threads whose messages this archive holds; what its case files hang on."""
+        rows = self._conn.execute(
+            f"SELECT thread_id FROM lines_archive, LATERAL ({_ARCHIVE_THREADS}) AS t (thread_id)"
+            " WHERE lines_archive.id = %s",
+            (archive_id,),
+        ).fetchall()
+        return [r["thread_id"] for r in rows]
 
     def delete(self, archive_id: UUID) -> None:
         self._conn.execute("DELETE FROM lines_archive WHERE id = %s", (archive_id,))
@@ -528,6 +556,15 @@ def _memory_row(row: dict) -> MemoryRecord:
     for column in ("search", "rank", "distance", "embedding"):
         data.pop(column, None)
     return MemoryRecord.model_validate(data)
+
+
+# a row's vector counts as current when the model matches and, once the hub knows the
+# encoder's width, the dimension too: a vector of another width under the same model name
+# is re-embedded by the sweep and skipped by the search (found by review, 2026-09-10)
+_CURRENT_VECTOR = (
+    "(embedding IS NOT NULL AND embedding_model = %(model)s"
+    " AND (%(dims)s::int IS NULL OR vector_dims(embedding) = %(dims)s::int))"
+)
 
 
 def _vector_literal(vector: list[float]) -> str:
@@ -639,6 +676,43 @@ class PgMemoryRepo:
         row = self._conn.execute("SELECT * FROM memory WHERE id = %s", (record_id,)).fetchone()
         return _memory_row(row) if row else None
 
+    def export(
+        self,
+        *,
+        participant: UUID | None = None,
+        line_id: UUID | None = None,
+        since: datetime | None = None,
+    ) -> list[MemoryRecord]:
+        """Every record in full, oldest first: superseded ones and notes in every gate
+        state included, with their status (hub-memory.md section 6). The filters are the
+        search's, so an external system pulls incrementally by date."""
+        where, params = ["true"], {}
+        if participant is not None:
+            where.append("%(who)s = ANY(participant_ids)")
+            params["who"] = participant
+        if line_id is not None:
+            where.append("line_id = %(line)s")
+            params["line"] = line_id
+        if since is not None:
+            where.append("created_at >= %(since)s")
+            params["since"] = since
+        rows = self._conn.execute(
+            "SELECT * FROM memory WHERE " + " AND ".join(where) + " ORDER BY created_at, id",
+            params,
+        ).fetchall()
+        return [_memory_row(r) for r in rows]
+
+    def delete_cases(self, thread_ids: list[UUID]) -> int:
+        """Retention (hub-memory.md section 8): the case files of these threads go with
+        the archive they were distilled from. Notes are never touched."""
+        if not thread_ids:
+            return 0
+        rows = self._conn.execute(
+            "DELETE FROM memory WHERE kind = 'case' AND thread_id = ANY(%s) RETURNING id",
+            (thread_ids,),
+        ).fetchall()
+        return len(rows)
+
     @staticmethod
     def _visible(where: list[str], viewer, all_cases) -> None:
         # what the reader may see (hub-memory.md section 8): cases for everyone under
@@ -723,8 +797,22 @@ class PgMemoryRepo:
         return [_memory_row(r) for r in rows]
 
     def _search_vector(self, where, named, query_vector, model, limit) -> list[MemoryRecord]:
-        where = [*where, "embedding IS NOT NULL", "embedding_model = %(model)s"]
-        params = {**named, "model": model, "qvec": _vector_literal(query_vector), "limit": limit}
+        # the dimension filter keeps `<=>` from failing on a row embedded by an earlier
+        # encoder that kept the model name but not its width (found by review, 2026-09-10):
+        # such rows are simply not there for this search until the sweep re-embeds them
+        where = [
+            *where,
+            "embedding IS NOT NULL",
+            "embedding_model = %(model)s",
+            "vector_dims(embedding) = %(dims)s",
+        ]
+        params = {
+            **named,
+            "model": model,
+            "dims": len(query_vector),
+            "qvec": _vector_literal(query_vector),
+            "limit": limit,
+        }
         rows = self._conn.execute(
             _MEMORY_LISTING
             + ", (embedding <=> %(qvec)s::vector) AS distance FROM memory WHERE "
@@ -750,22 +838,22 @@ class PgMemoryRepo:
             (_vector_literal(vector), model, record_id),
         )
 
-    def list_unembedded(self, model: str, limit: int) -> list[MemoryRecord]:
+    def list_unembedded(
+        self, model: str, limit: int, dims: int | None = None
+    ) -> list[MemoryRecord]:
         rows = self._conn.execute(
             _MEMORY_LISTING + " FROM memory"
             " WHERE (kind = 'case' OR status = 'accepted') AND superseded_by IS NULL"
-            "   AND (embedding IS NULL OR embedding_model IS DISTINCT FROM %s)"
-            " ORDER BY created_at LIMIT %s",
-            (model, limit),
+            "   AND NOT " + _CURRENT_VECTOR + " ORDER BY created_at LIMIT %(limit)s",
+            {"model": model, "dims": dims, "limit": limit},
         ).fetchall()
         return [_memory_row(r) for r in rows]
 
-    def embedding_stats(self, model: str) -> dict[str, int]:
+    def embedding_stats(self, model: str, dims: int | None = None) -> dict[str, int]:
         row = self._conn.execute(
-            "SELECT count(*) AS total,"
-            " count(*) FILTER (WHERE embedding IS NOT NULL AND embedding_model = %s) AS embedded"
+            "SELECT count(*) AS total, count(*) FILTER (WHERE " + _CURRENT_VECTOR + ") AS embedded"
             " FROM memory WHERE (kind = 'case' OR status = 'accepted') AND superseded_by IS NULL",
-            (model,),
+            {"model": model, "dims": dims},
         ).fetchone()
         return {"total": row["total"], "embedded": row["embedded"]}
 
@@ -941,14 +1029,28 @@ class PgUnitOfWork:
         self.memory = PgMemoryRepo(conn)
 
 
+IDENTITY_KEY = "hub_identity"  # settings row: which database this is (D38)
+
+
 class PostgresStorage:
+    """The pool, plus the database's identity (D38). At startup the hub stamps the
+    database with a random id (or adopts the one already there: one database per
+    machine, shared by every checkout). Every connection the pool hands out is checked
+    against it first: a postgres that answers on the same port but holds another
+    database (a second compose project that took the port, seen live 2026-09-11: the
+    installed hub served a fresh dev database as its own for an hour) is refused, and
+    stays refused until the hub is restarted."""
+
     def __init__(self, conninfo: str, max_size: int = 10):
+        self.identity: str | None = None
+        self.foreign: str | None = None  # why the database is refused, once it is
         self._pool = ConnectionPool(
             conninfo,
             min_size=1,
             max_size=max_size,
             open=False,
             kwargs={"row_factory": dict_row},
+            check=self._check_identity,
         )
 
     def open(self) -> None:
@@ -957,7 +1059,44 @@ class PostgresStorage:
     def close(self) -> None:
         self._pool.close()
 
+    def stamp_identity(self) -> str:
+        """Read the database's identity, writing one if it has none; remember it."""
+        with self._pool.connection() as conn:
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO NOTHING",
+                (IDENTITY_KEY, Json(str(uuid4()))),
+            )
+            row = conn.execute(
+                "SELECT value FROM settings WHERE key = %s", (IDENTITY_KEY,)
+            ).fetchone()
+        self.identity = str(row["value"])
+        return self.identity
+
+    def observe_identity(self, found: str | None) -> None:
+        """What a connection reports as the database's identity. A mismatch marks the
+        storage foreign for good; every later transaction is refused."""
+        if self.identity is None or found == self.identity or self.foreign is not None:
+            return
+        self.foreign = (
+            f"the database on the hub's postgres port is not the one this hub started with "
+            f"(expected identity {self.identity}, found {found or 'none'}): another compose "
+            "project or volume answers there now. Refusing every request until the hub is "
+            "restarted; check COURTYARD_COMPOSE_PROJECT / COURTYARD_PG_PORT in each "
+            "instance's .env, then restart the hub"
+        )
+        logger.error("%s", self.foreign)
+
+    def _check_identity(self, conn: Connection) -> None:
+        if self.identity is None:
+            return
+        row = conn.execute("SELECT value FROM settings WHERE key = %s", (IDENTITY_KEY,)).fetchone()
+        self.observe_identity(str(row["value"]) if row else None)
+
     @contextmanager
     def transaction(self) -> Any:
+        if self.foreign is not None:
+            raise ForeignDatabase(self.foreign)
         with self._pool.connection() as conn:
+            if self.foreign is not None:  # the check on this very connection found it
+                raise ForeignDatabase(self.foreign)
             yield PgUnitOfWork(conn)

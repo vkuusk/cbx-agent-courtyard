@@ -8,6 +8,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 
+from courtyard.common import session_context
 from courtyard.common.models import Agent, AgentColor, AgentType, Message, PeersView
 from courtyard.hub.api.deps import get_board, get_registry, get_teams, require_agent
 from courtyard.hub.core import install as install_core
@@ -146,6 +147,21 @@ class TokenView(BaseModel):
     token: str
 
 
+@router.get("/{name_or_id}/session-context")
+def session_context_text(
+    name_or_id: str,
+    registry: Annotated[Registry, Depends(get_registry)],
+    teams: Annotated[TeamService, Depends(get_teams)],
+    request: Request,
+) -> dict[str, str]:
+    """What the SessionStart hook injects (D40): the membership context, rendered with the
+    current team's name. Admin read (D3): the hook runs before any token is in play."""
+    agent = registry.get(name_or_id)
+    team = teams.current()
+    hub_url = str(request.base_url).rstrip("/")
+    return {"text": session_context.render(agent.name, hub_url, team.name if team else None)}
+
+
 @router.get("/{name_or_id}/token")
 def token(name_or_id: str, registry: Annotated[Registry, Depends(get_registry)]) -> TokenView:
     """The agent's stored token, so the launch config can be opened again (D19)."""
@@ -176,7 +192,8 @@ class InstallResponse(BaseModel):
     settings_backed_up: str | None
     script_path: str  # start-with-courtyard.sh, the human launch wrapper (item 35)
     script_backed_up: str | None
-    warning: str
+    warning: str  # the files notice (item 28): what was written and what may be committed
+    gitignore: str | None = None  # .gitignore updated with the token-carrying names (item 28)
 
 
 @router.post("/{name_or_id}/install")
@@ -225,6 +242,7 @@ class UninstallResponse(BaseModel):
     settings_cleaned: bool
     script_restored: bool
     script_removed: bool
+    gitignore_cleaned: bool = False
 
 
 @router.post("/{name_or_id}/uninstall")

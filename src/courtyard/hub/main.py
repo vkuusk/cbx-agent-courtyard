@@ -119,6 +119,7 @@ def create_app(config: Config | None = None) -> FastAPI:
             logger.info("migrations applied: %s", ", ".join(applied))
         storage = PostgresStorage(cfg.database_url)
         storage.open()
+        logger.info("database identity %s", storage.stamp_identity())  # D38
         events = EventBus()
         events.bind(asyncio.get_running_loop())
         hub_started_at = datetime.now(UTC)  # one clock for liveness judging and the shift grace
@@ -253,8 +254,16 @@ def create_app(config: Config | None = None) -> FastAPI:
     app.add_exception_handler(DomainError, domain_error_handler)
 
     async def db_ping() -> None:
+        """Health: the database answers AND is still the one this hub started with (D38)."""
+        from courtyard.hub.storage.postgres import IDENTITY_KEY
+
         async with await psycopg.AsyncConnection.connect(cfg.database_url) as conn:
-            await conn.execute("SELECT 1")
+            cur = await conn.execute("SELECT value FROM settings WHERE key = %s", (IDENTITY_KEY,))
+            row = await cur.fetchone()
+        storage = app.state.storage
+        storage.observe_identity(str(row[0]) if row else None)
+        if storage.foreign is not None:
+            raise RuntimeError(storage.foreign)
 
     app.state.db_ping = db_ping
     app.include_router(router)

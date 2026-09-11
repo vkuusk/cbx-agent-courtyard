@@ -123,7 +123,9 @@ export function MemoryPage() {
 
   return html`
     <div class="board-panel panel-memory">
-      <div class="eyebrow">The team's memory</div>
+      <div class="eyebrow">The team's memory
+        <a class="btn small" style="float:right" href=${api.memoryExportUrl({ participant })} download
+          title="every record in full as JSON Lines, one per line; superseded records and notes in every state included">export JSON Lines${participant ? ` (${participant})` : ""}</a></div>
       <${PendingNotes} notes=${pending} refresh=${refresh} />
       <form class="form-row" style="margin-bottom:.6rem" onSubmit=${(e) => { e.preventDefault(); setQ(new FormData(e.currentTarget).get("q").trim()); }}>
         <input name="q" placeholder="what has the team settled about…" style="flex:1;min-width:16rem" defaultValue=${q} />
@@ -156,8 +158,8 @@ export function MemoryPage() {
                 ? `written ${fmtWhen(r.created_at)}`
                 : `closed ${fmtWhen(r.closed_at || r.created_at)} · ${r.message_count} message${r.message_count === 1 ? "" : "s"}${verdictSummary(r) ? ` · ${verdictSummary(r)}` : ""}`}</span>
             </button>`)}</div>`}
-      <div class="small muted" style="margin-top:.5rem">${q ? "Best match first, the way courtyard_recall ranks: the ask, a note's body and the participants' domains weigh most." : "Newest first."}
-        Agents see the same records through courtyard_recall${store.settings?.discovery === "manual" ? ", limited to the lines they are party to" : ""}; a line's note only reaches that line's two agents.
+      <div class="small muted" style="margin-top:.5rem">${q ? "Best match first, the way courtyard_recall ranks: the ask, a note's body and the participants' domains weigh most." : "Newest first."}${" "}
+        Agents see the same records through courtyard_recall${store.settings?.discovery === "manual" ? ", limited to the lines they are party to" : ""}; a line's note only reaches that line's two agents.${" "}
         ${encoder
           ? similarity
             ? html`<span class="similarity">Similarity search is on (${encoder.model}): ${encoder.embedded} of ${encoder.total} records have a vector${encoder.pending ? `, ${encoder.pending} waiting for the next sweep` : ""}.</span>`

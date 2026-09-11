@@ -222,24 +222,43 @@ review of a hand-annotated charter belongs to git. Single-agent edits stay
 allowed during a shift, as they always were; only reload and selection carry
 the shift guard.
 
-**Hook-loaded hub context is postponed from v1** (recorded in
-`../next-features-list.md`). Everything a session-start hook would deliver
-is covered by a channel that already works: the MCP instructions load at
-session start even in a bare `claude` (only the delivery channel needs the
-flag, and D29 catches that); larger rules-of-engagement content rides the
-skill, loaded when relevant instead of paid by every session; live team state
-comes from the envelope, per message and always current, where a hook's
-snapshot goes stale at the first charter reload. The deciding evidence is how
-protocol behavior gets taught: the thread-close instruction, for example,
-rides the envelope footer rendered only to the thread's initiator on a
-delivered reply, naming the actual peer, plus the close tool's own
-description; instructions attached to the moment of action have worked live
-(reply path, relay clause, scoped closing footer) where session-start prose
-would sit thousands of tokens from the decision. A hook is also agent-side
-behavior rather than configuration (the D14 and D21 instinct), one more trust
-surface, and a second copy of the rules to keep in sync with the skill. Hooks
-return if acceptance runs show sessions acting ignorant of the hub in ways
-instructions plus skill do not fix.
+**Hooks: allowed, each one justified.** Hooks are not forbidden on the agent
+side. The rule is the one behind D14 and D21: everything registration writes
+into a workdir earns its place with a concrete need the hub cannot meet, and a
+hook is judged like any other item. Rules of engagement do not qualify: they
+ride the skill, loaded when relevant instead of paid by every session, and
+protocol behavior is taught at the moment of action (the thread-close footer
+rendered to the initiator on a delivered reply, the tool descriptions), which
+has worked live where session-start prose would sit thousands of tokens from
+the decision. Live team state does not qualify either: it comes from the
+envelope, per message and always current, where a hook's snapshot goes stale
+at the first reload.
+
+**One hook is justified: membership (D40).** A session in a fresh directory
+has nothing on its own side saying that it belongs to a team. Its host wraps
+every channel event as untrusted external data, and the MCP server's
+instructions are the hub describing itself through the same door. Seen live
+(2026-09-10, Claude Code 2.1.268, Sonnet 5): a fresh session read the
+delivery check as prompt injection, refused it, then refused a peer's
+question for the same reason, while the agent whose operator had typed "ask
+the terraform agent" used the tools without hesitation. What was missing is
+user-side context, once. So registration writes one `SessionStart` hook into
+the `.claude/settings.local.json` it already writes (matchers: startup,
+resume, clear, compact, fork, so a compacted session is told again). The
+hook runs the adapter's context command, which asks the hub for the text and
+falls back to the same text without the team's name when the hub is down; a
+session start never waits on the hub. The text is light and says three
+things: you are configured as part of a team of agents who communicate
+through a hub called courtyard, registered as agent so-and-so of team
+such-and-such; the hub sends messages from other agents and from your
+operator, notices about your own messages, and at the start of a shift a
+delivery check, which is expected; all of it arrives through the channel
+named courtyard, and the courtyard tools are yours to use. After the first
+reply the block is part of the transcript like anything else the session was
+told. Hooks in that file run without a trust prompt, so the two first-launch
+questions stay two. The delivery check itself no longer says "tell no one,
+do nothing else"; it names the shift the operator started and says the one
+tool call completes it.
 
 **What reaches the envelope: one short anti-scope line per peer, nothing
 more.** The peer roster and authority grades the envelope

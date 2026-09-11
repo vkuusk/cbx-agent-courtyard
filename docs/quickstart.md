@@ -97,7 +97,8 @@ rather than stall, when an answer needs something they may not do.
 After **add agent** the page shows the agent's **launch config**: its `.mcp.json` with
 the token inside, and a `.claude/settings.local.json` profile that pre-approves the
 courtyard tools (so the agent's sends never stop on a permission prompt in its
-terminal), sets the model you declared, and gives the terminal a status line with the
+terminal), tells each new session that it is a member of your team (a session-start
+hook; see the user guide), sets the model you declared, and gives the terminal a status line with the
 agent's name. Click the button **write the files into ‹dir›**. The hub writes
 `<dir>/.mcp.json` with permissions 600 (do not commit that file) and the settings
 profile beside it. The hub keeps the token.
@@ -293,7 +294,8 @@ To take courtyard back out of a project directory:
 uv run courtyard-invite --name main-admin --workdir ~/courtyard-quickstart/main-admin --remove
 ```
 
-That restores the `.mcp.json` that was there before (or removes ours if we created it),
+That removes the agent from the hub as well (add `--keep-registration` to leave it
+registered). It restores the `.mcp.json` that was there before (or removes ours if we created it),
 and takes the courtyard pieces back out of `.claude/settings.local.json` (the model
 entry stays, in case you tuned it). Removing an agent on the Agents page revokes its
 token; its history stays on the WebUI.

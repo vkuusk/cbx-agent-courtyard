@@ -81,11 +81,12 @@ class AgentRepo(Protocol):
         color: str | None,
         model: str | None,
         anti_scope: str | None = None,
-    ) -> Agent:
+    ) -> Agent | None:
         """Register a removed name again on its own row: removal undone, every
         descriptive field and the type replaced, a new token, liveness reset to
         `invited`, created_at = now. The row (and so the id) is the one the archives
-        and old messages point at; nothing else of the old life survives."""
+        and old messages point at; nothing else of the old life survives. None when
+        the row is no longer removed: a concurrent registration revived it first."""
         ...
 
 
@@ -244,6 +245,10 @@ class ArchiveRepo(Protocol):
         """One archive with its transcript."""
         ...
 
+    def threads_of(self, archive_id: UUID) -> list[UUID]:
+        """The threads whose messages this archive holds; what its case files hang on."""
+        ...
+
     def delete(self, archive_id: UUID) -> None: ...
 
 
@@ -369,6 +374,21 @@ class MemoryRepo(Protocol):
         """Notes waiting for the operator, oldest first."""
         ...
 
+    def export(
+        self,
+        *,
+        participant: UUID | None = None,
+        line_id: UUID | None = None,
+        since: datetime | None = None,
+    ) -> list[MemoryRecord]:
+        """Every record in full, oldest first, superseded ones and notes in every gate
+        state included (hub-memory.md section 6)."""
+        ...
+
+    def delete_cases(self, thread_ids: list[UUID]) -> int:
+        """Retention (hub-memory.md section 8): the case files of these threads."""
+        ...
+
     def search(
         self,
         *,
@@ -403,12 +423,14 @@ class MemoryRepo(Protocol):
 
     def set_embedding(self, record_id: UUID, model: str, vector: list[float]) -> None: ...
 
-    def list_unembedded(self, model: str, limit: int) -> list[MemoryRecord]:
+    def list_unembedded(
+        self, model: str, limit: int, dims: int | None = None
+    ) -> list[MemoryRecord]:
         """Records that are memory (cases, accepted notes) and carry no vector from `model`
         yet: never embedded, or embedded by another model. Oldest first."""
         ...
 
-    def embedding_stats(self, model: str) -> dict[str, int]:
+    def embedding_stats(self, model: str, dims: int | None = None) -> dict[str, int]:
         """{"total": records that are memory, "embedded": those with a vector from `model`}."""
         ...
 

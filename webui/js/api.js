@@ -60,6 +60,10 @@ export const api = {
   archiveExportUrl: (id) => `/api/archive/${id}/export`,
   memory: (params) => call("GET", `/api/memory?${new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v)))}`),
   memoryRecord: (id) => call("GET", `/api/memory/${id}`),
+  memoryExportUrl: (params = {}) => {
+    const qs = new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v)));
+    return `/api/memory/export${qs.size ? `?${qs}` : ""}`;
+  },
   pendingNotes: () => call("GET", "/api/memory/pending"),
   memoryEncoder: () => call("GET", "/api/memory/encoder"),
   writeNote: (body) => call("POST", "/api/memory/notes", body),

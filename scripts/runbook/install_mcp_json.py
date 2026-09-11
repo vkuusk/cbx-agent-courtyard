@@ -5,27 +5,32 @@ Proves the install path without a Claude Code session:
   1. a project that already has another MCP server keeps it, and the original is backed up
   2. the courtyard block is written with the token inline, and the file is chmod 600
   3. settings.local.json gets the allow rule (no per-send permission prompt), the agent's
-     declared model, and a status line naming the agent
+     declared model, a status line naming the agent, and the SessionStart hook (D40),
+     which is run for real: what it injects, and that it still answers with the hub down
   4. uninstall restores the project's original .mcp.json exactly and removes only what
      install added to the settings
 
-Run against a hub started with `make run`:
+Run against a hub started with `make run` (or pass --hub / COURTYARD_HUB_URL):
     uv run python scripts/runbook/install_mcp_json.py
 
 Throwaway: it registers one agent under a temp workdir and removes both at the end.
 """
 
+import argparse
 import json
 import os
 import shutil
 import stat
+import subprocess
 import tempfile
 import time
 from pathlib import Path
 
 from courtyard.common.client import HubClient
 
-HUB = "http://127.0.0.1:2626"
+parser = argparse.ArgumentParser()
+parser.add_argument("--hub", default=os.environ.get("COURTYARD_HUB_URL", "http://127.0.0.1:2626"))
+HUB = parser.parse_args().hub
 
 
 def hr(title):
@@ -38,7 +43,10 @@ admin = HubClient(HUB)
 name = f"coding-{str(time.time_ns())[-7:]}"
 workdir = Path(tempfile.mkdtemp(prefix="courtyard-rb-"))
 
-# The project already has its own MCP server — install must not clobber it.
+# A git checkout (item 28: the token-carrying names go into its .gitignore) that
+# already has its own MCP server — install must not clobber either.
+(workdir / ".git").mkdir()
+(workdir / ".gitignore").write_text("node_modules/\n")
 mcp = workdir / ".mcp.json"
 mcp.write_text(json.dumps({"mcpServers": {"my-linter": {"command": "run-linter"}}}, indent=2))
 print(f"workdir: {workdir}")
@@ -61,6 +69,8 @@ masked = env["COURTYARD_TOKEN"][:6] + "…"
 print(f"courtyard env: AGENT_NAME={env['COURTYARD_AGENT_NAME']} TOKEN={masked} (inline)")
 print(f"file mode  : {oct(stat.S_IMODE(os.stat(mcp).st_mode))}   <- 0o600")
 print(f"backup has : {list(json.loads(Path(result['backed_up']).read_text())['mcpServers'])}")
+print(f"gitignore  : {result['gitignore']}   <- item 28: added to the checkout's .gitignore")
+print("  " + (workdir / ".gitignore").read_text().replace("\n", "\n  ").rstrip())
 
 hr("2. SETTINGS  (the agent-side profile, WP-A)")
 settings = workdir / ".claude" / "settings.local.json"
@@ -71,10 +81,35 @@ print(f"model      : {sdoc['model']}   <- as declared at registration (item 1)")
 print(f"status line: {sdoc['statusLine']['command']}   <- names the agent's terminal (item 2)")
 assert sdoc["permissions"]["allow"] == ["mcp__courtyard"]
 assert sdoc["model"] == "sonnet"
+(hook_entry,) = sdoc["hooks"]["SessionStart"]
+hook_cmd = hook_entry["hooks"][0]["command"]
+print(f"hook       : SessionStart {hook_entry['matcher']} -> {hook_cmd}   <- D40")
+print("\nwhat the hook injects (run for real):")
+ran = subprocess.run(hook_cmd, shell=True, capture_output=True, text=True, timeout=30, check=False)
+injected = json.loads(ran.stdout)["hookSpecificOutput"]
+print(f"  hookEventName    : {injected['hookEventName']}")
+print(
+    "  additionalContext: " + injected["additionalContext"].replace("\n", "\n                     ")
+)
+dead = subprocess.run(
+    hook_cmd.replace(HUB, "http://127.0.0.1:9"),
+    shell=True,
+    capture_output=True,
+    text=True,
+    timeout=30,
+    check=False,
+)
+print(
+    f"fallback (hub down) : {dead.returncode == 0 and 'You are configured' in dead.stdout}"
+    "   <- the same text without the team's name; a session start never waits on the hub"
+)
 
 hr("3. UNINSTALL  (restore the original .mcp.json; remove only ours from the settings)")
 undo = admin.uninstall(name, str(workdir))
 print(f"restored from backup: {undo['restored_from_backup']}")
+print(
+    f"gitignore cleaned   : {undo['gitignore_cleaned']}   <- back to: {(workdir / '.gitignore').read_text()!r}"
+)
 print(
     f"servers now : {list(json.loads(mcp.read_text())['mcpServers'])}   <- back to just my-linter"
 )

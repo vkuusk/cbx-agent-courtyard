@@ -100,10 +100,18 @@ export function DockBanner() {
   };
   const install = async () => {
     const e = installPrompt;
+    if (!e) return;
+    // the event is single-use: taken here and every banner re-rendered, so a second
+    // click after a refused dialog shows the address-bar hint instead of throwing
     installPrompt = null;
-    await e.prompt();
-    const { outcome } = await e.userChoice;
-    if (outcome === "accepted") dismiss();
+    notifyInstallable();
+    try {
+      await e.prompt();
+      const { outcome } = await e.userChoice;
+      if (outcome === "accepted") dismiss();
+    } catch (err) {
+      console.warn("install prompt failed", err);
+    }
   };
   const isSafari = /safari/i.test(navigator.userAgent) && !/chrome|chromium|crios|edg/i.test(navigator.userAgent);
   return html`<div class="dock-banner" role="status">

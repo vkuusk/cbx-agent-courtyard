@@ -111,6 +111,8 @@ class Registry:
                 agent = uow.agents.create(agent_id=uuid4(), name=name, **fields)
             else:
                 agent = uow.agents.revive(existing.id, **fields)
+                if agent is None:  # revived between our read and our UPDATE
+                    raise NameTaken(f"agent name {name!r} is already registered")
         self._events.publish("agent", agent)
         return agent, token
 

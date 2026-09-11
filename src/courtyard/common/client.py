@@ -176,6 +176,14 @@ class HubClient:
             MemoryRecord.model_validate(r) for r in self._call("GET", "/api/memory", params=params)
         ]
 
+    def memory_export(self, **filters: Any) -> list[MemoryRecord]:
+        """The JSON Lines export, parsed: every record in full (superseded ones and notes
+        in every gate state included); filters are participant, line, since."""
+        params = {k: v for k, v in filters.items() if v is not None}
+        resp = self._http.get("/api/memory/export", params=params)
+        resp.raise_for_status()
+        return [MemoryRecord.model_validate_json(line) for line in resp.text.splitlines() if line]
+
     def memory_encoder(self) -> dict:
         return self._call("GET", "/api/memory/encoder")
 

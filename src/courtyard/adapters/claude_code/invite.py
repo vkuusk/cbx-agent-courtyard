@@ -16,12 +16,17 @@ courtyard MCP server — the operator never hand-edits the file.
     courtyard-invite --team-dir ~/teams/devops --team-name devops \\
         --register --name coding --type claude-code --workdir ~/proj/payments
 
-    # undo it:
-    courtyard-invite --name coding --workdir ~/proj/payments --remove
+    # undo it: the files come out of the directory AND the agent leaves the hub
+    # (the WebUI's remove does the same; the name can be registered again, D36):
+    courtyard-invite --name coding --remove
+
+    # detach the directory only, keep the agent registered:
+    courtyard-invite --name coding --remove --keep-registration
 
 Dev-mode only: the hub writes the file, so it must share this machine's filesystem (the
 normal local setup). In live/container mode use the WebUI's copy-paste config instead.
-The written file carries the token and is chmod 600 — do not commit it.
+The written file carries the token and is chmod 600 — do not commit it; under git the
+hub adds it to .gitignore and says so.
 """
 
 from __future__ import annotations
@@ -52,7 +57,16 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--name", required=True, help="the agent's courtyard name")
     p.add_argument("--token", help="the agent's token (optional — the hub keeps it)")
     p.add_argument("--workdir", help="the agent's project dir (default: its registered workdir)")
-    p.add_argument("--remove", action="store_true", help="undo a previous install")
+    p.add_argument(
+        "--remove",
+        action="store_true",
+        help="undo: take the files out of the workdir and remove the agent from the hub",
+    )
+    p.add_argument(
+        "--keep-registration",
+        action="store_true",
+        help="with --remove: only take the files out; the agent stays registered",
+    )
     p.add_argument("--register", action="store_true", help="register the agent first, then install")
     p.add_argument(
         "--type", default="claude-code", help="agent type when --register (default claude-code)"
@@ -80,14 +94,28 @@ def cli(argv: list[str] | None = None) -> None:
     client = HubClient(args.hub)
     try:
         if args.remove:
-            result = client.uninstall(args.name, args.workdir)
-            where = result["path"]
-            how = (
-                "restored the pre-install file"
-                if result["restored_from_backup"]
-                else "removed the courtyard entry"
-            )
-            print(f"courtyard-invite: {how} at {where}")
+            try:
+                result = client.uninstall(args.name, args.workdir)
+            except HubError as exc:
+                # no files to take out (never installed, or already cleaned) is not a
+                # reason to keep the registration: same as the WebUI's remove (item 15)
+                if exc.code != "nothing_to_uninstall" or args.keep_registration:
+                    raise
+                print(f"courtyard-invite: nothing to take out of the directory ({exc})")
+            else:
+                how = (
+                    "restored the pre-install file"
+                    if result["restored_from_backup"]
+                    else "removed the courtyard entry"
+                )
+                print(f"courtyard-invite: {how} at {result['path']}")
+                if result.get("gitignore_cleaned"):
+                    print("  took the courtyard lines out of .gitignore")
+            if args.keep_registration:
+                print(f"  {args.name} stays registered on the hub")
+            else:
+                client.remove_agent(args.name)
+                print(f"  removed {args.name} from the hub (its lines are archived)")
             return
 
         if args.team_dir:
@@ -117,6 +145,8 @@ def cli(argv: list[str] | None = None) -> None:
                 print("  If a Claude Code session is already running there, close it first;")
                 print("  a session started plainly (bare `claude`) cannot hear the hub.")
         print(f"  {result['warning']}")
+        if result.get("gitignore"):
+            print(f"  (.gitignore updated: {result['gitignore']})")
     except HubError as exc:
         print(f"courtyard-invite: hub refused: {exc}", file=sys.stderr)
         raise SystemExit(1) from None

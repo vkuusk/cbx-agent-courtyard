@@ -27,6 +27,26 @@ empty, and runs `make install`. If you would rather look first: download `instal
 read it, run it. Or skip the script: download the release zip from GitHub, unzip it,
 `cd` in, `make install`. The three are the same install.
 
+Settings can ride on the command: the install writes them into the `.env` it creates
+(an existing `.env` is kept, and the Summary then warns that they were not applied).
+A second instance needs all three of its own: the compose project, the postgres port
+and the hub port. With only the project set, two postgres containers fight for one host
+port and a hub can end up serving the other instance's database; the hub notices that
+(its health reads `error: the database ... is not the one this hub started with` and
+every request answers 503 until it is restarted), but the fix is the `.env`. A second,
+isolated instance beside the machine's usual one is therefore one line:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/vkuusk/cbx-agent-courtyard/main/install.sh \
+    | COURTYARD_COMPOSE_PROJECT=courtyard-2 COURTYARD_PG_PORT=26433 COURTYARD_PORT=2627 sh
+```
+
+The other way to give settings ahead of the install is a `.env` written into the
+otherwise empty directory first: the script accepts that directory and the install
+keeps the file. The same works for `make install` in an unpacked zip or a clone. Accepted on the command:
+the three above, `COURTYARD_ADMINER_PORT`, `COURTYARD_LOG_LEVEL` and the
+`COURTYARD_EMBEDDINGS_*` settings (the table under Development setup).
+
 The long way, for working on the code:
 
 Requirements: macOS, [uv](https://docs.astral.sh/uv/), Docker with compose, and the
@@ -154,7 +174,8 @@ make run                          # or make install; the hub applies the newer m
 
 Uninstall lists the agents' project directories first: they hold the files registration
 wrote (`.mcp.json`, the settings profile, the start script), and `courtyard-invite
---remove` takes them out per agent. `make zip-package` produces the zip from a checkout,
+--remove --keep-registration` takes them out per agent while the hub is still up (without
+the flag the agent is removed from the hub as well). `make zip-package` produces the zip from a checkout,
 in the checkout's root, named after the git version.
 
 ## Creating a Team
@@ -210,9 +231,20 @@ already holds agents adopts those agents into the charter as cards.
 After **add agent** the page shows the launch config. Press **write the files into
 ‹dir›** and the hub writes three files into the project directory: `.mcp.json` with
 the agent's token (permissions 600, do not commit it), a `.claude/settings.local.json`
-profile that pre-approves the courtyard tools and sets the model and a status line, and
-`start-with-courtyard.sh`, the script that starts the agent by hand with the channel
-flag it needs to hear the hub.
+profile that pre-approves the courtyard tools, sets the model and a status line, and
+holds one session-start hook, and `start-with-courtyard.sh`, the script that starts the
+agent by hand with the channel flag it needs to hear the hub.
+
+The hook runs once each time a session starts (or resumes, clears or compacts) and
+gives it a short block of context: that this project is registered as agent so-and-so
+of your team, that the hub's messages arrive through the channel named `courtyard`,
+what kinds of message to expect, and that the delivery check at the start of a shift is
+expected. Without it a session in a fresh directory has nothing on its own side saying
+it belongs to a team, and Claude Code presents every channel event as untrusted; a
+cautious model then refuses the delivery check and the first peer question. The text
+comes from the hub (so the names are current) and falls back to a built-in version when
+the hub is down; a session start never waits on it. Read it yourself at
+`GET /api/agents/<name>/session-context`.
 
 The same from a terminal:
 
@@ -237,11 +269,20 @@ clean the courtyard pieces out of the project directory. Removal:
   only ever shows the team; the histories are on the **Archive** page;
 - takes the agent's card out of the current team's charter;
 - with the cleanup box ticked, restores the pre-courtyard `.mcp.json` (or removes
-  ours), takes the courtyard entries out of `.claude/settings.local.json` and
-  removes the start script.
+  ours), takes the courtyard entries out of `.claude/settings.local.json` (the allow
+  rule, the status line, the session-start hook) and removes the start script.
 
-From a terminal, `courtyard-invite --name <agent-name> --remove` does the directory
-cleanup only; the registration stays until you remove it on the WebUI.
+From a terminal, `courtyard-invite --name <agent-name> --remove` does the same in the
+same order: the directory cleanup, then the agent is removed from the hub. Add
+`--keep-registration` to take the files out and leave the agent registered.
+
+**What registration writes, and git.** The launch config panel and `courtyard-invite`
+end with a notice naming the files: `.mcp.json` holds the token, the settings profile is
+this machine's, a replaced file is kept beside it as `*.courtyard-bak` and can hold a
+previous token; the start script carries no secret and may be committed. When the
+project directory is a git checkout, the hub adds the token-carrying names to its
+`.gitignore` (created if missing, in place, once) and the notice says so; removal takes
+those lines out again. A directory without `.git` is left alone.
 
 **Registering a removed name again.** A removed agent's name is free to use again.
 Registering it, on the WebUI, from the command line, or by a charter that names it,
@@ -290,7 +331,9 @@ between their cards on the Courtyard page. Click a wire to read the conversation
   the pane header resets the turn.
 - **Archive.** **archive** in the pane header moves a finished conversation to the
   Archive page, where you can read it again, export it as JSON or delete it. The line
-  starts empty. Removing an agent archives its lines by itself.
+  starts empty. Removing an agent archives its lines by itself. Deleting an archive
+  deletes the case files distilled from it (see Memory); the confirmation names how
+  many.
 
 ### Shift
 
@@ -365,6 +408,16 @@ recalls only from the lines it is party to; a line's note reaches that line's tw
 agents. You see everything on the Memory page: search, filter by participant, and read
 any record in full. Recall is full text unless similarity search is configured (Hub
 Administration, below).
+
+**Export.** The raw memory for other systems: **export JSON Lines** on the Memory page,
+or `GET /api/memory/export`, gives every record in full, one JSON document per line,
+oldest first. Superseded records and notes in every state are included with their
+status. The query parameters `participant`, `line` and `since` narrow it; `since` is
+how an external system pulls only what is new.
+
+**Retention.** A case file lives as long as the archive it was distilled from: deleting
+an archive on the Archive page deletes its case files, and the confirmation says how
+many. Notes are kept.
 
 ## Hub Administration
 

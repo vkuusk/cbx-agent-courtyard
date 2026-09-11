@@ -33,7 +33,9 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Mapping
 from pathlib import Path
+from xml.sax.saxutils import escape as xml_escape
 
 ROOT = Path(__file__).resolve().parents[1]
 LABEL = "com.courtyard.hub"
@@ -157,11 +159,13 @@ def health(url: str, timeout: float = 2.0) -> dict | None:
 def render_plist(root: Path = ROOT, log: Path = LOG, template: Path = TEMPLATE) -> str:
     """A LaunchAgent: launchd runs the program in this directory, at login and whenever it
     exits; launchd's environment is nearly empty, so PATH is set explicitly."""
+    # the paths land inside <string> elements: an `&` or `<` in a checkout path (a
+    # directory named "R&D") would leave launchd an unparseable plist
     return (
         template.read_text()
-        .replace("{{ROOT}}", str(root))
-        .replace("{{LAUNCHER}}", str(root / "scripts" / "hub-launch.sh"))
-        .replace("{{LOG}}", str(log))
+        .replace("{{ROOT}}", xml_escape(str(root)))
+        .replace("{{LAUNCHER}}", xml_escape(str(root / "scripts" / "hub-launch.sh")))
+        .replace("{{LOG}}", xml_escape(str(log)))
     )
 
 
@@ -225,16 +229,77 @@ def make_venv() -> None:
     record("the hub's environment (.venv)")
 
 
+# The settings the one-command install takes from the environment and writes into a
+# NEW .env, so `curl ... | COURTYARD_COMPOSE_PROJECT=x COURTYARD_PORT=2628 sh` is a
+# complete, isolated instance without editing a file by hand. Every other knob stays a
+# .env edit. An existing .env is never changed.
+ENV_KNOBS = (
+    "COURTYARD_COMPOSE_PROJECT",
+    "COURTYARD_PG_PORT",
+    "COURTYARD_PORT",
+    "COURTYARD_ADMINER_PORT",
+    "COURTYARD_LOG_LEVEL",
+    "COURTYARD_EMBEDDINGS_URL",
+    "COURTYARD_EMBEDDINGS_MODEL",
+    "COURTYARD_EMBEDDINGS_API_KEY",
+    "COURTYARD_EMBEDDINGS_ALLOW_REMOTE",
+)
+
+
+def render_env(template: str, values: dict[str, str]) -> str:
+    """`.env.default` with the given settings set: the commented `#KEY=...` line becomes
+    `KEY=value` in place, so the file keeps its explanations; a key the template does
+    not mention is appended."""
+    lines = template.splitlines()
+    for key, value in values.items():
+        wanted = f"{key}={value}"
+        for i, line in enumerate(lines):
+            if line.strip().lstrip("#").strip().startswith(f"{key}="):
+                lines[i] = wanted
+                break
+        else:
+            lines.append(wanted)
+    return "\n".join(lines) + "\n"
+
+
+def unquote_env_from_dotenv() -> None:
+    """`make` exports every .env line as it is, so a value written as KEY="x" reaches
+    docker compose and the hub as `"x"` with the quotes (seen live: container name
+    `"vvk-courtyard"-postgres`). The .env file is the truth for this directory: put
+    its values, unquoted, into the environment before anything runs."""
+    os.environ.update(read_env())
+
+
+def env_knobs(environ: Mapping[str, str] = os.environ) -> dict[str, str]:
+    return {key: environ[key] for key in ENV_KNOBS if environ.get(key, "").strip()}
+
+
 def make_env_file() -> None:
     say("2. local settings (.env)")
     target = ROOT / ".env"
+    given = env_knobs()
     if target.exists():
         say("  .env exists, kept as is")
-        record("local settings (.env)", details=[".env existed and was kept as is"])
+        details = [".env existed and was kept as is"]
+        if given:
+            ignored = ", ".join(f"{k}={v}" for k, v in given.items())
+            say(f"  NOT applied (edit .env yourself): {ignored}")
+            record(
+                "local settings (.env)",
+                "WARNING",
+                details + [f"from the environment, not applied: {ignored}"],
+            )
+            return
+        record("local settings (.env)", details=details)
     else:
-        shutil.copy(ROOT / ".env.default", target)
-        say("  .env created from .env.default (edit it for ports, log level, embeddings)")
-        record("local settings (.env)")
+        target.write_text(render_env((ROOT / ".env.default").read_text(), given))
+        if given:
+            written = ", ".join(f"{k}={v}" for k, v in given.items())
+            say(f"  .env created from .env.default with {written}")
+            record("local settings (.env)", details=[f"written from the environment: {written}"])
+        else:
+            say("  .env created from .env.default (edit it for ports, log level, embeddings)")
+            record("local settings (.env)")
 
 
 def project() -> str:
@@ -540,7 +605,8 @@ def uninstall(purge: bool) -> None:
     if workdirs:
         say("  each holds .mcp.json, .claude/settings.local.json and start-with-courtyard.sh;")
         say(
-            "  remove them with: .venv/bin/courtyard-invite --name <agent> --remove  (before step 3)"
+            "  remove them with: .venv/bin/courtyard-invite --name <agent> --remove"
+            " --keep-registration  (before step 2, while the hub answers)"
         )
     say("2. the LaunchAgents and the Courtyard Admin launcher")
     for label, plist in ((TRAY_LABEL, TRAY_PLIST), (LABEL, PLIST)):
@@ -617,6 +683,7 @@ def restart() -> None:
 
 
 def main() -> None:
+    unquote_env_from_dotenv()
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )

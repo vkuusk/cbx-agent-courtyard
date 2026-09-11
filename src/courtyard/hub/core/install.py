@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import sys
 from dataclasses import dataclass
@@ -53,17 +54,96 @@ PI_EXT_FILENAME = "courtyard.ts"
 PI_SKILL_DIR = ".pi/skills/courtyard"
 PI_SKILL_FILENAME = "SKILL.md"
 
-PI_WARNING = (
-    "This file now contains the agent's token and is set to chmod 600. Do NOT commit it — "
-    "add .pi/extensions/courtyard.ts to .gitignore if this directory is under version control."
-)
 ALLOW_RULE = f"mcp__{SERVER_KEY}"  # pre-approves every courtyard tool (docs-verified form)
 STATUS_MARK = "· courtyard'"  # a status-line command ending like this is ours (uninstall)
+# D40: the one hook. SessionStart, on every way a session (re)starts its context, runs
+# the adapter's context command; a hook whose command names it is ours (uninstall).
+HOOK_EVENT = "SessionStart"
+HOOK_MATCHER = "startup|resume|clear|compact|fork"
+HOOK_MARK = "courtyard-claude-context"
+HOOK_TIMEOUT = 5  # seconds; the command itself gives the hub 2 s and then falls back
 
-WARNING = (
-    "This file now contains the agent's token and is set to chmod 600. Do NOT commit it — "
-    "add .mcp.json to .gitignore if this directory is under version control."
-)
+# Item 28: registration's footprint in the workdir, told in full, and kept out of git.
+# The names that hold (or, as backups, held) the agent's token, plus this machine's
+# profile, go into the workdir's .gitignore when the directory is a git checkout; the
+# launch wrapper and the pi skill carry no secret and are meant to be committed.
+GITIGNORE_MARK = "# courtyard: files agent registration writes here (the hub maintains these lines)"
+GITIGNORE_ENTRIES = {
+    "claude-code": (
+        MCP_FILENAME,
+        MCP_FILENAME + BACKUP_SUFFIX,
+        f"{SETTINGS_DIR}/{SETTINGS_FILENAME}",
+        f"{SETTINGS_DIR}/{SETTINGS_FILENAME}{BACKUP_SUFFIX}",
+    ),
+    "pi": (
+        f"{PI_EXT_DIR}/{PI_EXT_FILENAME}",
+        f"{PI_EXT_DIR}/{PI_EXT_FILENAME}{BACKUP_SUFFIX}",
+    ),
+}
+
+
+def ensure_gitignore(directory: Path, kind: str) -> tuple[bool, str | None]:
+    """Add the token-carrying names to `<directory>/.gitignore` when the directory is a
+    git checkout. Returns (under git, the .gitignore path when lines were added, else
+    None). A directory that is not a checkout is left alone: no .gitignore is invented."""
+    if not (directory / ".git").exists():
+        return False, None
+    target = directory / ".gitignore"
+    existing = target.read_text() if target.exists() else ""
+    present = {line.strip() for line in existing.splitlines()}
+    missing = [e for e in GITIGNORE_ENTRIES[kind] if e not in present]
+    if not missing:
+        return True, None
+    block = "" if not existing or existing.endswith("\n") else "\n"
+    if GITIGNORE_MARK not in present:
+        block += ("\n" if existing.strip() else "") + GITIGNORE_MARK + "\n"
+    block += "".join(e + "\n" for e in missing)
+    target.write_text(existing + block)
+    return True, str(target)
+
+
+def files_notice(kind: str, under_git: bool, gitignore: str | None) -> str:
+    """What registration wrote into the workdir and what may be committed (item 28)."""
+    if kind == "pi":
+        secret = f"{PI_EXT_DIR}/{PI_EXT_FILENAME} holds the agent's token (chmod 600)"
+        public = (
+            f"{SCRIPT_FILENAME} and {PI_SKILL_DIR}/{PI_SKILL_FILENAME} carry no secret "
+            "and may be committed"
+        )
+    else:
+        secret = (
+            f"{MCP_FILENAME} holds the agent's token (chmod 600); "
+            f"{SETTINGS_DIR}/{SETTINGS_FILENAME} is this machine's profile"
+        )
+        public = f"{SCRIPT_FILENAME} carries no secret and may be committed"
+    if gitignore:
+        git = f"added them to .gitignore ({gitignore})"
+    elif under_git:
+        git = ".gitignore already lists them"
+    else:
+        git = "not a git checkout, so no .gitignore was touched"
+    return (
+        f"Written: {secret}; a replaced file is kept beside it as *{BACKUP_SUFFIX} and can "
+        f"hold a previous token. Do NOT commit those: {git}. {public}."
+    )
+
+
+def _uninstall_gitignore(directory: Path) -> bool:
+    """Take our lines out of .gitignore again: the marker and the entries we know,
+    nothing the user wrote. The file goes when only our lines were in it."""
+    target = directory / ".gitignore"
+    if not target.exists():
+        return False
+    ours = {GITIGNORE_MARK, *GITIGNORE_ENTRIES["claude-code"], *GITIGNORE_ENTRIES["pi"]}
+    lines = target.read_text().splitlines()
+    kept = [line for line in lines if line.strip() not in ours]
+    if len(kept) == len(lines):
+        return False
+    if any(line.strip() for line in kept):
+        target.write_text("\n".join(kept).rstrip("\n") + "\n")
+    else:
+        target.unlink()
+    return True
 
 
 def adapter_command() -> str:
@@ -77,6 +157,33 @@ def adapter_command() -> str:
         return str(beside_hub)
     found = shutil.which("courtyard-claude-mcp")
     return found or f"{sys.executable} -m courtyard.adapters.claude_code.mcp_server"
+
+
+def context_command() -> str:
+    """Absolute path to the SessionStart hook command (D40), beside the adapter."""
+    beside_hub = Path(sys.executable).parent / HOOK_MARK
+    if beside_hub.exists():
+        return str(beside_hub)
+    found = shutil.which(HOOK_MARK)
+    return found or f"{sys.executable} -m courtyard.adapters.claude_code.session_context"
+
+
+def hook_entry(hub_url: str, agent_name: str) -> dict:
+    """The `hooks.SessionStart` entry: one command, ours by its name (`HOOK_MARK`)."""
+    command = f"{context_command()} --hub {shlex.quote(hub_url)} --name {shlex.quote(agent_name)}"
+    return {
+        "matcher": HOOK_MATCHER,
+        "hooks": [{"type": "command", "command": command, "timeout": HOOK_TIMEOUT}],
+    }
+
+
+def _is_our_hook(entry: object) -> bool:
+    if not isinstance(entry, dict):
+        return False
+    return any(
+        isinstance(h, dict) and HOOK_MARK in str(h.get("command", ""))
+        for h in (entry.get("hooks") or [])
+    )
 
 
 def server_block(command: str, hub_url: str, agent_name: str, token: str) -> dict:
@@ -120,16 +227,24 @@ def status_line(agent_name: str) -> dict:
     return {"type": "command", "command": f"echo '⏺ {agent_name} · courtyard'", "padding": 0}
 
 
-def merge_settings(existing: dict | None, agent_name: str, model: str | None) -> dict:
+def merge_settings(
+    existing: dict | None, agent_name: str, model: str | None, hub_url: str | None = None
+) -> dict:
     """The agent-side profile merged over `.claude/settings.local.json` (WP-A, D21).
 
     The allow rule is appended if missing; the model is the operator's declared intent and
     wins when set (untouched when the agent has none); the status line is set when the
     file has none — or when the existing one is recognisably OURS (`STATUS_MARK`), so a
     workdir re-registered under a new name stops announcing the old one (feedback item
-    19). A status line somebody wrote themselves is never clobbered.
+    19). A status line somebody wrote themselves is never clobbered. The SessionStart
+    hook (D40) is ours by its command name: replaced in place, other hooks untouched.
     """
     doc = dict(existing) if existing else {}
+    if hub_url is not None:
+        hooks = dict(doc.get("hooks") or {})
+        entries = [e for e in (hooks.get(HOOK_EVENT) or []) if not _is_our_hook(e)]
+        hooks[HOOK_EVENT] = [*entries, hook_entry(hub_url, agent_name)]
+        doc["hooks"] = hooks
     permissions = dict(doc.get("permissions") or {})
     allow = list(permissions.get("allow") or [])
     if ALLOW_RULE not in allow:
@@ -154,7 +269,8 @@ class InstallResult:
     settings_backed_up: str | None
     script_path: str  # `start-with-courtyard.sh` — the human launch wrapper (item 35)
     script_backed_up: str | None  # only a file that was NOT ours gets backed up
-    warning: str
+    warning: str  # the files notice (item 28): what was written, what may be committed
+    gitignore: str | None = None  # .gitignore path when entries were added to it (item 28)
 
 
 def _read_existing(target: Path) -> tuple[dict | None, str | None]:
@@ -215,7 +331,7 @@ def install(
         s_backup.write_text(s_raw)
         settings_backed_up = str(s_backup)
     settings_dir.mkdir(exist_ok=True)
-    settings_doc = merge_settings(s_existing, agent_name, model)
+    settings_doc = merge_settings(s_existing, agent_name, model, hub_url)
     settings_target.write_text(json.dumps(settings_doc, indent=2) + "\n")
 
     # Item 35: the launch wrapper. Ours is regenerated in place; a file of this name
@@ -230,6 +346,7 @@ def install(
     script_target.write_text(start_script(agent_name, launch_command_text(model)))
     os.chmod(script_target, 0o755)
 
+    under_git, gitignore = ensure_gitignore(directory, "claude-code")
     return InstallResult(
         str(target),
         backed_up,
@@ -238,7 +355,8 @@ def install(
         settings_backed_up,
         str(script_target),
         script_backed_up,
-        WARNING,
+        files_notice("claude-code", under_git, gitignore),
+        gitignore,
     )
 
 
@@ -367,6 +485,7 @@ def install_pi(workdir: str, hub_url: str, agent_name: str, token: str) -> Insta
         skill_backed_up = str(skill_backup)
     skill_target.write_text(pi_skill(agent_name))
 
+    under_git, gitignore = ensure_gitignore(directory, "pi")
     return InstallResult(
         str(target),
         backed_up,
@@ -375,7 +494,8 @@ def install_pi(workdir: str, hub_url: str, agent_name: str, token: str) -> Insta
         skill_backed_up,
         str(script_target),
         script_backed_up,
-        PI_WARNING,
+        files_notice("pi", under_git, gitignore),
+        gitignore,
     )
 
 
@@ -387,6 +507,7 @@ def uninstall_pi(workdir: str) -> UninstallResult:
     target = ext_dir / PI_EXT_FILENAME
     backup = ext_dir / (PI_EXT_FILENAME + BACKUP_SUFFIX)
     script_restored, script_removed = _uninstall_script(directory)
+    gitignore_cleaned = _uninstall_gitignore(directory)
     restored = removed = False
     if backup.exists():
         target.write_text(backup.read_text())
@@ -411,7 +532,7 @@ def uninstall_pi(workdir: str) -> UninstallResult:
         except OSError:
             pass
     anything = restored or removed or script_restored or script_removed
-    anything = anything or skill_restored or skill_removed
+    anything = anything or skill_restored or skill_removed or gitignore_cleaned
     if not anything:
         raise NothingToUninstall(
             f"no courtyard extension and no backup at {target} — nothing to undo."
@@ -424,6 +545,7 @@ def uninstall_pi(workdir: str) -> UninstallResult:
         settings_cleaned=skill_removed,
         script_restored=script_restored,
         script_removed=script_removed,
+        gitignore_cleaned=gitignore_cleaned,
     )
 
 
@@ -436,6 +558,7 @@ class UninstallResult:
     settings_cleaned: bool  # our allow rule / status line removed from it
     script_restored: bool  # start-with-courtyard.sh put back from its backup
     script_removed: bool  # our wrapper script deleted (a foreign one is never touched)
+    gitignore_cleaned: bool = False  # our lines taken out of .gitignore again (item 28)
 
 
 def _uninstall_settings(directory: Path) -> tuple[bool, bool]:
@@ -471,6 +594,19 @@ def _uninstall_settings(directory: Path) -> tuple[bool, bool]:
     if isinstance(sl, dict) and str(sl.get("command", "")).endswith(STATUS_MARK):
         existing.pop("statusLine")
         cleaned = True
+    hooks = existing.get("hooks") or {}
+    entries = hooks.get(HOOK_EVENT) or []
+    kept = [e for e in entries if not _is_our_hook(e)]
+    if len(kept) != len(entries):
+        cleaned = True
+        if kept:
+            hooks[HOOK_EVENT] = kept
+        else:
+            hooks.pop(HOOK_EVENT, None)
+        if hooks:
+            existing["hooks"] = hooks
+        else:
+            existing.pop("hooks", None)
     if cleaned:
         if existing:
             target.write_text(json.dumps(existing, indent=2) + "\n")
@@ -503,7 +639,9 @@ def uninstall(workdir: str) -> UninstallResult:
     backup = directory / (MCP_FILENAME + BACKUP_SUFFIX)
     settings_restored, settings_cleaned = _uninstall_settings(directory)
     script_restored, script_removed = _uninstall_script(directory)
+    gitignore_cleaned = _uninstall_gitignore(directory)
     side_effects = settings_restored or settings_cleaned or script_restored or script_removed
+    side_effects = side_effects or gitignore_cleaned
 
     if backup.exists():
         target.write_text(backup.read_text())
@@ -517,6 +655,7 @@ def uninstall(workdir: str) -> UninstallResult:
             settings_cleaned=settings_cleaned,
             script_restored=script_restored,
             script_removed=script_removed,
+            gitignore_cleaned=gitignore_cleaned,
         )
 
     existing, _ = _read_existing(target)
@@ -531,6 +670,7 @@ def uninstall(workdir: str) -> UninstallResult:
                 settings_cleaned=settings_cleaned,
                 script_restored=script_restored,
                 script_removed=script_removed,
+                gitignore_cleaned=gitignore_cleaned,
             )
         raise NothingToUninstall(f"no courtyard entry and no backup at {target} — nothing to undo.")
     del servers[SERVER_KEY]
@@ -548,4 +688,5 @@ def uninstall(workdir: str) -> UninstallResult:
         settings_cleaned=settings_cleaned,
         script_restored=script_restored,
         script_removed=script_removed,
+        gitignore_cleaned=gitignore_cleaned,
     )

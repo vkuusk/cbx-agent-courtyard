@@ -18,6 +18,21 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import install
 
 
+def test_plist_survives_a_checkout_path_with_xml_characters(tmp_path):
+    """The paths land inside <string> elements: a directory named "R&D <new>" left
+    launchd an unparseable plist (found by review, 2026-09-10)."""
+    root = tmp_path / "R&D <new>"
+    text = install.render_plist(root=root, log=root / "sandbox" / "hub.log")
+    plist = plistlib.loads(text.encode())
+    assert plist["WorkingDirectory"] == str(root)
+    assert plist["ProgramArguments"][1] == str(root / "scripts" / "hub-launch.sh")
+    assert plist["StandardOutPath"] == str(root / "sandbox" / "hub.log")
+    tray = plistlib.loads(
+        install.render_plist(root=root, log=root / "t.log", template=install.TRAY_TEMPLATE).encode()
+    )
+    assert tray["EnvironmentVariables"]["COURTYARD_ROOT"] == str(root)
+
+
 def test_plist_renders_absolute_paths_and_keepalive(tmp_path):
     text = install.render_plist(root=tmp_path, log=tmp_path / "sandbox" / "hub.log")
     plist = plistlib.loads(text.encode())
@@ -148,6 +163,25 @@ def test_install_sh_unpacks_a_zip_package_into_an_empty_directory(tmp_path):
         ["sh", str(ROOT / "install.sh")], env=env, capture_output=True, text=True, check=False
     )
     assert again.returncode != 0 and "is not empty" in again.stderr
+
+    # a .env written ahead of the install (and Finder's .DS_Store) does not make the
+    # directory "not empty": make install keeps an existing .env, so this is how settings
+    # are given before the one-liner runs
+    with_env = tmp_path / "with-env"
+    with_env.mkdir()
+    (with_env / ".env").write_text("COURTYARD_PORT=2628\n")
+    (with_env / ".DS_Store").write_bytes(b"")
+    run = subprocess.run(
+        ["sh", str(ROOT / "install.sh")],
+        env={**env, "COURTYARD_DIR": str(with_env)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert run.returncode == 0, run.stderr
+    assert "keeping the .env" in run.stdout
+    assert (with_env / ".env").read_text() == "COURTYARD_PORT=2628\n"
+    assert (with_env / "Makefile").exists()
 
 
 @pytest.mark.skipif(
@@ -293,3 +327,49 @@ def test_install_refuses_a_hub_already_on_the_port_and_accepts_its_own(monkeypat
 def test_purge_means_exactly_purge_equals_1():
     makefile = (ROOT / "Makefile").read_text()
     assert "$(if $(filter 1,$(PURGE)),--purge)" in makefile  # PURGE=0 must not purge
+
+
+def test_a_new_env_file_takes_the_knobs_from_the_environment(tmp_path, monkeypatch):
+    """`curl ... | COURTYARD_COMPOSE_PROJECT=x COURTYARD_PORT=2628 sh` must yield an
+    isolated instance without a hand-written .env: the commented line in .env.default
+    becomes the setting, in place; an existing .env is never touched."""
+    monkeypatch.setattr(install, "ROOT", tmp_path)
+    monkeypatch.setattr(install, "STEPS", [])
+    (tmp_path / ".env.default").write_text(
+        "# the project\n#COURTYARD_COMPOSE_PROJECT=courtyard\n\n#COURTYARD_PORT=2626\n"
+    )
+    for key in install.ENV_KNOBS:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("COURTYARD_COMPOSE_PROJECT", "courtyard-2")
+    monkeypatch.setenv("COURTYARD_PG_PORT", "26433")
+    monkeypatch.setenv("COURTYARD_PORT", " ")  # blank: not a setting
+    install.make_env_file()
+    text = (tmp_path / ".env").read_text()
+    assert "# the project\nCOURTYARD_COMPOSE_PROJECT=courtyard-2\n" in text  # in place
+    assert "\n#COURTYARD_PORT=2626\n" in text  # untouched
+    assert text.endswith("COURTYARD_PG_PORT=26433\n")  # appended: not in the template
+    assert install.read_env() == {
+        "COURTYARD_COMPOSE_PROJECT": "courtyard-2",
+        "COURTYARD_PG_PORT": "26433",
+    }
+    assert install.project() == "courtyard-2"
+    # a second run keeps the file and warns that the environment was not applied
+    monkeypatch.setenv("COURTYARD_PORT", "2628")
+    install.make_env_file()
+    assert (tmp_path / ".env").read_text() == text
+    assert install.STEPS[-1][1] == "WARNING" and "COURTYARD_PORT=2628" in install.STEPS[-1][2][-1]
+
+
+def test_quoted_dotenv_values_reach_subprocesses_bare(tmp_path, monkeypatch):
+    """make exports .env lines verbatim, so KEY="x" arrived in docker compose as `"x"`
+    (seen live: an invalid container name). The installer puts the file's values, bare,
+    into the environment first."""
+    monkeypatch.setattr(install, "ROOT", tmp_path)
+    (tmp_path / ".env").write_text(
+        'COURTYARD_COMPOSE_PROJECT="vvk-courtyard"\nCOURTYARD_PORT=2628\n'
+    )
+    monkeypatch.setenv("COURTYARD_COMPOSE_PROJECT", '"vvk-courtyard"')  # what make exported
+    install.unquote_env_from_dotenv()
+    assert os.environ["COURTYARD_COMPOSE_PROJECT"] == "vvk-courtyard"
+    assert os.environ["COURTYARD_PORT"] == "2628"
+    assert install.project() == "vvk-courtyard"

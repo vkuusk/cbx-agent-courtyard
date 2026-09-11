@@ -69,20 +69,42 @@ uv run python scripts/runbook/install_mcp_json.py
 
 **Expected:** three blocks, then `(cleaned up …)`, exit 0.
 
-1. **Install** — reports `wrote … .mcp.json` and `backed up … .courtyard-bak`, plus the "do
-   NOT commit it" warning. `servers now: ['my-linter', 'courtyard']` (the pre-existing server
-   is kept), the courtyard `env` shows `TOKEN=…` inline, `file mode : 0o600`, and the backup
-   holds the original.
-2. **Settings** — `allow : ['mcp__courtyard']`, `model : sonnet`, and a status line
-   `echo '⏺ <name> · courtyard'` in `.claude/settings.local.json`.
+1. **Install** — reports `wrote … .mcp.json` and `backed up … .courtyard-bak`, plus the
+   files notice: `Written: .mcp.json holds the agent's token …; a replaced file is kept
+   beside it as *.courtyard-bak … Do NOT commit those: added them to .gitignore (…)`,
+   ending `start-with-courtyard.sh carries no secret and may be committed`. `servers now:
+   ['my-linter', 'courtyard']` (the pre-existing server is kept), the courtyard `env`
+   shows `TOKEN=…` inline, `file mode : 0o600`, and the backup holds the original. The
+   workdir is a git checkout for the check, so `.gitignore` gains the marker line and
+   `.mcp.json`, `.mcp.json.courtyard-bak`, `.claude/settings.local.json`,
+   `.claude/settings.local.json.courtyard-bak` under it (item 28).
+2. **Settings** — `allow : ['mcp__courtyard']`, `model : sonnet`, a status line
+   `echo '⏺ <name> · courtyard'`, and the session-start hook (D40): `hook :
+   SessionStart startup|resume|clear|compact|fork -> .../courtyard-claude-context --hub
+   <url> --name <name>`. The block then prints what the hook injects, run for real:
+   `hookSpecificOutput.additionalContext` starting `You are configured as part of a
+   team of agents ...`, naming the agent, the current team and the channel `courtyard`;
+   against a dead hub URL the same command still answers (`fallback (hub down) :
+   True`), without the team's name.
 3. **Uninstall** — `restored from backup: True`, `servers now : ['my-linter']`, backup gone;
-   the settings hold only `{'model': 'sonnet'}` (the model stays on purpose).
+   the settings hold only `{'model': 'sonnet'}` (the model stays on purpose; the hook
+   is gone with the rest); `gitignore cleaned: True` and `.gitignore` is back to its
+   pre-install lines.
+
+**Manual part (the acceptance that started D40):** register an agent in a brand-new
+directory, `claude --model sonnet` through `start-with-courtyard.sh`, Start shift. The
+session's first lines show the injected context (or `/hooks` lists the SessionStart
+entry); the delivery check is answered with `courtyard_ack` without a question to you,
+the card turns delivery-verified, and a peer's question is answered through
+`courtyard_send`, not refused as injection.
 
 **Also (real terminal path, optional):** `courtyard-invite --register --name coding
 --type claude-code --workdir <dir>` registers and installs in one command; for an agent
 that already exists, `courtyard-invite --name coding --workdir <dir>` is enough (the hub
-keeps the token, D19); add `--remove` to revert. Needs `uv sync` first so the
-`courtyard-invite` entry point exists.
+keeps the token, D19). `courtyard-invite --name coding --remove` is the full undo (item
+40): the files come out, then `removed coding from the hub`; with `--keep-registration`
+the last line reads `coding stays registered on the hub`. Needs `uv sync` first so the
+`courtyard-invite` entry point exists. Scripted: `uv run pytest tests/test_invite.py`.
 
 ---
 
@@ -864,6 +886,10 @@ uv run python scripts/runbook/terminal_spawners.py iTerm2
 `alive() : False` and `orphans : none`. An `orphans` line with pids means End
 shift would leave agents running; the script prints the `pkill` to clean up.
 
+A `tty : NOT REPORTED` line (a Ghostty login shell slower than 5 s) is a degraded
+ref, not a dead one: `alive()` then follows the window alone, so Resume does not open
+a second window beside a running agent; close still closes the window.
+
 **Manual part:** Admin, Terminal application: the pulldown lists the three
 built-ins plus your custom apps (the names come from `GET /api/settings/terminals`).
 Select Ghostty, Start shift: one Ghostty window per agent; End shift closes exactly
@@ -1043,6 +1069,83 @@ uv run python scripts/runbook/memory_vectors.py
    `recall is full-text only`.
 3. Set `COURTYARD_EMBEDDINGS_URL` to a non-local address: the hub refuses to start with
    `refusing to embed through ...` unless `COURTYARD_EMBEDDINGS_ALLOW_REMOTE=1`.
+4. A vector of another width under the current model name (the endpoint swapped its
+   model, the name stayed): in psql or Adminer,
+   `UPDATE memory SET embedding = '[1,0,0]'::vector WHERE id = '<one case file>'`.
+   Recall and the Memory page still answer (no 500), that record is not among the
+   similarity hits, the footer counts it as waiting, and the next sweep (or
+   `POST /api/memory/embed`) gives it a vector of the right width.
+
+---
+
+## Hub memory: export and retention (design hub-memory.md sections 6 and 8, slice 4)
+
+**Feature under test:** the raw memory for other parties. `GET /api/memory/export`
+(the **export JSON Lines** button on the Memory page) streams every record in full,
+one JSON document per line, oldest first: superseded records and notes in every gate
+state included, with their status; `participant`, `line` and `since` narrow it, so an
+external system pulls incrementally. Retention: a case file goes with the archive it
+was distilled from (the archive's transcript names the threads); the archive listing
+and the Archive page's delete confirmation count them. Notes are never touched. A
+deleted case file that had superseded another leaves that record unsuperseded.
+
+**Run** (hub started with `make run`; nothing courtyard-wide is changed; one
+team-wide note stays behind, marked as the script's):
+
+```
+uv run python scripts/runbook/memory_export.py
+```
+
+**Expected:** four blocks, then `(cleaned up ...)`, exit 0.
+
+1. **Three exchanges**: `case files of this run: 3`.
+2. **The export**: `oldest first? : True`, `full documents? : True`, `the note is in :
+   True (status accepted)`, the participant filter lists only the postgres resolution,
+   `since=...: 2 record(s)`.
+3. **The archive counts**: `case_files : 2`, `in the listing : 2`.
+4. **The delete**: `case files of this run left: 1`, the postgres one, `the note
+   stayed : True`.
+
+**Manual part:**
+
+1. Memory page: **export JSON Lines** (top right) downloads `courtyard-memory-<stamp>.jsonl`;
+   with a participant selected the button says so and the file holds only that
+   agent's records. Open the file: one JSON document per line, `document.messages`
+   present on case files.
+2. Archive page: a row of a line with closed threads reads `· N case files`. Delete
+   it: the confirmation names the N case files that go with it; after OK the Memory
+   page (open in another tab) has refetched and they are gone.
+3. Curl, an incremental pull: `curl -s 'http://127.0.0.1:2626/api/memory/export?since=2026-01-01T00:00:00Z' | wc -l`.
+
+---
+
+## The database's identity: a swapped postgres is refused (D38, item 44)
+
+**Feature under test:** at startup the hub stamps the database with an identity
+(`settings.hub_identity`) or adopts the one there; every pooled connection and every
+health ping compares it. When another database answers on the hub's postgres port, the
+hub logs it once, `/api/health` says `error: the database ... is not the one this hub
+started with ...`, every request answers `503 foreign_database`, and only a restart
+adopts the new database.
+
+**Scripted part:**
+
+```
+uv run pytest tests/test_identity.py -q
+```
+
+**Manual part** (two instances on one machine, the way it went wrong on 2026-09-11):
+
+1. A hub is running from install A (`make run` or the LaunchAgent). In another checkout
+   B with a `.env` that sets only `COURTYARD_COMPOSE_PROJECT=other`, stop A's postgres
+   (`docker compose stop postgres` in A), then `make run` in B: B's postgres takes port
+   26432, B's hub fails on port 2626 (A's hub holds it).
+2. A's hub log shows one `ERROR ... not the one this hub started with (expected identity
+   ..., found none)`; `curl -s localhost:2626/api/health` reports the same under `db`;
+   the WebUI's calls fail with 503 `foreign_database`; the menu bar reads `hub: up (db
+   error: ...)`.
+3. Give B its own `COURTYARD_PG_PORT` and `COURTYARD_PORT` in its `.env` (user guide,
+   Installation), restart A's postgres and hub: A serves its own database again.
 
 ---
 
@@ -1067,8 +1170,9 @@ newest release zip (or `COURTYARD_ZIP`), unpacks it into the current empty direc
 (or `COURTYARD_DIR`) and runs `make install`; `COURTYARD_UNPACK_ONLY=1` stops before
 the install. The release workflow attaches `courtyard.zip` to every `v*` tag.
 
-**Scripted part** (renders and lints both plists, checks the wrapper, the tray's logic
-against a live hub, the installer's unpack path from a fresh zip; no install):
+**Scripted part** (renders and lints both plists, a checkout path with `&` or `<`
+included, checks the wrapper, the tray's logic against a live hub, the installer's
+unpack path from a fresh zip; no install):
 
 ```
 uv run pytest tests/test_install_app.py tests/test_tray.py tests/test_health.py -q
@@ -1085,8 +1189,17 @@ uv run pytest tests/test_install_app.py tests/test_tray.py tests/test_health.py 
 0. The one-command path, once a release exists: in an empty directory,
    `curl -fsSL https://raw.githubusercontent.com/vkuusk/cbx-agent-courtyard/main/install.sh | sh`
    prints `downloading Agent Courtyard v...`, `unpacked into ...`, then the six install
-   steps below. In a non-empty directory it stops with `is not empty`. Without Docker
-   running it stops naming the fix.
+   steps below. In a non-empty directory it stops with `is not empty`; a directory
+   holding only a `.env` is taken (`keeping the .env already in ...`, and step 2 keeps
+   it). Without Docker
+   running it stops naming the fix. With settings on the command,
+   `... | COURTYARD_COMPOSE_PROJECT=courtyard-2 COURTYARD_PG_PORT=26433 COURTYARD_PORT=2627 sh`,
+   step 2 prints `.env created from .env.default with COURTYARD_COMPOSE_PROJECT=courtyard-2, ...`,
+   the `.env` has those three lines set in place of the commented ones, step 3 starts
+   `courtyard-2-postgres` on 26433, step 5 says `hub up at http://127.0.0.1:2627`, and
+   the machine's usual instance is untouched. A re-run with a setting on the command and
+   the `.env` present: step 2 `- WARNING:` names it as not applied.
+   Scripted: `uv run pytest tests/test_install_app.py -k knobs`.
 1. End any `make run` hub first (Ctrl+C; `make run-stop` for a `make run-chrome` one):
    the install refuses to load the LaunchAgent while a hub that is not its own answers
    on the port. `make install`:

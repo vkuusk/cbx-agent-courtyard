@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import logging
 from datetime import UTC, datetime
+from types import FrameType
 from urllib.parse import urlsplit
 
 import psycopg
@@ -57,11 +58,11 @@ class AccessLog:
     log; tests build the bare FastAPI app and log nothing, as before."""
 
     def __init__(self, app):
-        self._app = app
+        self.app = app
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
-            await self._app(scope, receive, send)
+            await self.app(scope, receive, send)
             return
 
         async def sending(message):
@@ -89,7 +90,7 @@ class AccessLog:
                 )
             await send(message)
 
-        await self._app(scope, receive, sending)
+        await self.app(scope, receive, sending)
 
 
 class RevalidatingStaticFiles(StaticFiles):
@@ -304,11 +305,26 @@ def configure_logging(level: str) -> None:
     startup_logger.setLevel(logging.INFO)
 
 
-# How long a stopping hub waits for open connections before closing them. The WebUI holds
-# its event stream open for as long as the page lives, so without a bound a SIGTERM (the
-# Admin page's restart, `launchctl kickstart -k`, a bootout) leaves the old process
-# waiting on that stream: not serving, not exiting, and under launchd never restarted.
+# How long a stopping hub waits for open connections before closing them: a backstop. The
+# WebUI holds its event stream open for as long as the page lives; HubServer ends those
+# streams at the stop signal, and this bound covers whatever else is still open, so a
+# SIGTERM (the Admin page's restart, `launchctl kickstart -k`, a bootout) never leaves the
+# old process waiting: not serving, not exiting, and under launchd never restarted.
 GRACEFUL_SHUTDOWN_SECONDS = 3
+
+
+class HubServer(uvicorn.Server):
+    """uvicorn's server with one step added at a stop signal (Ctrl+C, SIGTERM): the event
+    bus closes, so the WebUI's open event streams end by themselves and their connections
+    close. The hub then exits at once, instead of cancelling those streams at the
+    graceful-shutdown bound, which logged an error and a traceback per stream."""
+
+    def handle_exit(self, sig: int, frame: FrameType | None) -> None:
+        super().handle_exit(sig, frame)
+        app = getattr(self.config.app, "app", self.config.app)  # the app inside AccessLog
+        events = getattr(app.state, "events", None)  # absent until the lifespan started
+        if events is not None:
+            events.close()
 
 
 def server_config(cfg: Config, **overrides: object) -> uvicorn.Config:
@@ -329,4 +345,9 @@ def server_config(cfg: Config, **overrides: object) -> uvicorn.Config:
 def cli() -> None:
     cfg = load_config()
     configure_logging(cfg.log_level)
-    uvicorn.Server(server_config(cfg)).run()
+    try:
+        HubServer(server_config(cfg)).run()
+    except KeyboardInterrupt:
+        # uvicorn re-raises Ctrl+C's signal after its own clean shutdown; uvicorn.run()
+        # swallows it the same way, so `make run` ends without a traceback
+        pass

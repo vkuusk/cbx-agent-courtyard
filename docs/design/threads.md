@@ -9,7 +9,7 @@ end expires open threads; item 4 visible boundaries (thread dividers and counts
 in the WebUI, and the operator's close control in the pane header — the
 placement section 3 left open). Per-thread gate policy (the "later, possibly"
 of item 4) remains unbuilt. The one parked question ("verifiably done") is in
-`../next-features-list.md`. Threads are a basic
+`../planning/next-features-list.md`. Threads are a basic
 construct of inter-agent communication in the courtyard, so they get their own
 document; the team charter (`team-charter.md`) references thread policies but
 does not define threads.

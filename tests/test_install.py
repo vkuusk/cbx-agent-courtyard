@@ -295,6 +295,30 @@ class TestStartScript:
         assert '"$@"' in text  # extra flags pass through
         assert mode(script) & 0o111  # executable
 
+    def test_the_wrapper_hands_claude_the_server_approval_as_one_argument(self, tmp_path):
+        """Claude Code ignores the approval stored in settings.local.json outside a git
+        checkout, so the launch carries it; the JSON must reach claude intact through the
+        shell. A fake `claude` on PATH prints the arguments it received, one per line."""
+        import os
+        import subprocess
+
+        install.install(str(tmp_path), CMD, HUB, "coding", "tok", model="haiku")
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        fake = bin_dir / "claude"
+        fake.write_text('#!/bin/sh\nfor a in "$@"; do printf \'%s\\n\' "$a"; done\n')
+        fake.chmod(0o755)
+        run = subprocess.run(
+            [str(tmp_path / "start-with-courtyard.sh"), "--extra"],
+            env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"},
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        argv = run.stdout.splitlines()
+        assert argv[argv.index("--settings") + 1] == '{"enabledMcpjsonServers":["courtyard"]}'
+        assert argv[argv.index("--model") + 1] == "haiku" and argv[-1] == "--extra"
+
     def test_reinstall_regenerates_our_script_without_backing_it_up(self, tmp_path):
         install.install(str(tmp_path), CMD, HUB, "coding", "tok", model="haiku")
         install.install(str(tmp_path), CMD, HUB, "coding", "tok", model="opus")
@@ -345,6 +369,8 @@ class TestPiInstall:
         text = ext.read_text()
         assert '"tok"' in text and '"pibot"' in text and HUB in text
         assert "__COURTYARD_" not in text  # every placeholder substituted
+        # the membership context's fallback (D40) is rendered in, without a team's name
+        assert "You are configured as part of a team" in text and "of the team" not in text
         assert mode(ext) == 0o600
         script = tmp_path / "start-with-courtyard.sh"
         assert "exec pi " in script.read_text()
@@ -354,6 +380,11 @@ class TestPiInstall:
         text2 = skill.read_text()
         assert text2.startswith("---\nname: courtyard")
         assert "courtyard_send" in text2 and "Written by the courtyard" in text2
+
+    def test_the_wrapper_carries_the_declared_model(self, tmp_path):
+        install.install_pi(str(tmp_path), HUB, "pibot", "tok", model="openai/gpt-5.6-luna")
+        script = (tmp_path / "start-with-courtyard.sh").read_text()
+        assert "exec pi --model openai/gpt-5.6-luna " in script
 
     def test_reinstall_regenerates_ours_and_backs_up_a_foreign_file(self, tmp_path):
         install.install_pi(str(tmp_path), HUB, "pibot", "tok")

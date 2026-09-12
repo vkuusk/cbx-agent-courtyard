@@ -350,7 +350,8 @@ uv run python scripts/runbook/agents_edit.py
 1. Agents page: **no message box** (it lives on the Courtyard page only, item 20); the
    add form is collapsed behind **+ Add an agent** and, expanded, reads name · type ·
    directory · model · colour on one row, then two multiline boxes (what is it for /
-   what does it own). Rows carry **edit** and **remove** only.
+   what does it own). Rows carry **edit** and **remove**, plus **sync dir** on
+   claude-code and pi agents.
 2. **edit** on a row opens the Edit Agent view: change the description and colour, save —
    the row and the board card update live; **launch config** and **rotate token** are in
    the same panel. Name and type are shown as permanent.
@@ -369,6 +370,13 @@ uv run python scripts/runbook/agents_edit.py
    it and the start string becomes editable, with the caveat that a custom app only
    opens windows (End shift cannot close them); **remove app** falls back to Terminal.
    With a custom app selected, Start shift opens the agents in that terminal.
+7. **sync dir** on a claude-code agent's row that has a project directory: "synced"
+   shows under its buttons for a few seconds (hovering it shows the files notice), the
+   selection does not move, and `.mcp.json`, `.claude/settings.local.json` and
+   `start-with-courtyard.sh` in that directory carry a fresh modification time. On a pi
+   agent it rewrites the extension, the skill and the script. An agent without a project
+   directory shows the button disabled, its tooltip saying to set one first; the operator
+   and dummy agents have no button.
 
 ---
 
@@ -546,8 +554,10 @@ as the Claude Code adapter.
 **Scripted part** (runs the exact install-written file under Node with a stub `pi`
 object against a real hub: attach with `channel_flag: present`, push arrives as a
 `customType: "courtyard"` message with `triggerTurn`/`followUp`, reply through the
-turn machine, a turn violation surfaced verbatim, the delivery check acked, clean
-detach):
+turn machine, a turn violation surfaced verbatim, the delivery check worded for pi and
+acked, clean detach; the membership context stored at session start before attaching,
+with the team's name from the hub or the built-in text when the hub is down, and stored
+again after a compaction that summarized it away):
 
 ```
 uv run pytest tests/test_pi_adapter.py -q
@@ -556,17 +566,26 @@ uv run pytest tests/test_pi_adapter.py -q
 **Manual part — a real pi session** (needs pi installed: `npm i -g @earendil-works/pi-coding-agent`):
 
 1. Register an agent with `--type pi` and a workdir; install writes the extension,
-   the wrapper, and the etiquette skill (`.pi/skills/courtyard/SKILL.md`). Run `./start-with-courtyard.sh` there: the card goes green with
+   the wrapper, and the etiquette skill (`.pi/skills/courtyard/SKILL.md`). Run `./start-with-courtyard.sh` there (it runs
+   `pi --model <model>` when the agent declares one, e.g. `openai/gpt-5.6-luna`): the card goes green with
    `channel_flag` present, and — with a shift on — the delivery check turns the ✓
    green as the model calls `courtyard_ack`.
-2. Message it from the board: the envelope appears in the pi session as a courtyard
+2. The membership context: before the footer reads connected, the session shows a
+   courtyard-context message naming the agent and its team and saying the directory
+   name does not matter (`.courtyard/adapter.log`: `membership context added`). With a
+   shift on, the model answers the check with one `courtyard_ack` and then waits: no
+   message to a peer or the operator, no inspecting the project. The check's header reads
+   "A delivery check from the courtyard hub itself", and footers on messages to a pi
+   agent name the courtyard tool, not an MCP tool. Quit and continue the session (`pi -c`): no second
+   block. After a `/compact` the session still holds the block, kept or stored again.
+3. Message it from the board: the envelope appears in the pi session as a courtyard
    message (not as user input), and the model's reply comes back via
    `courtyard_send` and lands on the board.
-3. In the pi TUI: the footer shows `⏺ <agent> · courtyard · connected`; incoming
+4. In the pi TUI: the footer shows `⏺ <agent> · courtyard · connected`; incoming
    envelopes render as courtyard cards (sender + kind header), not raw XML;
    `/courtyard` answers with the connection and queue without an LLM turn; and
    `.courtyard/adapter.log` in the workdir logs every delivery.
-4. Mixed team: one claude-code agent and one pi agent on a line, a relayed question
+5. Mixed team: one claude-code agent and one pi agent on a line, a relayed question
    through the gate — same turn-taking, same envelope, both directions.
 
 ## The team charter registry, read path (design team-charter.md, D33 — slice 1)
@@ -860,6 +879,44 @@ uv run python scripts/runbook/team_charter.py
    of `examples/team-charters/aws-devops`), select it as current: its agents
    project onto the board, and any agent of no other team is adopted into it
    (its card files appear in the new charter directory).
+
+## Charter load writes the agents' files (team-charter.md section 6, D33)
+
+**Feature under test:** a load that registers an agent (choosing the current
+team, or a reload that finds a new card) writes that agent's courtyard files into
+its workdir with the fresh token: `.mcp.json` (600), `.claude/settings.local.json`
+and `start-with-courtyard.sh` for claude-code; the extension, skill and script
+for pi. Choosing an agent's directory under Admin, Teams writes its files too.
+Agents already registered are never rewritten by a reload. What was written shows
+under the team as its files report; a file that could not be written is a problem
+in the load report, and the load goes on.
+
+**Scripted part** (checkpoints 6 to 8 of the charter script, own throwaway hub):
+
+```
+uv run python scripts/runbook/team_charter.py
+```
+
+**Manual part** (a fresh hub with no team: a scratch hub, or `make db-nuke` then
+`make run` on a checkout that is not the installed app):
+
+1. Copy `examples/team-charters/aws-devops` to a scratch directory. Make two empty
+   project directories and write `workdirs.local.yml` beside the copy's
+   `team-definition.yml`, mapping `infra-agent` and `tf-developer` to them
+   (`workdirs:` then one `name: /absolute/path` line each); leave `argocd-agent` out.
+2. Courtyard page, Team panel: **browse**, pick the copy. Three agents appear. Both
+   mapped directories now hold `.mcp.json` (`ls -l` shows `-rw-------`),
+   `.claude/settings.local.json` and `start-with-courtyard.sh`; the token in each
+   `.mcp.json` matches the agent's **launch config**.
+3. Admin, Teams, expand the team: a muted list names the files written for the two
+   agents and says `argocd-agent` has no project directory yet. No red problems.
+4. Choose `argocd-agent`'s directory in its "directory on this machine" cell: its
+   files appear there, and the list now names it.
+5. **Start shift**: every agent's terminal opens and connects (allow the channel when
+   Claude Code asks at first launch; it does not ask about the MCP server, the launch
+   command approves it), with no per-agent step and no restart.
+6. End the shift, delete one agent's `.mcp.json`, press **reload from disk**: the
+   file is not recreated and the files list is empty.
 
 ---
 

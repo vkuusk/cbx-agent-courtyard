@@ -13,6 +13,12 @@ the files — whether the operator edited them by hand or the hub did it for the
 Problems land in the team's load report next to the loader's own, because the WebUI's
 job is to display what happened, not to abort on it.
 
+Projection also prepares the agents' project directories: an agent the load registers
+has a fresh token no file can know yet, so its courtyard files (the set the install
+endpoint writes) go into its workdir in the same gesture, and an agent whose workdir the
+operator answers later gets them at that answer. Registered agents are never rewritten
+by a reload. What was written lands in the team's files report.
+
 Like Settings, team changes publish no SSE event of their own: the Admin tab that made
 the change updates from the response, other tabs catch up on their next snapshot — and
 the agents and lines projection creates announce themselves through the registry's and
@@ -26,7 +32,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 from courtyard.common.models import Agent, Charter, CharterCard, Team
-from courtyard.hub.core import charter
+from courtyard.hub.core import charter, install
 from courtyard.hub.core.board import Board
 from courtyard.hub.core.errors import (
     AlreadyLinked,
@@ -43,6 +49,9 @@ from courtyard.hub.core.errors import (
 )
 from courtyard.hub.core.registry import Registry
 from courtyard.hub.storage.repo import Storage
+
+# the agent types whose sessions read courtyard files from their workdir; a dummy has none
+FILE_TYPES = ("claude-code", "pi")
 
 
 class TeamService:
@@ -102,10 +111,16 @@ class TeamService:
                 load_report=report,
             )
 
-    def reload(self, team_id: UUID) -> Team:
+    def reload(self, team_id: UUID, hub_url: str) -> Team:
         """Re-read the charter from disk — the operator's declaration that the files
         are ready (a git pull landed, an edit finished, a workdir was answered). For
-        the current team this is also the moment the database is made to match."""
+        the current team this is also the moment the database is made to match, and
+        every agent it registers gets its files, pointing at `hub_url`."""
+        return self._reload(team_id, hub_url)
+
+    def _reload(self, team_id: UUID, hub_url: str, answered: str | None = None) -> Team:
+        """`answered` names the agent whose workdir was just chosen: it gets its files
+        with its stored token, unless this very load registered it (and wrote them)."""
         with self._storage.transaction() as uow:
             team = uow.teams.get(team_id)
         if not team:
@@ -113,20 +128,27 @@ class TeamService:
         if team.is_current and self._shift_active():
             raise ShiftActive("a shift is running; end it before reloading the current team")
         loaded, report = charter.load_charter(Path(team.charter_dir))
+        files: list[str] = []
         if team.is_current and loaded:
-            report = report + self._project(loaded)
+            problems, created = self._project(loaded)
+            report = report + problems
+            for agent, token in created:
+                self._write_files(agent, token, hub_url, report, files)
+            if answered and answered not in {agent.name for agent, _ in created}:
+                self._write_answered(answered, hub_url, report, files)
         with self._storage.transaction() as uow:
             updated = uow.teams.set_loaded(
                 team_id,
                 loaded.name if loaded else team.name,
                 loaded.model_dump() if loaded else None,
                 report,
+                files,
             )
         if not updated:
             raise TeamNotFound("no such team")
         return updated
 
-    def set_current(self, team_id: UUID | None) -> list[Team]:
+    def set_current(self, team_id: UUID | None, hub_url: str) -> list[Team]:
         """Select the current team. Becoming current is the initialization gesture: it
         adopts any agent no registered team's charter names, then reloads and projects
         the charter. The courtyard always has a current team once one was chosen
@@ -145,7 +167,7 @@ class TeamService:
                 raise TeamNotFound("no such team")
             uow.teams.set_current(team_id)
         self._adopt_orphans()
-        self.reload(team_id)
+        self._reload(team_id, hub_url)
         return self.list()
 
     def _adopt_orphans(self) -> None:
@@ -164,9 +186,10 @@ class TeamService:
                 continue
             self.writeback_created(agent)
 
-    def set_workdir(self, team_id: UUID, agent_name: str, workdir: str) -> Team:
+    def set_workdir(self, team_id: UUID, agent_name: str, workdir: str, hub_url: str) -> Team:
         """Answer the per-machine workdir question for one charter agent (ask-at-init,
-        D33): record it in the overlay file, then reload so the registration follows."""
+        D33): record it in the overlay file, then reload so the registration follows and,
+        for the current team, the agent's files land in the chosen directory."""
         with self._storage.transaction() as uow:
             team = uow.teams.get(team_id)
         if not team:
@@ -177,7 +200,7 @@ class TeamService:
         if not path.is_dir():
             raise WorkdirNotFound(f"{path} is not a directory the hub can see")
         charter.set_workdir(Path(team.charter_dir), agent_name, str(path))
-        return self.reload(team_id)
+        return self._reload(team_id, hub_url, answered=agent_name)
 
     def remove(self, team_id: UUID) -> Team:
         """Drop the registry entry; the charter files are the operator's and stay, and
@@ -322,16 +345,18 @@ class TeamService:
 
     # -- projection (design team-charter.md §6) ---------------------------------------
 
-    def _project(self, loaded: Charter) -> list[str]:
+    def _project(self, loaded: Charter) -> tuple[list[str], list[tuple[Agent, str]]]:
         """Make the database match the charter: cards become registrations, links become
         lines, a declared discovery regime becomes the Settings dial. Additive only;
-        returns the problems found, load-report style."""
+        returns the problems found, load-report style, and the agents it registered with
+        their fresh tokens."""
         problems: list[str] = []
+        created: list[tuple[Agent, str]] = []
         if loaded.discovery:
             # reasserted on every reload, like declared line modes: the files are the
             # master for what they state. Undeclared = the dial stays the operator's.
             self._set_discovery(loaded.discovery)
-        names = (self._project_card(card, problems) for card in loaded.agents)
+        names = (self._project_card(card, problems, created) for card in loaded.agents)
         placed = {name for name in names if name}
         lines = {frozenset((li.agent_a_name, li.agent_b_name)): li for li in self._board.lines()}
         for link in loaded.links:
@@ -348,10 +373,13 @@ class TeamService:
             elif link.mode and existing.mode != link.mode:
                 # files are the master: a declared mode is reasserted on every reload
                 self._board.set_mode(existing.id, link.mode)
-        return problems
+        return problems, created
 
-    def _project_card(self, card: CharterCard, problems: list[str]) -> str | None:
-        """One card into one registration; returns the name when it is in place."""
+    def _project_card(
+        self, card: CharterCard, problems: list[str], created: list[tuple[Agent, str]]
+    ) -> str | None:
+        """One card into one registration; returns the name when it is in place. A new
+        (or revived) registration joins `created` with its token."""
         with self._storage.transaction() as uow:
             existing = uow.agents.get_by_name(card.name)
         # a removed name is registered again (the registry revives its row): the files
@@ -360,15 +388,17 @@ class TeamService:
             if card.type is None:
                 problems.append(f"agent {card.name}: card.yml declares no type; not registered")
                 return None
-            self._registry.create(
-                card.name,
-                card.type,
-                description=card.description,
-                sme_domain=card.sme_domain,
-                workdir=card.workdir,
-                color=card.color,
-                model=card.model,
-                anti_scope=card.anti_scope,
+            created.append(
+                self._registry.create(
+                    card.name,
+                    card.type,
+                    description=card.description,
+                    sme_domain=card.sme_domain,
+                    workdir=card.workdir,
+                    color=card.color,
+                    model=card.model,
+                    anti_scope=card.anti_scope,
+                )
             )
             return card.name
         if existing.type == "human":
@@ -397,3 +427,48 @@ class TeamService:
             fields["workdir"] = card.workdir
         self._registry.update(card.name, fields)
         return card.name
+
+    # -- the agents' files (design team-charter.md §6) -----------------------------------
+
+    def _write_answered(
+        self, name: str, hub_url: str, problems: list[str], files: list[str]
+    ) -> None:
+        """The workdir answer for an agent registered at an earlier load: its stored token
+        goes into the chosen directory."""
+        with self._storage.transaction() as uow:
+            agent = uow.agents.get_by_name(name)
+        if agent is None or agent.removed_at is not None or agent.type not in FILE_TYPES:
+            return  # not registered as a launchable agent; the load report says why
+        try:
+            token = self._registry.token_of(agent.name)
+        except DomainError as exc:
+            problems.append(f"agent {name}: its courtyard files were not written: {exc}")
+            return
+        self._write_files(agent, token, hub_url, problems, files)
+
+    @staticmethod
+    def _write_files(
+        agent: Agent, token: str, hub_url: str, problems: list[str], files: list[str]
+    ) -> None:
+        """One agent's courtyard files into its workdir, the set the install endpoint
+        writes. What was written goes to the files report; a failure is a problem for the
+        load report and never stops the load."""
+        if agent.type not in FILE_TYPES:
+            return
+        if not agent.workdir:
+            files.append(
+                f"{agent.name}: no project directory on this machine yet; its files are "
+                "written when you choose one"
+            )
+            return
+        try:
+            result = install.install_agent(agent, agent.workdir, hub_url, token)
+        except (DomainError, OSError) as exc:
+            problems.append(
+                f"agent {agent.name}: its courtyard files were not written into "
+                f"{agent.workdir}: {exc}"
+            )
+            return
+        files.append(
+            f"{agent.name}: courtyard files written into {agent.workdir}. {result.warning}"
+        )

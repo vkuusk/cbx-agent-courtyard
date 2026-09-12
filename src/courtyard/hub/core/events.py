@@ -18,12 +18,41 @@ logger = logging.getLogger("courtyard.hub")
 
 _QUEUE_SIZE = 256
 
+# Put in every subscriber's queue when the hub stops: the stream reading it ends.
+CLOSED = object()
+
 
 class EventBus:
     def __init__(self) -> None:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._queues: set[asyncio.Queue] = set()
         self._views: dict[str, Callable[[BaseModel], BaseModel]] = {}
+        self._closed = False
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    def close(self) -> None:
+        """The hub is stopping: wake every open stream so it ends by itself, and let any
+        stream that subscribes afterwards end at once. Streams that end on their own let
+        the server exit right away, instead of being cancelled at its graceful-shutdown
+        bound (a logged error and a traceback per stream). Idempotent, and safe from a
+        signal handler: the wake-up is scheduled on the loop."""
+        self._closed = True
+        if self._loop is None or self._loop.is_closed():
+            return
+        try:
+            self._loop.call_soon_threadsafe(self._wake_all)
+        except RuntimeError:  # loop shut down between the check and the call
+            pass
+
+    def _wake_all(self) -> None:
+        for queue in self._queues:
+            try:
+                queue.put_nowait(CLOSED)
+            except asyncio.QueueFull:
+                pass  # a full queue has events to hand over; its stream checks `closed` next
 
     def view(self, type_: str, fn: Callable[[BaseModel], BaseModel]) -> None:
         """Every published model of this type passes through `fn` first. For state the

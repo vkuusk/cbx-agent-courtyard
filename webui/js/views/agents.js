@@ -21,8 +21,12 @@ const charterOf = (agentName) => {
 // The channels preview drifted twice in four days (feedback item 11): 2.1.241 stopped
 // honouring this flag, 2.1.245 restored it — and made the two-flag workaround fail. This
 // single-flag form is verified end-to-end by tests/communications/oper-agent1-oper.py.
+// --settings approves the courtyard MCP server for the launch: Claude Code ignores the
+// approval stored in .claude/settings.local.json in a workdir that is not a git checkout.
+// Must match shift.py's CLAUDE_LAUNCH.
 const claudeLaunch = (agent) =>
   "claude --dangerously-load-development-channels server:courtyard" +
+  ` --settings '{"enabledMcpjsonServers":["courtyard"]}'` +
   (agent.model ? ` --model ${agent.model}` : "");
 
 function dummyCommand(agent, token, behavior) {
@@ -109,6 +113,32 @@ function InstallButton({ agent }) {
   </div>`;
 }
 
+// "sync dir" on the agent's row (his feedback, 2026-09-11): the launch config's "write the
+// files" without opening the Edit view, for rewriting an agent's files often (a hub
+// reinstall, a courtyard upgrade, a rotated token). Same hub call, same files.
+function SyncDirButton({ agent }) {
+  const [state, setState] = useState({});
+  const workdir = agent.workdir;
+  const run = async (e) => {
+    e.stopPropagation(); // not a row click: the selection stays where it is
+    setState({ busy: true });
+    try {
+      const result = await api.installAgent(agent.name, workdir);
+      setState({ done: result.warning });
+      setTimeout(() => setState((s) => (s.done ? {} : s)), 6000);
+    } catch (err) {
+      setState({ error: err.message });
+    }
+  };
+  const title = workdir
+    ? `Write this agent's courtyard files into ${workdir}. A running session picks them up at its next start.`
+    : "Set a project directory first (edit).";
+  return html`<button class="btn" title=${title} disabled=${!workdir || state.busy} onClick=${run}>
+      ${state.busy ? "syncing…" : "sync dir"}</button>
+    ${state.done ? html`<span class="small muted sync-note" title=${state.done}>synced</span>` : null}
+    ${state.error ? html`<span class="small error sync-note">${state.error}</span>` : null}`;
+}
+
 function DummyPanel({ agent, token }) {
   const [behavior, setBehavior] = useState("manual");
   const cmd = dummyCommand(agent, token, behavior);
@@ -173,7 +203,8 @@ function PiPanel({ agent }) {
     <div class="small muted">The whole adapter is one file, <code>.pi/extensions/courtyard.ts</code>, written by
       the hub with this agent's token inside (chmod 600, keep it out of git). pi loads it
       automatically; there is no flag to remember, and starting the
-      agent is <code>./start-with-courtyard.sh</code> (or plain <code>pi</code>) in its directory.</div>
+      agent is <code>./start-with-courtyard.sh</code> (or <code>pi</code>, with <code>--model</code> when the agent
+      declares a model) in its directory.</div>
     <${InstallButton} agent=${agent} />
     <div class="small muted" style="margin-top:.8rem">If the hub cannot see the directory (live
       mode), run <code>uv run courtyard-invite --register</code> for this agent on the machine that can.</div>
@@ -277,7 +308,7 @@ function AddForm({ onCreated, suggested }) {
         title="the agent's project directory; lets the hub write its config there for you" />
       <${DirPicker} prompt="Choose the agent's project directory" onPick=${setWorkdir} />
       <input name="model" placeholder="model (optional, e.g. sonnet)"
-        title="the model its runtime should use; written into .claude/settings.local.json by install, and the launch command adds --model" />
+        title="the model its runtime should use: an alias such as sonnet for claude-code, provider/model such as openai/gpt-5.6-luna for pi; the launch command adds --model" />
       <div class="swatches" role="radiogroup" aria-label="colour on the board">
         <span class="small muted">colour:</span>
         ${COLORS.map((c) => html`<button type="button" class="swatch ${c === color ? "selected" : ""}" data-color=${c}
@@ -504,6 +535,7 @@ export function Agents() {
           <td>${pickable
             ? html`<div class="actions">
                 <button class="btn" onClick=${stop(() => setPanel({ agent: a, edit: true }))}>edit</button>
+                ${a.type === "claude-code" || a.type === "pi" ? html`<${SyncDirButton} agent=${a} />` : null}
                 <button class="btn danger" onClick=${stop(() => setRemoving(a))}>remove</button></div>`
             : html`<span class="muted small">—</span>`}</td>
         </tr>`;

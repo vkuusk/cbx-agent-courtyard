@@ -53,6 +53,20 @@ class Harness:
                 return event
         raise AssertionError(f"{what} never arrived")
 
+    def collect_until(self, predicate, timeout=10.0, what="event") -> list[dict]:
+        """Every event up to and including the first that matches."""
+        seen: list[dict] = []
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                event = self.events.get(timeout=0.2)
+            except queue.Empty:
+                continue
+            seen.append(event)
+            if predicate(event):
+                return seen
+        raise AssertionError(f"{what} never arrived")
+
     def send(self, command: dict) -> None:
         self.proc.stdin.write(json.dumps(command) + "\n")
         self.proc.stdin.flush()
@@ -130,6 +144,9 @@ def test_pi_extension_end_to_end(live_hub, tmp_path):
         assert push["message"]["customType"] == "courtyard"
         assert "<courtyard-message" in push["message"]["content"]
         assert "hello pibot" in push["message"]["content"]
+        # the footer names the tool the way pi lists it: no MCP (D40)
+        assert "courtyard tool `courtyard_send`" in push["message"]["content"]
+        assert "MCP" not in push["message"]["content"]
         assert push["options"] == {"triggerTurn": True, "deliverAs": "followUp"}
 
         # Session -> hub: the reply travels the same turn machine as every agent's.
@@ -151,6 +168,10 @@ def test_pi_extension_end_to_end(live_hub, tmp_path):
             lambda e: e["event"] == "sendMessage" and "courtyard_ack" in e["message"]["content"],
             what="delivery check push",
         )
+        # worded for pi (D40): the tool by its own name, and nothing asked beyond the call
+        assert "MCP" not in check["message"]["content"]
+        assert "your operator sees the result on the board" in check["message"]["content"]
+        assert "A delivery check from the courtyard hub itself" in check["message"]["content"]
         check_token = re.search(r'token "([^"]+)"', check["message"]["content"]).group(1)
         ack = harness.call("courtyard_ack", token=check_token)
         assert "Delivery confirmed" in ack["text"]
@@ -170,3 +191,54 @@ def test_pi_extension_end_to_end(live_hub, tmp_path):
     finally:
         harness.stop()
         admin.close()
+
+
+def test_pi_session_stores_the_membership_context_first(live_hub, tmp_path):
+    """D40 on pi: at session start, before attaching, the extension stores the
+    hub-rendered block without a turn, so the first delivery already finds it. A
+    compaction that kept the block adds nothing; one that summarized it stores it again."""
+    hub = live_hub()
+    admin = HubClient(hub)
+    _, token = admin.register_agent("pimember", "pi", "the pi twin", None, str(tmp_path))
+    ext = tmp_path / "courtyard.mjs"
+    ext.write_text(install_core.pi_extension(hub, "pimember", token))
+    harness = Harness(ext)
+    try:
+        before = harness.collect_until(lambda e: e["event"] == "started", what="session_start")
+        stored = [e for e in before if e["event"] == "sendMessage"]
+        assert len(stored) == 1
+        block = stored[0]
+        assert block["message"]["customType"] == "courtyard-context"
+        assert not block.get("options")  # stored, no turn
+        text = block["message"]["content"]
+        assert '"pimember"' in text and "of the team" in text  # the hub answered
+        assert "whatever this project's directory is called" in text
+        assert "end your turn and wait" in text
+        assert ".pi/extensions/courtyard.ts" in text
+        assert "<channel" not in text and "mcp__" not in text
+        wait_agent(admin, "pimember", lambda a: a.status == "connected", what="attach")
+
+        harness.send({"cmd": "compact", "summarized": False})
+        kept = harness.collect_until(lambda e: e["event"] == "compacted", what="compaction")
+        assert not [e for e in kept if e["event"] == "sendMessage"]
+        harness.send({"cmd": "compact", "summarized": True})
+        summarized = harness.collect_until(lambda e: e["event"] == "compacted", what="compaction")
+        again = [e["message"]["customType"] for e in summarized if e["event"] == "sendMessage"]
+        assert again == ["courtyard-context"]
+        assert "membership context added" in (tmp_path / ".courtyard/adapter.log").read_text()
+    finally:
+        harness.stop()
+        admin.close()
+
+
+def test_pi_membership_context_without_a_hub_is_the_built_in_text(tmp_path):
+    ext = tmp_path / "courtyard.mjs"
+    ext.write_text(install_core.pi_extension("http://127.0.0.1:9", "loner", "tok"))
+    harness = Harness(ext)
+    try:
+        block = harness.wait_for(lambda e: e["event"] == "sendMessage", what="membership block")
+        text = block["message"]["content"]
+        assert text.startswith("You are configured as part of a team") and '"loner"' in text
+        assert "of the team" not in text
+    finally:
+        harness.stop()

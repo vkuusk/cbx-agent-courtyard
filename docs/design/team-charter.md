@@ -78,7 +78,7 @@ team's name on the Courtyard page; Admin gets a Teams section: add a team by
 directory (the browse dialog from the workdir picker, reused) and a pulldown
 selecting the current team. In v1 this is registration and selection only:
 what switching the current team does to a running hub (agents, lines, history)
-is postponed past v1 (recorded in `../next-features-list.md`). The hub stays
+is postponed past v1 (recorded in `../planning/next-features-list.md`). The hub stays
 git-agnostic: it reads and writes charter files; commits, history and review
 are the operator's.
 
@@ -333,7 +333,8 @@ One source, two projections, never hand-maintained twice:
 - **Projection into agent-side files**, for everything an agent loads as context:
   install renders rules-of-engagement content into the agent's skill (the pi
   etiquette skill already works exactly this way; a Claude Code equivalent is the
-  natural extension), and the launch config files stay as they are.
+  natural extension), and the launch config files are written by the load that
+  registers the agent (below).
 
 Existing machinery that becomes charter-fed rather than newly built: registration
 and install (cards), manual links (topology), the envelope's peer roster and
@@ -360,6 +361,24 @@ is to show what happened. Projection goes through the same registry and board
 operations the operator's own gestures use, so events, colour picking and the
 operator-line invariants all apply unchanged.
 
+The load also writes the agents' launch config files. An agent the load
+registers (or revives) has a fresh token that no file in its project directory
+can know, so the hub writes that agent's files into its workdir in the same
+gesture: the set the Agents page's **write the files** writes, that is
+`.mcp.json` with the token, the `.claude/settings.local.json` profile and
+`start-with-courtyard.sh` for claude-code, the extension, the skill and the
+script for pi, and nothing for a dummy. A team loaded from its charter on a
+fresh hub therefore starts its shift with nothing done per agent. An agent
+without a workdir on this machine registers without files and gets them when
+the operator chooses its directory in the Teams view. Agents already registered
+are not rewritten by a reload: their token did not change, and a rewrite on
+every reload would replace the backup of the operator's own `.mcp.json` with the
+hub's previous copy. What the load wrote goes into the team's files report,
+shown beside the load report; a file it could not write (a directory that does
+not exist, an `.mcp.json` that is not valid JSON) is a problem in the load
+report, and the load goes on for the other agents. A non-current team writes
+nothing, as it projects nothing.
+
 The anti-scope reaches the models as decided in section 3: one line per peer,
 appended to the hub-rendered roster entry as `not for: ...`, collapsed to a
 single line however `anti-scope.md` was wrapped. The field also joined the
@@ -370,4 +389,4 @@ hubs get it too.
 
 None remaining; every question raised in the design
 discussion is either decided in section 3 or postponed with its reasoning in
-`../next-features-list.md` (team switching, hook-loaded context).
+`../planning/next-features-list.md` (team switching, hook-loaded context).

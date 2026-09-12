@@ -284,9 +284,15 @@ class TeamRepo(Protocol):
     def list(self) -> list[Team]: ...
 
     def set_loaded(
-        self, team_id: UUID, name: str | None, loaded: dict | None, load_report: list[str]
+        self,
+        team_id: UUID,
+        name: str | None,
+        loaded: dict | None,
+        load_report: list[str],
+        files_report: list[str] | None = None,
     ) -> Team | None:
-        """Record a reload: the cached charter, its report, and loaded_at = now."""
+        """Record a reload: the cached charter, its report, and loaded_at = now. The files
+        report is replaced when given; None keeps it (a refresh that wrote no files)."""
         ...
 
     def set_current(self, team_id: UUID | None) -> None:

@@ -199,7 +199,9 @@ class ChannelService:
             uow.channels.begin_verify(agent.id, token)
             updated = uow.agents.get(agent.id)
         self._events.publish("agent", updated)
-        message = with_rendering(self._check_message(agent.id, token))
+        message = with_rendering(
+            self._check_message(agent.id, token, agent.type), delivery_check=True
+        )
         if not self._deliverer.push_raw(channel, message):
             with self._storage.transaction() as uow:
                 uow.channels.fail_verify(agent.id)
@@ -222,16 +224,18 @@ class ChannelService:
         logger.info("delivery check for %s: verified", agent.name)
         return True
 
-    def _check_message(self, agent_id: UUID, token: str) -> Message:
+    def _check_message(self, agent_id: UUID, token: str, agent_type: str) -> Message:
         """A synthetic, storage-less message: it rides the normal push payload, so any
-        adapter version forwards it like real mail. Never enters history."""
-        body = delivery_check_body(token)
+        adapter version forwards it like real mail. Never enters history. Worded for the
+        agent's adapter (the MCP tool name only for Claude Code)."""
+        body = delivery_check_body(token, agent_type)
         return Message(
             id=uuid4(),
             line_id=uuid4(),  # no line: the check exists only in flight
             seq=0,
             sender=None,
             recipient=agent_id,
+            recipient_type=agent_type,
             kind="system",
             body=body,
             status="delivered",

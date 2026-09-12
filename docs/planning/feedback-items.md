@@ -922,7 +922,7 @@ turn — nothing prompts an idle session. Queued backlog is pushed on attach. Re
 open question: the wake-at-turn-end check (open design questions); channels preview
 drift (item 11) is what makes a fallback worth discussing.
 
-**Status.** moved to `../next-features-list.md` as a feature of its own (a delivery
+**Status.** moved to `next-features-list.md` as a feature of its own (a delivery
 design, not a fix); the question is stated there.
 
 ### 33. Detect a channel-less session by its launch flag; tell the operator in their face
@@ -1160,7 +1160,7 @@ paths); storage (new tables); Admin/WebUI (whatever is surfaced to the operator)
 **Status.** decided (**D37**, `../design/hub-memory.md`) and implemented through slice
 3: case files at thread close, `courtyard_recall`, notes with `courtyard_note` through
 the gate, similarity search; slice 4 (export, supersede, retention, the envelope hint)
-is in `../next-features-list.md`.
+is in `next-features-list.md`.
 
 ### 40. `courtyard-invite --remove` undoes the install but not the registration
 
@@ -1211,7 +1211,7 @@ team setups shareable between engineers by publishing the charter repo;
 directories (possibly subdirs of one repo) and one is current; Courtyard page
 shows the current team's name, Admin gets a Teams section (add by directory,
 current-team pulldown); v1 = registration and selection only, switching a
-running hub postponed (docs/next-features-list.md created for postponed
+running hub postponed (docs/planning/next-features-list.md created for postponed
 features, no version assignments); no team registered = today's behavior
 (charter opt-in); hub git-agnostic; **team-definition.yml** (2026-09-07) —
 YAML index in the charter dir, single team root, maps agents to relative

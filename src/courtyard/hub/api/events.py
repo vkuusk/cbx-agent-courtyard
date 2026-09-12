@@ -13,6 +13,8 @@ import json
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
+from courtyard.hub.core.events import CLOSED
+
 router = APIRouter(tags=["events"])
 
 KEEPALIVE_SECONDS = 15
@@ -26,12 +28,16 @@ async def events(request: Request) -> StreamingResponse:
         queue = bus.subscribe()
         try:
             yield ": connected\n\n"
-            while True:
+            # until the hub stops: the bus closes at the stop signal (HubServer), and a
+            # stream that ends by itself lets the server exit without cancelling it
+            while not bus.closed:
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=KEEPALIVE_SECONDS)
                 except TimeoutError:
                     yield ": keepalive\n\n"
                     continue
+                if event is CLOSED:
+                    break
                 yield f"event: {event['type']}\ndata: {json.dumps(event['data'])}\n\n"
         finally:
             bus.unsubscribe(queue)

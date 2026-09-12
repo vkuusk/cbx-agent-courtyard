@@ -11,8 +11,9 @@ with a terminal prompt, feedback 7.2), the agent's declared model (feedback 1), 
 status line naming the agent (feedback 2) — the status line only when the agent has
 none, never clobbering an existing one. The file is per-machine and carries no secret;
 Claude Code adds it to git excludes when it writes it itself, and the merge here
-preserves whatever else it holds. The one-time trust dialog for a project's `.mcp.json`
-servers cannot be pre-approved — that stays.
+preserves whatever else it holds. The approval of the project's `.mcp.json` server is not
+written here: Claude Code ignores it in this file unless git proves the file uncommitted,
+so the launch command carries it instead (`--settings`, shift.CLAUDE_LAUNCH).
 
 **Dev-mode only.** The writer must share a filesystem with the agent's workdir; when the hub
 runs in a container (live mode, 6f) the WebUI's copy-paste panel is the path instead.
@@ -34,6 +35,8 @@ from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
 
+from courtyard.common import session_context
+from courtyard.common.models import Agent
 from courtyard.hub.core.errors import MalformedMcpJson, NothingToUninstall, WorkdirNotFound
 from courtyard.hub.core.shift import launch_command_text
 
@@ -211,7 +214,8 @@ def start_script(agent_name: str, command: str) -> str:
     """Item 35: `start-with-courtyard.sh` — the one thing a human is told to run when
     starting an agent by hand. For claude-code it carries the channel flag (whose
     absence is exactly the deaf-session failure of items 30/33) and the agent's
-    model; for pi it is plain `pi` (the extension is auto-discovered). Regenerated on
+    model; for pi it is `pi` with the agent's model (the extension is auto-discovered,
+    no flag). Regenerated on
     every install, so a model change or a flag-contract drift follows a re-register."""
     return (
         "#!/bin/sh\n"
@@ -362,12 +366,16 @@ def install(
 
 def pi_extension(hub_url: str, agent_name: str, token: str) -> str:
     """Item 36 (D32): the pi adapter, rendered from the packaged template with the
-    agent's connection substituted (token inline + chmod 600, the D15 precedent)."""
+    agent's connection substituted (token inline + chmod 600, the D15 precedent), and
+    the membership context (D40) as the fallback the extension stores when the hub does
+    not answer at session start: the same text, without the team's name."""
     template = resources.files("courtyard.adapters.pi").joinpath("extension.ts").read_text()
+    fallback = json.dumps(session_context.render(agent_name, hub_url, agent_type="pi"))
     return (
         template.replace("__COURTYARD_HUB_URL__", hub_url)
         .replace("__COURTYARD_AGENT_NAME__", agent_name)
         .replace("__COURTYARD_TOKEN__", token)
+        .replace("__COURTYARD_CONTEXT__", fallback)
     )
 
 
@@ -438,7 +446,9 @@ peer agents and your operator exchange messages through a central hub.
 """
 
 
-def install_pi(workdir: str, hub_url: str, agent_name: str, token: str) -> InstallResult:
+def install_pi(
+    workdir: str, hub_url: str, agent_name: str, token: str, model: str | None = None
+) -> InstallResult:
     """Install for a pi agent: `.pi/extensions/courtyard.ts` (the whole adapter, one
     auto-discovered file) plus the launch wrapper. No settings profile and no launch
     flag exist on pi — the item-33 failure class does not apply."""
@@ -469,7 +479,7 @@ def install_pi(workdir: str, hub_url: str, agent_name: str, token: str) -> Insta
         script_backup = directory / (SCRIPT_FILENAME + BACKUP_SUFFIX)
         script_backup.write_text(script_target.read_text())
         script_backed_up = str(script_backup)
-    script_target.write_text(start_script(agent_name, "pi"))
+    script_target.write_text(start_script(agent_name, launch_command_text(model, "pi")))
     os.chmod(script_target, 0o755)
 
     # The etiquette skill in pi's native skill location (no secret; committable).
@@ -497,6 +507,14 @@ def install_pi(workdir: str, hub_url: str, agent_name: str, token: str) -> Insta
         files_notice("pi", under_git, gitignore),
         gitignore,
     )
+
+
+def install_agent(agent: Agent, workdir: str, hub_url: str, token: str) -> InstallResult:
+    """One agent's files, by type: the pi set for pi, the Claude Code set otherwise. The
+    install endpoint and charter projection (D33) both write through here."""
+    if agent.type == "pi":
+        return install_pi(workdir, hub_url, agent.name, token, agent.model)
+    return install(workdir, adapter_command(), hub_url, agent.name, token, agent.model)
 
 
 def uninstall_pi(workdir: str) -> UninstallResult:

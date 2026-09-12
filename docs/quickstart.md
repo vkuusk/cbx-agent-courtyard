@@ -72,6 +72,13 @@ Every agent you register next is also written into that directory as its card
 files, so the team design lives on disk, reviewable and portable (its own git
 repo is the natural home).
 
+A directory that already holds a charter is loaded instead, with nothing to name:
+its agents are registered at once, and each agent whose project directory is listed
+in the charter's `workdirs.local.yml` gets its courtyard files written there in the
+same step (the files described below, with the agent's new token). An agent without
+an entry gets its files when you choose its directory under **Admin, Teams**. Such a
+team is ready: go on to section 4.
+
 On the **Agents** page (side bar), add each agent: name, type **claude-code**, a
 description of what it can do, what it owns, its project directory, optionally the
 model it should run (e.g. `sonnet`, so nobody forgets to set it at launch), and a
@@ -138,10 +145,10 @@ heartbeat, not the stored status. Which terminal app it uses (Terminal, iTerm2 o
 Ghostty; the shift opens and closes their windows) is set under **Admin → Terminal
 application**, where you can also add another terminal by its start string.
 
-The first time an agent starts, answer Claude Code's two questions in its terminal
-(trust the project's `.mcp.json`, allow the channel). Accept both; they cannot be
-pre-answered, and they are its only questions since the settings profile already
-pre-approved the courtyard tools. Within a few seconds the agent's rectangle on the
+The first time an agent starts, Claude Code asks in its terminal whether to allow the
+channel; accept it, it cannot be pre-answered. The other first-run question, whether to
+use the project's `.mcp.json` server, is answered by the launch command, and the settings
+profile already pre-approved the courtyard tools, so that is its only question. Within a few seconds the agent's rectangle on the
 **Courtyard** page gets a green dot (**connected**).
 
 Each session that starts during a shift also gets a **delivery check**: the hub sends
@@ -272,14 +279,16 @@ disagree, these are the moves; each one is safe to do at any time.
   live session and prints where it broke. Channels are a research preview; the
   launch-flag contract has drifted before.
 - **You nuked the database** (`make db-nuke`), or rebuilt the team from its charter.
-  Registrations and tokens are new, but each agent directory still holds its old config
-  with a now-dead token. A session started from it retries attach every two seconds and
-  is refused every time: its card reads **token rejected, rewrite the agent's files**
-  instead of "not started yet", the shift counts it as not on shift, and the adapter's
-  log names the cause and the fix. Exit those sessions, then for each agent open
-  **edit**, **launch config**, **write the files** (after a nuke: re-register first,
-  same names and directories): the new config overwrites the stale token in place. Start
-  the sessions again.
+  Registrations and tokens are new. Choosing the charter directory again registers every
+  agent and writes the new config over the stale one in each directory
+  `workdirs.local.yml` lists; an agent without an entry there still holds its old config
+  with a now-dead token. A session started from a dead token retries attach every two
+  seconds and is refused every time: its card reads **token rejected, rewrite the
+  agent's files** instead of "not started yet", the shift counts it as not on shift, and
+  the adapter's log names the cause and the fix. Exit those sessions. For an agent whose
+  files the load did not write, choose its directory under **Admin, Teams**, or open
+  **edit**, **launch config**, **write the files**: the new config overwrites the stale
+  token in place. Start the sessions again.
 
 ## Stop and clean up
 

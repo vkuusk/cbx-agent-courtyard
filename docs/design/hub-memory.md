@@ -346,7 +346,7 @@ Still open:
    is used is learned from them. Reviewed again when there is production-grade
    memory to look at.
 2. **The envelope hint** (section 5), and any other automatic use of memory by
-   the hub: listed in `../next-features-list.md`, waiting on the same evidence.
+   the hub: listed in `../planning/next-features-list.md`, waiting on the same evidence.
 3. **The judge.** Its own design, once memory exists to rule from.
 4. **Encoder choice for slice 3.** Resolved: an OpenAI-compatible embeddings
    endpoint on localhost (Ollama, `nomic-embed-text` documented), the fake encoder

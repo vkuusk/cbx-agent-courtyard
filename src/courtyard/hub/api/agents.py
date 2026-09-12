@@ -154,12 +154,14 @@ def session_context_text(
     teams: Annotated[TeamService, Depends(get_teams)],
     request: Request,
 ) -> dict[str, str]:
-    """What the SessionStart hook injects (D40): the membership context, rendered with the
-    current team's name. Admin read (D3): the hook runs before any token is in play."""
+    """The membership context (D40) the Claude Code SessionStart hook and the pi
+    extension add to a session, rendered with the current team's name and worded for the
+    agent's type. Admin read (D3): it is fetched before any token is in play."""
     agent = registry.get(name_or_id)
     team = teams.current()
     hub_url = str(request.base_url).rstrip("/")
-    return {"text": session_context.render(agent.name, hub_url, team.name if team else None)}
+    text = session_context.render(agent.name, hub_url, team.name if team else None, agent.type)
+    return {"text": text}
 
 
 @router.get("/{name_or_id}/token")
@@ -221,12 +223,7 @@ def install(
             f"{agent.name} has no workdir set; add one when registering, or pass one here."
         )
     hub_url = str(request.base_url).rstrip("/")
-    if agent.type == "pi":  # item 36 (D32): one extension file + the wrapper script
-        result = install_core.install_pi(workdir, hub_url, agent.name, token)
-    else:
-        result = install_core.install(
-            workdir, install_core.adapter_command(), hub_url, agent.name, token, agent.model
-        )
+    result = install_core.install_agent(agent, workdir, hub_url, token)
     return InstallResponse(**result.__dict__)
 
 

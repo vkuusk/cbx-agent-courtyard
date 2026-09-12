@@ -47,7 +47,8 @@ The core ideas, each with its section in the design doc:
 | [design/team-charter.md](design/team-charter.md) | The team defined as files: charter directory, agent cards, topology, projection into the hub (accepted, D33; a worked example lives in `examples/team-charters/`) |
 | [design/threads.md](design/threads.md) | Threads, the quant of conversation: one bounded exchange about one ask, its lifecycle and enforcement (accepted and implemented, D34) |
 | [design/hub-memory.md](design/hub-memory.md) | Hub memory: case files at thread close, notes through the gate, recall, similarity search behind the same door (accepted, D37; slice 4 open) |
-| [next-features-list.md](next-features-list.md) | Postponed features, listed without versions, each pointing at its reasoning |
+| [planning/next-features-list.md](planning/next-features-list.md) | Postponed features, listed without versions, each pointing at its reasoning |
+| [planning/ideas-to-review.md](planning/ideas-to-review.md) | Ideas not decided or scheduled, each with the mechanism that would carry it and what it would revisit |
 | [planning/v1-implementation-steps.md](planning/v1-implementation-steps.md) | The build, step by step, with what changed and when |
 | [planning/feedback-items.md](planning/feedback-items.md) | The architect's live-testing observations and what became of each |
 | [testing-runbook.md](testing-runbook.md) | Manual verification procedures per feature, backed by scripts in `scripts/runbook/` |
@@ -121,6 +122,6 @@ README is kept); `make run-chrome` writes its log and pid there.
   the menu bar app beside it. One machine, one hub: `make run` on the same port refuses
   to bind while the installed hub is up.
 - A hub container (hub + postgres both in compose) is not built; a remote hub is a
-  postponed feature (`next-features-list.md`).
+  postponed feature (`planning/next-features-list.md`).
 
 The hub binds `127.0.0.1` only; v1 is an on-my-laptop-only deployment by design.

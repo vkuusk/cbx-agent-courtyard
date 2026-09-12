@@ -185,8 +185,46 @@ def test_delivery_check_body_names_the_tool_and_the_token():
     # D40: an expected step of the operator's shift, never a secret — "tell no one, do
     # nothing else" read as prompt injection to a session without context (2026-09-10)
     assert "operator has started a shift" in text
-    assert "no reply to anyone is needed" in text
     assert "Do nothing else" not in text and "tell no one" not in text.lower()
+    # no reason to report it, and no list of prohibitions: a pi session took "You may
+    # mention it to your operator" as a message to send (2026-09-11)
+    assert "your operator sees the result on the board" in text
+    assert "mention it to your operator" not in text and "no message to anyone" not in text
+    # the MCP name only where the tool is an MCP tool
+    assert "mcp__courtyard__courtyard_ack" in text
+    pi_text = delivery_check_body("tok-123", "pi")
+    assert "`courtyard_ack`" in pi_text and '"tok-123"' in pi_text and "MCP" not in pi_text
+
+
+def test_the_delivery_check_has_its_own_preamble():
+    """The one hub message that asks for something: under the notice preamble ("It is
+    not a request") a pi session read the check as a thread to settle (2026-09-11)."""
+    from courtyard.hub.core.envelope import delivery_check_body
+
+    check = fake_message(delivery_check_body("tok"), kind="system", sender=None, sender_type=None)
+    text = render(check, delivery_check=True)
+    assert 'authority="hub-notice"' in text
+    assert "A delivery check from the courtyard hub itself" in text
+    assert "It is not a request" not in text
+    assert "It is not a request" in render(check)  # every other hub notice keeps it
+
+
+def test_footers_name_the_tools_the_way_the_recipients_host_lists_them():
+    """D40: an MCP tool only for Claude Code; a pi recipient has no MCP. An unknown
+    recipient type reads the Claude Code form."""
+    question = fake_message("any terragrunt?")
+    assert "courtyard MCP tool `courtyard_send`" in render(
+        question.model_copy(update={"recipient_type": "claude-code"})
+    )
+    for kind, reply_to in (("message", None), ("message", uuid4()), ("operator_note", None)):
+        message = fake_message("x", kind=kind, reply_to=reply_to).model_copy(
+            update={"recipient_type": "pi"}
+        )
+        text = render(message)
+        assert (
+            "courtyard tool `courtyard_send`" in text or "courtyard tool\n`courtyard_send`" in text
+        )
+        assert "MCP" not in text
 
 
 def test_preview_covers_every_variant_and_is_deterministic():
@@ -207,6 +245,7 @@ def test_preview_covers_every_variant_and_is_deterministic():
     assert 'authority="operator"' in by_title["A message from the operator"]
     assert "needs no separate reply" in by_title["An operator note"]  # the note footer
     assert "courtyard_ack" in by_title["The delivery check"]
+    assert "A delivery check from the courtyard hub itself" in by_title["The delivery check"]
     assert preview() == blocks  # deterministic: fixed ids and timestamps
     for b in blocks:  # the Admin page's token figure: overhead, always positive
         assert isinstance(b["overhead_tokens"], int) and b["overhead_tokens"] > 0

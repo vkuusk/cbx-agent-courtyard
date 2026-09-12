@@ -220,7 +220,10 @@ agents' cards, the team's links, all of it reviewable and portable (put the
 directory in its own git repo and the team setup travels with it). The hub
 requires this before the first agent, and the empty Courtyard page asks for it:
 pick a directory, and one that already holds a charter is loaded while an empty
-one is initialized after you name the team.
+one is initialized after you name the team. Loading a charter registers its
+agents and writes each one's courtyard files into its project directory (the
+directories listed in the charter's `workdirs.local.yml`), so that team is
+ready for its shift; the steps below add agents one by one.
 
 Then, on the WebUI:
 
@@ -253,8 +256,9 @@ The team's working day is a **shift**. **▶ Start shift** on the Courtyard page
 starts everyone: first a short countdown while the hub verifies who is genuinely
 alive (a stored status is not trusted, a fresh heartbeat is), then one terminal
 opens per agent that did not report in, each in its own directory with the agent
-already connected. At an agent's first ever launch, accept Claude Code's two trust
-prompts in its terminal; they cannot be pre-answered. As each session comes up the
+already connected. At an agent's first ever launch, allow the channel when Claude Code
+asks in its terminal; the launch command already approves the courtyard MCP server. As
+each session comes up the
 hub sends it a delivery check, and the green check mark on the agent's card means
 messages provably reach that session; you can re-run the check any time from that
 same button.

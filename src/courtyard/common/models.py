@@ -124,6 +124,8 @@ class Message(BaseModel):
     sender_type: AgentType | None = None
     sender_sme_domain: str | None = None
     recipient_sme_domain: str | None = None
+    # the recipient's agent type: footers name the tools the way its host lists them (D40)
+    recipient_type: AgentType | None = None
     # who opened the message's thread (joined) — the envelope tells exactly the thread's
     # initiator, and nobody else, to close it when an answer settles the ask (D34)
     thread_opened_by: UUID | None = None
@@ -324,6 +326,8 @@ class Team(BaseModel):
     is_current: bool = False
     charter: Charter | None = None
     load_report: list[str] = []  # problems found by the last load, for the operator
+    # what the last load wrote into the agents' workdirs (their courtyard files), per agent
+    files_report: list[str] = []
     loaded_at: datetime | None = None
     created_at: datetime
 

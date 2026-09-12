@@ -1,9 +1,11 @@
 // Test harness for the pi adapter extension (item 36, D32): loads the rendered
 // extension with a stub `pi` object and runs it against a real hub, so the tests
 // exercise the exact file install writes. Emits NDJSON events on stdout
-// (tool_registered, started, sendMessage, tool_result, tool_error, shutdown) and
-// accepts NDJSON commands on stdin: {"call": <tool>, "params": {...}} executes a
-// registered tool; {"cmd": "shutdown"} fires session_shutdown and exits.
+// (tool_registered, started, sendMessage, tool_result, tool_error, compacted, shutdown)
+// and accepts NDJSON commands on stdin: {"call": <tool>, "params": {...}} executes a
+// registered tool; {"cmd": "compact", "summarized": bool} compacts the stub session
+// (dropping its stored messages when summarized) and fires session_compact;
+// {"cmd": "shutdown"} fires session_shutdown and exits.
 import { createInterface } from "node:readline";
 
 const { default: factory } = await import(`file://${process.env.COURTYARD_EXT}`);
@@ -13,8 +15,14 @@ const tools = new Map();
 const commands = new Map();
 const out = (obj) => process.stdout.write(JSON.stringify(obj) + "\n");
 
+// The stub session: a message sent without a turn is stored, as pi stores it.
+const entries = [];
+
 const ctx = {
   hasUI: true,
+  sessionManager: {
+    buildContextEntries: () => entries,
+  },
   ui: {
     setStatus(key, text) {
       out({ event: "setStatus", key, text });
@@ -41,6 +49,9 @@ const pi = {
     out({ event: "renderer_registered", customType });
   },
   sendMessage(message, options) {
+    if (!options || !options.triggerTurn) {
+      entries.push({ type: "custom_message", customType: message.customType, content: message.content });
+    }
     out({ event: "sendMessage", message, options });
   },
   sendUserMessage(content, options) {
@@ -56,6 +67,12 @@ const rl = createInterface({ input: process.stdin });
 for await (const line of rl) {
   if (!line.trim()) continue;
   const cmd = JSON.parse(line);
+  if (cmd.cmd === "compact") {
+    if (cmd.summarized) entries.length = 0; // the summary is not a custom message
+    await handlers.get("session_compact")?.({}, ctx);
+    out({ event: "compacted" });
+    continue;
+  }
   if (cmd.cmd === "shutdown") {
     await handlers.get("session_shutdown")?.({}, ctx);
     out({ event: "shutdown" });

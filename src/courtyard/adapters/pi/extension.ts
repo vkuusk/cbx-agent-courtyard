@@ -3,14 +3,16 @@
  * (design §7.1/§7.3, item 36). One extension per agent, regenerated on every
  * install. Do NOT commit this file: it carries the agent's hub token (chmod 600).
  *
- * It is three things at once, mirroring the Claude Code adapter:
+ * It is four things at once, mirroring the Claude Code adapter and its hook:
  *  - a channel: the hub pushes each message to a local endpoint, and this
  *    extension injects it into the session via pi.sendMessage (triggerTurn wakes
  *    an idle session; deliverAs "followUp" queues politely on a busy one);
  *  - a toolbox: courtyard_send / courtyard_close_thread / courtyard_inbox /
  *    courtyard_peers / courtyard_recall / courtyard_note / courtyard_ack, registered natively;
  *  - a hub adapter: attaches with a channel endpoint, heartbeats, detaches at
- *    session end. Attach retries forever, so hub/agent launch order is free.
+ *    session end. Attach retries forever, so hub/agent launch order is free;
+ *  - the membership context (D40): the block naming this agent and its team,
+ *    stored in the session at its start and again after compaction.
  *
  * Deliberately thin (D14): the authority envelope and the peers listing arrive
  * rendered by the hub and are forwarded verbatim, never re-derived here.
@@ -24,6 +26,11 @@ const AGENT_NAME = "__COURTYARD_AGENT_NAME__";
 const TOKEN = "__COURTYARD_TOKEN__";
 const HEARTBEAT_SECONDS = 5; // match the hub (D23/D28)
 const LOG_DIR = ".courtyard"; // runtime artifacts only; pi runs in the project dir
+const CONTEXT_TYPE = "courtyard-context"; // the membership block's customType (D40)
+const CONTEXT_TIMEOUT_MS = 2000; // as the Claude Code hook: a session start never waits long
+// The membership block as install rendered it, without the team's name: stored when the
+// hub does not answer at session start.
+const CONTEXT_FALLBACK = __COURTYARD_CONTEXT__;
 
 export default function (pi) {
   const channelToken = randomBytes(24).toString("base64url");
@@ -38,6 +45,7 @@ export default function (pi) {
   // Code adapter keeps on stderr — what cracked the silent-loss incidents there.
   function log(line) {
     try {
+      mkdirSync(LOG_DIR, { recursive: true }); // the membership context logs before boot
       appendFileSync(`${LOG_DIR}/adapter.log`, `${new Date().toISOString()} ${line}\n`);
     } catch {
       /* logging must never break delivery */
@@ -214,9 +222,49 @@ export default function (pi) {
     }, HEARTBEAT_SECONDS * 1000);
   }
 
+  // D40 on pi: the membership context. Claude Code gets it from a SessionStart hook;
+  // here the extension stores the hub-rendered block as a custom message (no turn)
+  // before it attaches, so the first delivery already finds it, and stores it again
+  // once compaction has summarized it away. A resumed, forked or reloaded session that
+  // still holds it is left alone. before_agent_start is no use for this: pi fires it
+  // only for a typed prompt, never for a turn our own delivery starts.
+  async function membershipText() {
+    try {
+      const resp = await fetch(`${HUB_URL}/api/agents/${AGENT_NAME}/session-context`, {
+        signal: AbortSignal.timeout(CONTEXT_TIMEOUT_MS),
+      });
+      const data = resp.ok ? await resp.json() : null;
+      if (data && data.text) return data.text;
+    } catch {
+      /* the hub is down or slow: the built-in text, without the team's name */
+    }
+    return CONTEXT_FALLBACK;
+  }
+
+  function holdsMembership(ctx) {
+    try {
+      return ctx.sessionManager
+        .buildContextEntries()
+        .some((entry) => entry && entry.type === "custom_message" && entry.customType === CONTEXT_TYPE);
+    } catch {
+      return false; // no session state to ask: store it
+    }
+  }
+
+  async function addMembership(ctx) {
+    if (holdsMembership(ctx)) return;
+    pi.sendMessage({ customType: CONTEXT_TYPE, content: await membershipText(), display: true });
+    log("membership context added");
+  }
+
   pi.on("session_start", async (_event, ctx) => {
     ui = ctx && ctx.ui ? ctx.ui : null;
+    await addMembership(ctx).catch((exc) => console.error(`courtyard: membership context failed: ${exc}`));
     boot().catch((exc) => console.error(`courtyard: adapter failed to start: ${exc}`));
+  });
+
+  pi.on("session_compact", async (_event, ctx) => {
+    await addMembership(ctx).catch((exc) => console.error(`courtyard: membership context failed: ${exc}`));
   });
 
   pi.on("session_shutdown", async () => {

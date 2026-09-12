@@ -82,7 +82,9 @@ push proves nothing past the adapter.
 
 ## 9. The launch flag
 
-`claude --dangerously-load-development-channels server:courtyard`, the
-2.1.245-verified form. The flag contract has drifted twice; after any Claude
+`claude --dangerously-load-development-channels server:courtyard --settings
+'{"enabledMcpjsonServers":["courtyard"]}'`: the 2.1.245-verified channel form, plus
+the approval of the project's MCP server, which Claude Code (2.1.269) no longer takes
+from `.claude/settings.local.json` outside a git checkout. The flag contract has drifted twice; after any Claude
 Code auto-update, `make test-comms` proves the round trip and prints whether
 the channel was registered or skipped.

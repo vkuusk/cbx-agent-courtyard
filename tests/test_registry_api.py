@@ -445,4 +445,12 @@ def test_session_context_names_the_agent_the_team_and_the_channel(client, make_a
     assert '"tf-dev"' in text and f'"{current}"' in text
     assert '<channel source="courtyard">' in text and "courtyard_ack" in text
     assert "http://testserver" in text  # the hub as the session reaches it
+    assert "whatever this project's directory is called" in text
+    assert "When a courtyard message asks nothing more of you, end your turn and wait" in text
     assert client.get("/api/agents/nobody/session-context").status_code == 404
+    # worded for pi on a pi agent: the extension and the skill, no MCP names
+    make_agent("scribe", type="pi")
+    pi_text = client.get("/api/agents/scribe/session-context").json()["text"]
+    assert '"scribe"' in pi_text and ".pi/extensions/courtyard.ts" in pi_text
+    assert ".pi/skills/courtyard/SKILL.md" in pi_text
+    assert "<channel" not in pi_text and "mcp__" not in pi_text

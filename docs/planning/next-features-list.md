@@ -1,22 +1,23 @@
 # Next features
 
 Postponed features, kept as a list without assigning them a version. Each entry
-points at the document that records the reasoning.
+points at the document that records the reasoning. Ideas that are not decided yet
+live in `ideas-to-review.md`.
 
 - **Switching the current team.** The hub registers several team charter
   directories and selects one as current; what switching does to a running hub
   (agents, lines, history) is not implemented. See
-  `design/team-charter.md` section 3.
+  `../design/team-charter.md` section 3.
 - **Parallel threads on one line.** Threads are serial in v1; concurrency needs
   proof that two exchanges do not touch the same infrastructure. See
-  `design/threads.md` section 3.
+  `../design/threads.md` section 3.
 - **"Verifiably done" thread close.** The v1 close is initiator-accepted;
-  verifiable completion needs typed artifacts. See `design/threads.md`
+  verifiable completion needs typed artifacts. See `../design/threads.md`
   section 7.
 - **Always on team mode.** The team runs without shifts; today the option is
-  visible but disabled in Admin. See `design/architecture-v1.md` D23.
+  visible but disabled in Admin. See `../design/architecture-v1.md` D23.
 - **Remote hub deployment.** Hub on a server, agents local and remote. See
-  feedback item 27 in `planning/feedback-items.md`.
+  feedback item 27 in `feedback-items.md`.
 - **Delivery without channels: a queue the agent pulls from.** Today the only thing
   that wakes an idle session is the adapter's channel notification, a Claude Code
   research preview whose flag contract has drifted before; `courtyard_inbox` is pull,
@@ -24,12 +25,12 @@ points at the document that records the reasoning.
   delivery path when channels are unavailable, and with it whether queue handling
   should move to a small pub-sub queue (its own container, or postgres-backed) rather
   than the hub's own tables. A design of its own, touching the delivery model
-  (`design/architecture-v1.md` section 6) and the wake-at-turn-end question. See
-  feedback item 32 in `planning/feedback-items.md`.
+  (`../design/architecture-v1.md` section 6) and the wake-at-turn-end question. See
+  feedback item 32 in `feedback-items.md`.
 - **Automatic use of memory by the hub.** The envelope hint (a delivery carrying
   the handles of matching case files) and anything else that pushes memory at an
   agent unasked. Waits on evidence of how memory is used, gathered from the WebUI
-  and the export. See `design/hub-memory.md` sections 5 and 11.
+  and the export. See `../design/hub-memory.md` sections 5 and 11.
 - **Memory curation.** The operator's supersede control, a note's scope change and
   deletion. Notes are collected but not improved until a use for them shows. See
-  `design/hub-memory.md` section 11.
+  `../design/hub-memory.md` section 11.

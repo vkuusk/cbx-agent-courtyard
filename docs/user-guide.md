@@ -202,6 +202,15 @@ directory is initialized with a `team-definition.yml`; a directory that already 
 a charter is loaded, and its agents are registered on the hub. From the command line,
 the first registration carries the same choice with `--team-dir` and `--team-name`.
 
+Loading a charter also prepares the agents' project directories. Each agent whose
+directory `workdirs.local.yml` lists gets its courtyard files written there in the same
+step, with its new token (the three files described under "Adding an agent" below), so
+the team can start its shift right away. An agent without an entry gets its files when
+you choose its directory under **Admin, Teams**, where the team also lists what was
+written. A reload never rewrites the files of agents that were already registered; a
+file that could not be written (a directory that does not exist, an `.mcp.json` that is
+not valid JSON) shows in the team's problem list, and the other agents still get theirs.
+
 The files are the source of truth. Every agent you add, edit or remove on the WebUI is
 also written into the charter, so the team design stays reviewable and portable. The
 hub never watches the directory: after editing the files by hand, press **reload from
@@ -219,8 +228,9 @@ already holds agents adopts those agents into the charter as cards.
 - **name**: the agent's identity on the hub and in the charter. It cannot be renamed.
 - **type**: `claude-code`, `pi`, or `dummy` (a scripted stand-in for testing).
 - **project directory**: where the agent's session runs. One agent per directory.
-- **model**: optional, for example `sonnet` or `claude-opus-5`; it goes into the launch
-  command so nobody forgets it.
+- **model**: optional, for example `sonnet` or `claude-opus-5` for claude-code, or a
+  provider and model such as `openai/gpt-5.6-luna` for pi; it goes into the launch
+  command (`--model`) so nobody forgets it.
 - **colour**: the card's colour on the Courtyard page.
 - **description**: what the agent can do. Every other agent sees it and uses it to
   decide whom to ask.
@@ -238,13 +248,18 @@ agent by hand with the channel flag it needs to hear the hub.
 The hook runs once each time a session starts (or resumes, clears or compacts) and
 gives it a short block of context: that this project is registered as agent so-and-so
 of your team, that the hub's messages arrive through the channel named `courtyard`,
-what kinds of message to expect, and that the delivery check at the start of a shift is
-expected. Without it a session in a fresh directory has nothing on its own side saying
+what kinds of message to expect, that the delivery check at the start of a shift is
+expected, and that when a courtyard message asks nothing more of it, it ends its turn and
+waits. Without it a session in a fresh directory has nothing on its own side saying
 it belongs to a team, and Claude Code presents every channel event as untrusted; a
 cautious model then refuses the delivery check and the first peer question. The text
 comes from the hub (so the names are current) and falls back to a built-in version when
 the hub is down; a session start never waits on it. Read it yourself at
 `GET /api/agents/<name>/session-context`.
+
+A pi agent gets the same block, worded for pi, from its extension: stored in the session
+when it starts, before it connects to the hub, and again after pi compacts the
+conversation. It shows in the pi terminal as a courtyard-context message.
 
 The same from a terminal:
 
@@ -259,6 +274,13 @@ project directory, model and colour. Name and type are permanent. The same panel
 offers **launch config** (the files again, the hub keeps the token) and **rotate
 token**, after which the old token stops working at once and the agent needs the new
 `.mcp.json` and a restart.
+
+**Syncing an agent's directory.** **sync dir** on a claude-code or pi agent's row writes
+its courtyard files into its project directory at once, the same files as **edit**,
+**launch config**, **write the files**. Use it after a token rotation, a hub reinstall or
+a courtyard upgrade. A running session picks the files up at its next start. The button
+stays disabled until the agent has a project directory; the operator and dummy agents
+have none.
 
 **Removing an agent (un-register).** **remove** on the agent's row asks whether to also
 clean the courtyard pieces out of the project directory. Removal:
@@ -292,12 +314,15 @@ registration. The first life's archives keep pointing at the right agent. Nothin
 else survives it: install the files again and start the agent fresh.
 
 **The first launch.** The first time an agent starts in a directory, Claude Code asks
-two questions in its terminal: whether to trust the project's `.mcp.json`, and whether
-to allow the channel. Answer yes to both; they cannot be pre-answered. If the MCP
-question is answered no, Claude Code remembers the refusal in the project's
-`.claude/settings.local.json` as a `disabledMcpjsonServers` entry, and the agent will
-never reach the hub even after re-registration. Remove that entry, or replace it with
-`"enabledMcpjsonServers": ["courtyard"]`, and start the agent again.
+in its terminal whether to allow the channel. Answer yes; it cannot be pre-answered.
+Whether to use the project's `.mcp.json` server is answered by the launch command
+itself: it passes `--settings '{"enabledMcpjsonServers":["courtyard"]}'`, which approves
+that one server for sessions the courtyard starts. Claude Code keeps the approval it
+stores in `.claude/settings.local.json` only while git can show that file is not
+committed, so in a directory that is not a git checkout the question used to return at
+every launch. If the MCP question was ever answered no, Claude Code remembers the
+refusal in that file as a `disabledMcpjsonServers` entry, and the agent will never reach
+the hub even after re-registration. Remove that entry and start the agent again.
 
 ## Operations
 
@@ -350,7 +375,7 @@ fully driven (the shift opens and closes their windows); a custom application is
 start string you provide and only opens windows.
 
 Each session that starts during a shift also gets a **delivery check**: the hub sends
-it a message that only asks the agent to confirm receipt. The card shows "checking
+it a message that asks the agent for one tool call to confirm receipt. The card shows "checking
 delivery" and then a small green check mark, which means messages provably reach that
 session. Re-run it any time from the button on a connected agent's card. A card that
 warns "started without the channel" belongs to a session started with a plain
@@ -427,7 +452,8 @@ The **Admin** page has these sections:
   restart button when launchd does), counts for the courtyard, and two links for
   looking under the hood: the API reference and the database browser (below).
 - **Teams**: the registered charters, which one is current, each team's last load
-  report, its agents and links, and **reload from disk**.
+  report and the files that load wrote into agents' project directories, its agents
+  (with a directory chooser each) and links, and **reload from disk**.
 - **Settings, Team**: Team mode (only `On shift` is available in v1) and Discovery
   (`auto` or `manual`, see Communication Lines).
 - **Terminal application**: the app Start shift opens agents in, and the list of custom

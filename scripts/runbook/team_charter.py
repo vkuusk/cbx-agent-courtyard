@@ -13,10 +13,13 @@ state.
   4. the hub never watches the filesystem: an edit shows only after reload
   5. a broken charter reloads into a readable report, the row survives
   6. selecting a team as current projects it: cards become registrations (with the
-     anti-scope), links become lines with their declared gate modes
-  7. answering an agent's workdir writes the per-machine overlay + the registration
+     anti-scope), links become lines with their declared gate modes, and every agent
+     the overlay gives a workdir gets its courtyard files there with its new token
+  7. answering an agent's workdir writes the per-machine overlay + the registration,
+     and the agent's files into that directory
   8. the files are the master: an edited description lands at reload, a declared
-     line mode is reasserted over a WebUI flip
+     line mode is reasserted over a WebUI flip; registered agents' files are not
+     rewritten
   9. write-back: registering an agent while the team is current writes its yml
      entry, card files and overlay workdir; an edit lands on the card files;
      removal takes the entry, links and config dir back out — reload agrees
@@ -27,6 +30,7 @@ Needs the compose postgres up (`make db-up`). Run:
     uv run python scripts/runbook/team_charter.py
 """
 
+import json
 import os
 import shutil
 import subprocess
@@ -138,6 +142,13 @@ try:
     # a private copy of the demo charter, so the workdir overlay never lands in the repo
     copy_dir = scratch / "demo-devops"
     shutil.copytree(FIXTURE, copy_dir)
+    # this machine's overlay knows two of the three workdirs; infra's is answered in step 7
+    tf_dir, scribe_dir = scratch / "tf-dev-project", scratch / "scribe-project"
+    tf_dir.mkdir()
+    scribe_dir.mkdir()
+    (copy_dir / "workdirs.local.yml").write_text(
+        yaml.safe_dump({"workdirs": {"tf-dev": str(tf_dir), "scribe": str(scribe_dir)}})
+    )
     admin.remove_team(team.id)  # same directory content; the copy takes its place
     team = admin.add_team(str(copy_dir))
     admin.set_current_team(team.id)
@@ -149,13 +160,27 @@ try:
     print(f"discovery         : {admin.settings()['discovery']} (declared by the charter)")
     projected = next(t for t in admin.teams() if t.id == team.id)
     print(f"report            : {projected.load_report or 'clean'}")
+    print("the load wrote the agents' files (the new tokens, nothing done per agent):")
+    for entry in projected.files_report:
+        print(f"  {entry}")
+    tf_token = admin._call("GET", "/api/agents/tf-dev/token")["token"]
+    mcp = tf_dir / ".mcp.json"
+    written = json.loads(mcp.read_text())["mcpServers"]["courtyard"]["env"]["COURTYARD_TOKEN"]
+    print(
+        f"tf-dev .mcp.json  : mode {oct(mcp.stat().st_mode & 0o777)}, token = hub's: {written == tf_token}"
+    )
+    print(f"tf-dev dir        : {sorted(p.name for p in tf_dir.iterdir())}")
+    pi_files = sorted(str(p.relative_to(scribe_dir)) for p in scribe_dir.rglob("*") if p.is_file())
+    print(f"scribe (pi) dir   : {pi_files}")
 
     hr("7. ANSWERING A WORKDIR WRITES THE OVERLAY AND THE REGISTRATION")
     project_dir = scratch / "infra-project"
     project_dir.mkdir()
-    admin.set_team_workdir(team.id, "infra", str(project_dir))
+    answered = admin.set_team_workdir(team.id, "infra", str(project_dir))
     infra = next(a for a in admin.agents() if a.name == "infra")
     print(f"registration      : infra.workdir = {infra.workdir}")
+    print(f"files report      : {answered.files_report}")
+    print(f"infra dir         : {sorted(p.name for p in project_dir.iterdir())}")
     print("workdirs.local.yml:")
     print((copy_dir / "workdirs.local.yml").read_text())
 
@@ -165,7 +190,12 @@ try:
         li for li in admin.lines() if {li.agent_a_name, li.agent_b_name} == {"infra", "tf-dev"}
     )
     admin.set_mode(declared.id, "supervised")  # the operator flips the declared auto_pass line
+    (tf_dir / ".mcp.json").unlink()  # a registered agent's files: the reload must not rewrite
     team = admin.reload_team(team.id)
+    print(
+        f"registered agents : not rewritten (tf-dev .mcp.json back: "
+        f"{(tf_dir / '.mcp.json').exists()}, files report {team.files_report})"
+    )
     infra = next(a for a in admin.agents() if a.name == "infra")
     print(f"description       : {infra.description!r} (from the edited file)")
     declared = next(li for li in admin.lines() if li.id == declared.id)

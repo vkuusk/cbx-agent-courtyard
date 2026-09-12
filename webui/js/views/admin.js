@@ -90,6 +90,9 @@ function TeamDetail({ team, refresh }) {
     ${team.load_report.length
       ? html`<div class="error" style="margin:.4rem 0;white-space:pre-wrap">${team.load_report.join("\n")}</div>`
       : null}
+    ${team.files_report?.length
+      ? html`<div class="small muted files-report" style="margin:.4rem 0;white-space:pre-wrap">${team.files_report.join("\n")}</div>`
+      : null}
     ${agents.length
       ? html`<table style="margin:.4rem 0">
           <thead><tr><th>agent</th><th>type</th><th>model</th><th>what it is for</th><th>owns</th><th>not for</th><th>directory on this machine</th></tr></thead>
@@ -115,7 +118,9 @@ function TeamDetail({ team, refresh }) {
       : null}
     <div class="small muted" style="margin:.4rem 0">Project directories are per machine, kept in
       workdirs.local.yml beside the charter — never commit that file.
-      ${team.is_current ? "Reloading this team also updates its registrations and lines." : ""}</div>
+      ${team.is_current
+        ? " Reloading this team also updates its registrations and lines. An agent it registers, or whose directory you choose here, gets its courtyard files written into that directory."
+        : ""}</div>
     <button class="btn" onClick=${() => api.reloadTeam(team.id).then(refresh).catch((e) => alert(e.message))}>
       ⟳ reload from disk</button>
   </div>`;

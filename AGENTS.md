@@ -77,6 +77,11 @@ uv run courtyard-invite --register --name <agent-name> ...
 Each registration is also written into the charter directory as that agent's
 card files, so the team definition stays reviewable and portable.
 
+A charter directory that already defines the team needs no registration commands:
+choosing it (`--team-dir`, or the WebUI) registers every agent and writes the three
+files below into each workdir its `workdirs.local.yml` lists; the other agents get
+theirs when the operator chooses their directory under Admin, Teams.
+
 This writes three files into the workdir: `.mcp.json` (holds the agent's hub
 token, permissions 600, must not be committed), a `.claude/settings.local.json`
 profile that pre-approves the courtyard tools and carries a session-start hook telling
@@ -114,10 +119,12 @@ Stop and hand these off; report exactly what remains.
 
 - Starting the agents: **Start shift** on the WebUI's Courtyard page opens one
   terminal per agent (Terminal, iTerm2 or Ghostty, chosen under Admin), already
-  connected. At each agent's first launch, Claude Code asks two trust questions
-  in its terminal; they cannot be pre-answered. Answer yes to both: a refused MCP
-  question is remembered in the workdir's `.claude/settings.local.json` as a
-  `disabledMcpjsonServers` entry, and the agent then never reaches the hub.
+  connected. At each agent's first launch, Claude Code asks in its terminal whether
+  to allow the channel; it cannot be pre-answered, answer yes. Whether to use the
+  project's `.mcp.json` server is answered by the launch command itself (`--settings`).
+  A refusal given earlier is remembered in the workdir's `.claude/settings.local.json`
+  as a `disabledMcpjsonServers` entry, and the agent then never reaches the hub:
+  remove that entry.
 - Supervising: gate verdicts (approve, return to sender, drop) are given on the
   WebUI by the operator.
 

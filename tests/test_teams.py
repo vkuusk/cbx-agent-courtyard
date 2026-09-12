@@ -2,10 +2,12 @@
 committed fixture charter in tests/team-charter/, the API round trip (add, reload,
 current selection, remove), slice 2 — projection of the current team's charter into
 registrations and lines, the per-machine workdir overlay, and the shift guard — and
-slice 3, write-back: agent add/edit/remove landing on the charter files."""
+slice 3, write-back: agent add/edit/remove landing on the charter files; and the
+agents' courtyard files written by the load that registers them."""
 
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 
@@ -692,3 +694,168 @@ def test_choosing_a_team_adopts_agents_no_charter_names(client, make_agent, tmp_
     # adopted means owned: edits now land on THIS charter's files
     client.patch("/api/agents/pioneer", json={"description": "adopted"})
     assert (charter_dir / "pioneer" / "description.md").read_text() == "adopted\n"
+
+
+# ---- the load writes the agents' files (team-charter.md §6, D33) --------------------
+
+
+def _with_workdirs(charter_dir: Path, workdirs: dict[str, Path]) -> None:
+    (charter_dir / "workdirs.local.yml").write_text(
+        yaml.safe_dump({"workdirs": {name: str(path) for name, path in workdirs.items()}})
+    )
+
+
+def _project_dir(tmp_path: Path, name: str) -> Path:
+    path = tmp_path / f"{name}-project"
+    path.mkdir()
+    return path
+
+
+def _current_team(client) -> dict:
+    return next(t for t in client.get("/api/teams").json() if t["is_current"])
+
+
+def _token(client, name: str) -> str:
+    return client.get(f"/api/agents/{name}/token").json()["token"]
+
+
+def _courtyard_server(workdir: Path) -> dict:
+    return json.loads((workdir / ".mcp.json").read_text())["mcpServers"]["courtyard"]
+
+
+def test_loading_the_first_team_writes_each_new_agents_files(bare_client, tmp_path):
+    """A fresh hub, a charter whose overlay knows the workdirs: choosing it registers the
+    agents AND writes their files with the fresh tokens, so Start shift finds them."""
+    client = bare_client
+    charter_dir = fixture_copy(tmp_path)
+    infra_dir, scribe_dir = _project_dir(tmp_path, "infra"), _project_dir(tmp_path, "scribe")
+    _with_workdirs(charter_dir, {"infra": infra_dir, "scribe": scribe_dir})
+    _make_current(client, charter_dir)
+
+    assert _courtyard_server(infra_dir)["env"] == {
+        "COURTYARD_HUB_URL": "http://testserver",
+        "COURTYARD_AGENT_NAME": "infra",
+        "COURTYARD_TOKEN": _token(client, "infra"),
+    }
+    assert (infra_dir / ".mcp.json").stat().st_mode & 0o777 == 0o600
+    settings = json.loads((infra_dir / ".claude" / "settings.local.json").read_text())
+    assert settings["model"] == "sonnet" and "SessionStart" in settings["hooks"]
+    assert "--model sonnet" in (infra_dir / "start-with-courtyard.sh").read_text()
+    # pi gets its own set, with its own token
+    extension = (scribe_dir / ".pi" / "extensions" / "courtyard.ts").read_text()
+    assert _token(client, "scribe") in extension
+    assert (scribe_dir / ".pi" / "skills" / "courtyard" / "SKILL.md").is_file()
+
+    team = _current_team(client)
+    assert team["load_report"] == []
+    files = "\n".join(team["files_report"])
+    assert f"infra: courtyard files written into {infra_dir}. Written: .mcp.json" in files
+    assert f"scribe: courtyard files written into {scribe_dir}" in files
+    assert "tf-dev: no project directory on this machine yet" in files
+
+
+def test_files_left_by_an_earlier_hub_get_the_new_token(bare_client, tmp_path):
+    """The rebuilt-from-charter case: the workdir still holds a config with a dead token
+    and an old adapter path. Our entry is replaced, other servers stay, the old file is
+    kept as the backup."""
+    client = bare_client
+    charter_dir = fixture_copy(tmp_path)
+    infra_dir = _project_dir(tmp_path, "infra")
+    stale = {
+        "mcpServers": {
+            "courtyard": {"command": "/gone/.venv/bin/courtyard-claude-mcp", "env": {}},
+            "other": {"command": "other-server"},
+        }
+    }
+    (infra_dir / ".mcp.json").write_text(json.dumps(stale))
+    _with_workdirs(charter_dir, {"infra": infra_dir})
+    _make_current(client, charter_dir)
+    servers = json.loads((infra_dir / ".mcp.json").read_text())["mcpServers"]
+    assert servers["other"] == {"command": "other-server"}
+    assert servers["courtyard"]["env"]["COURTYARD_TOKEN"] == _token(client, "infra")
+    assert servers["courtyard"]["command"] != "/gone/.venv/bin/courtyard-claude-mcp"
+    assert "/gone/.venv" in (infra_dir / ".mcp.json.courtyard-bak").read_text()
+
+
+def test_reload_does_not_rewrite_registered_agents(bare_client, tmp_path):
+    """Their token did not change, so a reload leaves their directories alone."""
+    client = bare_client
+    charter_dir = fixture_copy(tmp_path)
+    infra_dir = _project_dir(tmp_path, "infra")
+    _with_workdirs(charter_dir, {"infra": infra_dir})
+    team_id = _make_current(client, charter_dir)
+    (infra_dir / ".mcp.json").unlink()  # the operator took it out by hand
+    reloaded = client.post(f"/api/teams/{team_id}/reload").json()
+    assert not (infra_dir / ".mcp.json").exists()
+    assert reloaded["files_report"] == [] and reloaded["load_report"] == []
+
+
+def test_choosing_a_workdir_writes_that_agents_files(client, tmp_path):
+    """The cloned-charter case: no overlay, so the load registers without files; the
+    directory chosen in the Teams view gets the agent's files, exactly once."""
+    charter_dir = fixture_copy(tmp_path)
+    card = charter_dir / "tf-dev" / "card.yml"
+    card.write_text("color: green\n")  # typeless: not registered by the first load
+    team_id = _make_current(client, charter_dir)
+    notes = "\n".join(_current_team(client)["files_report"])
+    assert "infra: no project directory on this machine yet" in notes
+    assert "tf-dev" not in _agents_by_name(client)
+
+    # registered at the earlier load: its stored token goes into the chosen directory
+    infra_dir = _project_dir(tmp_path, "infra")
+    answered = client.post(
+        f"/api/teams/{team_id}/workdirs", json={"agent": "infra", "workdir": str(infra_dir)}
+    ).json()
+    assert _courtyard_server(infra_dir)["env"]["COURTYARD_TOKEN"] == _token(client, "infra")
+    assert len(answered["files_report"]) == 1
+    assert answered["files_report"][0].startswith(
+        f"infra: courtyard files written into {infra_dir}"
+    )
+
+    # registered by the answer's own reload (the card got its type back): written once
+    card.write_text("type: claude-code\ncolor: green\n")
+    tf_dir = _project_dir(tmp_path, "tf-dev")
+    client.post(f"/api/teams/{team_id}/workdirs", json={"agent": "tf-dev", "workdir": str(tf_dir)})
+    assert _courtyard_server(tf_dir)["env"]["COURTYARD_TOKEN"] == _token(client, "tf-dev")
+    assert not (tf_dir / ".mcp.json.courtyard-bak").exists()
+
+
+def test_file_problems_are_reported_per_agent_and_the_load_goes_on(bare_client, tmp_path):
+    client = bare_client
+    charter_dir = fixture_copy(tmp_path)
+    infra_dir, scribe_dir = _project_dir(tmp_path, "infra"), _project_dir(tmp_path, "scribe")
+    (infra_dir / ".mcp.json").write_text("{ not json")
+    moved = tmp_path / "moved-away"
+    _with_workdirs(charter_dir, {"infra": infra_dir, "tf-dev": moved, "scribe": scribe_dir})
+    _make_current(client, charter_dir)
+    report = "\n".join(_current_team(client)["load_report"])
+    assert f"agent infra: its courtyard files were not written into {infra_dir}" in report
+    assert "not valid JSON" in report
+    assert f"agent tf-dev: its courtyard files were not written into {moved}" in report
+    assert (infra_dir / ".mcp.json").read_text() == "{ not json"  # never overwritten blindly
+    assert (scribe_dir / ".pi" / "extensions" / "courtyard.ts").is_file()  # the rest went on
+    assert {"infra", "tf-dev", "scribe"} <= set(_agents_by_name(client))
+
+
+def test_a_team_that_is_not_current_writes_no_files(client, tmp_path):
+    charter_dir = fixture_copy(tmp_path)
+    infra_dir, scribe_dir = _project_dir(tmp_path, "infra"), _project_dir(tmp_path, "scribe")
+    _with_workdirs(charter_dir, {"infra": infra_dir})
+    team_id = client.post("/api/teams", json={"charter_dir": str(charter_dir)}).json()["id"]
+    assert client.post(f"/api/teams/{team_id}/reload").json()["files_report"] == []
+    client.post(
+        f"/api/teams/{team_id}/workdirs", json={"agent": "scribe", "workdir": str(scribe_dir)}
+    )
+    assert list(infra_dir.iterdir()) == [] and list(scribe_dir.iterdir()) == []
+    assert "infra" not in _agents_by_name(client)
+
+
+def test_a_revived_name_gets_files_with_its_new_token(client, make_agent, tmp_path):
+    _, old_token = make_agent("infra")
+    client.delete("/api/agents/infra")
+    charter_dir = fixture_copy(tmp_path)
+    infra_dir = _project_dir(tmp_path, "infra")
+    _with_workdirs(charter_dir, {"infra": infra_dir})
+    _make_current(client, charter_dir)
+    written = _courtyard_server(infra_dir)["env"]["COURTYARD_TOKEN"]
+    assert written == _token(client, "infra") and written != old_token

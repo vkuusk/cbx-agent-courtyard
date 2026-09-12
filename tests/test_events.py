@@ -11,6 +11,26 @@ import httpx
 from courtyard.common.client import HubClient
 
 
+def test_closing_the_bus_ends_every_stream():
+    """A stop signal closes the bus (HubServer): every open subscriber is woken with
+    CLOSED, and the bus reads closed, so a stream that subscribes afterwards ends at once."""
+    import asyncio
+
+    from courtyard.hub.core.events import CLOSED, EventBus
+
+    async def run():
+        bus = EventBus()
+        bus.bind(asyncio.get_running_loop())
+        queue = bus.subscribe()
+        assert not bus.closed
+        bus.close()
+        assert bus.closed
+        assert await asyncio.wait_for(queue.get(), timeout=1) is CLOSED
+        bus.close()  # idempotent
+
+    asyncio.run(run())
+
+
 class EventTap:
     """Collects (type, data) pairs from /api/events on a background thread."""
 

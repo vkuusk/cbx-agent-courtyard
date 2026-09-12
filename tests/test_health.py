@@ -97,11 +97,21 @@ def test_hub_restart_needs_a_supervisor(client, monkeypatch):
     assert exits == []
 
 
-def test_a_stopping_hub_does_not_wait_for_the_event_stream(config):
+def test_a_stopping_hub_ends_the_event_stream_and_exits_at_once(config, tmp_path):
     """The Admin page holds /api/events open for as long as it lives, and a stop (the
-    restart button's SIGTERM, launchd's kickstart -k) must not wait for it: found live,
-    a hub with one stream open never exited, so launchd never restarted it. The real
-    CLI, a real signal: the in-process server does not reproduce the wait."""
+    restart button's SIGTERM, launchd's kickstart -k, Ctrl+C on `make run`) must not wait
+    for it: found live, a hub with one stream open never exited, so launchd never
+    restarted it. The graceful-shutdown bound that fixed it cancelled the stream with a
+    logged traceback, and Ctrl+C ended in a KeyboardInterrupt traceback; the stream now
+    ends at the signal. The real CLI, a real signal: the in-process server does not
+    reproduce the wait."""
+    import signal
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        _stop_a_hub_with_an_open_stream(config, tmp_path / f"hub-{sig.name}.log", sig)
+
+
+def _stop_a_hub_with_an_open_stream(config, log_path, sig) -> None:
     import os
     import signal
     import socket
@@ -112,17 +122,20 @@ def test_a_stopping_hub_does_not_wait_for_the_event_stream(config):
 
     import httpx
 
+    from courtyard.hub.main import GRACEFUL_SHUTDOWN_SECONDS
+
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
     env = dict(os.environ, DATABASE_URL=config.database_url, COURTYARD_PORT=str(port))
     env["COURTYARD_LOG_LEVEL"] = "WARNING"
-    hub = subprocess.Popen(
-        [sys.executable, "-c", "from courtyard.hub.main import cli; cli()"],
-        env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    with log_path.open("w") as log:
+        hub = subprocess.Popen(
+            [sys.executable, "-c", "from courtyard.hub.main import cli; cli()"],
+            env=env,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+        )
     url = f"http://127.0.0.1:{port}"
     try:
         deadline = time.monotonic() + 30
@@ -148,11 +161,22 @@ def test_a_stopping_hub_does_not_wait_for_the_event_stream(config):
         listener = threading.Thread(target=hold_the_stream, daemon=True)
         listener.start()
         assert connected.wait(10), "no event stream"
-        hub.send_signal(signal.SIGTERM)
+        hub.send_signal(sig)
+        signalled = time.monotonic()
         try:
             hub.wait(timeout=15)  # well past GRACEFUL_SHUTDOWN_SECONDS, far short of forever
         except subprocess.TimeoutExpired:
-            raise AssertionError("the hub kept running for the open event stream") from None
+            raise AssertionError(
+                f"{sig.name}: the hub kept running for the open event stream"
+            ) from None
+        elapsed = time.monotonic() - signalled
+        output = log_path.read_text()
+        # the stream ended at the signal: nothing was left to cancel at the bound
+        assert elapsed < GRACEFUL_SHUTDOWN_SECONDS, f"{sig.name} took {elapsed:.1f} s:\n{output}"
+        assert "timeout graceful shutdown exceeded" not in output, output
+        assert "Traceback" not in output, output
+        if sig == signal.SIGINT:
+            assert hub.returncode == 0, output  # Ctrl+C on `make run`: no "Error 130"
     finally:
         if hub.poll() is None:
             hub.kill()

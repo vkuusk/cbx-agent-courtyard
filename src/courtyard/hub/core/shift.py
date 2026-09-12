@@ -42,19 +42,31 @@ SHIFT_KEY = "shift"  # the shift state document (survives hub restarts)
 # The launch command for a claude-code agent. Channels are a research preview and the
 # flag contract has drifted before (feedback item 11) — this is the 2.1.245-verified
 # form; `make test-comms` proves it after any Claude Code auto-update.
-CLAUDE_LAUNCH = "claude --dangerously-load-development-channels server:courtyard"
+# `--settings` approves the project's courtyard MCP server for the launch: Claude Code
+# (2.1.269) ignores the approval it stores in `.claude/settings.local.json` unless git proves
+# that file uncommitted, so a workdir that is not a git checkout asked again at every
+# launch. It approves only the server named courtyard, only for sessions this command starts.
+CLAUDE_APPROVAL = '{"enabledMcpjsonServers":["courtyard"]}'
+CLAUDE_LAUNCH = (
+    "claude --dangerously-load-development-channels server:courtyard"
+    f" --settings '{CLAUDE_APPROVAL}'"
+)
+# pi needs no flag: the courtyard extension is auto-discovered from `.pi/extensions/`
+# (item 36, D32).
+PI_LAUNCH = "pi"
 
 
-def launch_command_text(model: str | None) -> str:
-    return CLAUDE_LAUNCH + (f" --model {model}" if model else "")
+def launch_command_text(model: str | None, agent_type: str = "claude-code") -> str:
+    """The launch command for the agent's type, with its declared model when it has one:
+    both take `--model` (an alias such as `sonnet` for Claude Code, a pattern such as
+    `openai/gpt-5.6-luna` for pi)."""
+    base = PI_LAUNCH if agent_type == "pi" else CLAUDE_LAUNCH
+    return base + (f" --model {model}" if model else "")
 
 
 def launch_command(agent: Agent) -> str:
-    """Per-type launch recipe (§8.1's seam). pi needs no flag: the courtyard
-    extension is auto-discovered from `.pi/extensions/` (item 36, D32)."""
-    if agent.type == "pi":
-        return "pi"
-    return launch_command_text(agent.model)
+    """Per-type launch recipe (§8.1's seam)."""
+    return launch_command_text(agent.model, agent.type)
 
 
 def _now() -> datetime:

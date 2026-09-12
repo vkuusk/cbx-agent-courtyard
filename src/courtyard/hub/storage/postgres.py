@@ -35,6 +35,7 @@ _MESSAGE_SELECT = """
 SELECT m.*, sa.name AS sender_name, ra.name AS recipient_name,
        sa.type AS sender_type,
        sa.sme_domain AS sender_sme_domain, ra.sme_domain AS recipient_sme_domain,
+       ra.type AS recipient_type,
        t.opened_by AS thread_opened_by
 FROM messages m
 LEFT JOIN agents sa ON sa.id = m.sender
@@ -332,6 +333,7 @@ class PgMessageRepo:
             " SELECT t.*, sa.name AS sender_name, ra.name AS recipient_name,"
             "        sa.type AS sender_type,"
             "        sa.sme_domain AS sender_sme_domain, ra.sme_domain AS recipient_sme_domain,"
+            "        ra.type AS recipient_type,"
             "        th.opened_by AS thread_opened_by"
             " FROM taken t"
             " LEFT JOIN agents sa ON sa.id = t.sender"
@@ -950,7 +952,7 @@ class PgChannelRepo:
 # The `loaded` column carries the cached charter document; the model calls it `charter`.
 _TEAM_SELECT = (
     "SELECT id, charter_dir, name, is_current, loaded AS charter, load_report,"
-    " loaded_at, created_at FROM teams"
+    " files_report, loaded_at, created_at FROM teams"
 )
 
 
@@ -980,11 +982,18 @@ class PgTeamRepo:
         rows = self._conn.execute(_TEAM_SELECT + " ORDER BY created_at").fetchall()
         return [Team.model_validate(r) for r in rows]
 
-    def set_loaded(self, team_id, name, loaded, load_report) -> Team | None:
+    def set_loaded(self, team_id, name, loaded, load_report, files_report=None) -> Team | None:
         row = self._conn.execute(
-            "UPDATE teams SET name = %s, loaded = %s, load_report = %s, loaded_at = now()"
+            "UPDATE teams SET name = %s, loaded = %s, load_report = %s,"
+            " files_report = COALESCE(%s::jsonb, files_report), loaded_at = now()"
             " WHERE id = %s RETURNING id",
-            (name, Json(loaded) if loaded else None, Json(load_report), team_id),
+            (
+                name,
+                Json(loaded) if loaded else None,
+                Json(load_report),
+                Json(files_report) if files_report is not None else None,
+                team_id,
+            ),
         ).fetchone()
         return self.get(team_id) if row else None
 

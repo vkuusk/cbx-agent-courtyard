@@ -285,7 +285,8 @@ class TestShiftMachine:
         clock.tick(21)
         service.tick()
         assert spawner.spawned[0][1] == (
-            "claude --dangerously-load-development-channels server:courtyard --model haiku"
+            "claude --dangerously-load-development-channels server:courtyard"
+            ' --settings \'{"enabledMcpjsonServers":["courtyard"]}\' --model haiku'
         )
 
     def test_settings_reject_always_on(self, storage):
@@ -759,6 +760,7 @@ def test_launch_command_without_model():
     agent = Agent.model_construct(type="claude-code", model=None)
     assert launch_command(agent) == (
         "claude --dangerously-load-development-channels server:courtyard"
+        ' --settings \'{"enabledMcpjsonServers":["courtyard"]}\''
     )
 
 
@@ -817,6 +819,11 @@ def test_launch_command_per_type():
     from courtyard.common.models import Agent
 
     assert launch_command(Agent.model_construct(type="pi", model=None)) == "pi"
+    # the declared model reaches pi the way it reaches Claude Code
+    assert (
+        launch_command(Agent.model_construct(type="pi", model="openai/gpt-5.6-luna"))
+        == "pi --model openai/gpt-5.6-luna"
+    )
     assert "claude --dangerously" in launch_command(
         Agent.model_construct(type="claude-code", model=None)
     )
